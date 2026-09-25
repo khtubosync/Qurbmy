@@ -194,8 +194,6 @@ requests by itself:
 
 ### 2.8 Needs engine or protocol work first
 
-- Cancel and retry for a transfer. Progress, in both directions, is published
-  since 2026-09-25.
 - Direct or relay, per device, in the daemon's status.
 - ~~A file sent to the desktop landing outside the store~~ — built,
   [0037](decisions/0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md).
@@ -393,9 +391,11 @@ anywhere on the disk, and a deleted delivery could arrive again once its
 tombstone expired. See [phase 4](phases/phase-4-product.md), "Files sent to a
 desktop go to Downloads". **Progress** is built in both directions — a
 Transfers screen with a rate and time left, seen working in a real window.
-**Several files or a folder** in one send is built. Still owed: **cancel and
-retry**; **"Open folder"** for a received file; and which path a transfer took,
-**direct or relay**.
+**Several files or a folder** in one send is built, and so is **cancelling a
+send** not yet collected. Still owed: **"Open folder"** for a received file;
+and which path a transfer took, **direct or relay**. Stopping a transfer
+already moving, and pause, are not planned: a failed file is retried by the
+next sync, and a send can be cancelled until it is collected.
 
 **6. Android product UI.** Built on
 [0036](decisions/0036-a-phone-keeps-its-own-files.md), whose engine changes

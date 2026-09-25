@@ -124,7 +124,9 @@ older APK will not connect until it is updated.
   one" step.
 - **The sender cannot withdraw a send** once the recipient has it. Deleting the
   sender's row stops future deliveries; it does not reach into the recipient's
-  folder.
+  folder. *(2026-09-25: a send not yet collected can now be cancelled —
+  `Store::cancel_send`, `qurb cancel`, and a button in the window — which does
+  exactly that and refuses once the recipient has reported holding it.)*
 - **Replicas still cannot hold vault content usefully.** A replica has no
   folder, so a delivery routed through one would be held as chunks and never
   released, because no replica is anybody's vault owner. Sending to a device

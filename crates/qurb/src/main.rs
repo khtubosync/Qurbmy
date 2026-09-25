@@ -29,6 +29,8 @@ qurb — private cloud storage
   qurb fetch [dir] <path>             ask for a dropped file's contents back
   qurb send [dir] <file or folder>... to <device>
                                       send files to one device, privately
+  qurb cancel [dir] <name> to <device>
+                                      take back a send not yet collected
   qurb activity [dir] [path]          what happened, newest first
   qurb ls [dir] [path]                what this folder holds, and where
   qurb find [dir] <text>              files whose name contains something
@@ -151,6 +153,24 @@ fn run() -> Result<()> {
             }
             let picked: Vec<PathBuf> = picked.iter().map(PathBuf::from).collect();
             send(&root, &picked, recipient)
+        }
+        "cancel" => {
+            // `qurb cancel report.pdf to laptop`: the name as `qurb send`
+            // printed it, which is the name the other device would have seen.
+            let rest = &args[1..];
+            let at = rest
+                .iter()
+                .position(|a| a == "to")
+                .context("say which device: qurb cancel <name> to <device>")?;
+            let (before, after) = rest.split_at(at);
+            let recipient =
+                after.get(1).context("say which device: qurb cancel <name> to <device>")?;
+            let (root, name) = match before {
+                [dir, name] => (PathBuf::from(dir), name),
+                [name] => (qurb_cli::profiles::current().context("no folder is set up yet")?, name),
+                _ => bail!("give the name of one send: qurb cancel <name> to <device>"),
+            };
+            cancel(&root, name, recipient)
         }
         "activity" => {
             let (root, about) = split_path(&args)?;
@@ -648,6 +668,22 @@ fn send(root: &Path, picked: &[PathBuf], recipient: &str) -> Result<()> {
         human(stored)
     );
     println!("they stay here until then, even if this device restarts");
+    Ok(())
+}
+
+fn cancel(root: &Path, name: &str, recipient: &str) -> Result<()> {
+    let (_, _, mut store, _) = open(root)?;
+    let peer = match qurb_cli::View::new(&store, 0).device_named(recipient)? {
+        qurb_cli::Recipient::One(device) => device,
+        _ => bail!("no single paired device called {recipient} — see `qurb status`"),
+    };
+    store.cancel_send(name, &peer.id).map_err(|e| match e {
+        qurb_storage::Error::NotFound { .. } => {
+            anyhow::anyhow!("nothing called {name} is waiting for {}", peer.name)
+        }
+        other => other.into(),
+    })?;
+    println!("{name} will not be sent to {}", peer.name);
     Ok(())
 }
 

@@ -133,10 +133,11 @@ useful exactly when nobody is looking at the window.
 
 ## What it does not do yet
 
-- **No cancel, pause or retry.** A transfer can be watched in both directions
-  but not stopped. A send's progress is what this device has served, traced
-  back from the chunks the other device asked for; the other device's `Got` is
-  what says it arrived.
+- **No pause, and no stopping a transfer already moving.** A send nobody has
+  collected yet can be cancelled — pressed twice, since it cannot be undone.
+  One the other device is collecting may still finish, and a file arriving
+  cannot be stopped from this end. A failed file is retried at the next sync
+  on its own; there is no button for it.
 - **No passphrase prompt.** A passphrase-protected key is asked for on the
   terminal the application was launched from. The window cannot ask, because
   opening the key is what decides whether there is anything to show; launched

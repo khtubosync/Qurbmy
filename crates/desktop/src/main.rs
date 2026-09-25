@@ -68,6 +68,7 @@ fn run() -> Result<()> {
         .invoke_handler(tauri::generate_handler![
             commands::situation,
             commands::send_files,
+            commands::cancel_send,
             commands::start_pairing,
             commands::pairing_state,
             commands::stop_pairing,

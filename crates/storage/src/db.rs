@@ -1201,6 +1201,21 @@ impl Db {
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?.into_iter().flatten().collect())
     }
 
+    /// Whether `device` has told this one it holds this content, in any way.
+    ///
+    /// The same test [`pending_deliveries`](Self::pending_deliveries) uses to
+    /// decide a send is no longer waiting: any record of the device holding
+    /// the bytes, private or not.
+    pub fn device_holds(&self, content: &blake3::Hash, device: &DeviceId) -> Result<bool> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS (
+                 SELECT 1 FROM replicas WHERE content_hash = ?1 AND device_id = ?2
+             )",
+            params![content.as_bytes().as_slice(), device.as_bytes().as_slice()],
+            |r| r.get(0),
+        )?)
+    }
+
     /// The path a given device's vault holds this content under, here.
     ///
     /// For describing a delivery after the fact: the sender knows the name it
@@ -2009,6 +2024,8 @@ pub enum Event {
     Paired,
     /// Something went wrong that a person may need to know about.
     Failed,
+    /// A send was taken back before the other device collected it.
+    Cancelled,
     /// Written by a build that knew a kind this one does not.
     Other(String),
 }
@@ -2026,6 +2043,7 @@ impl Event {
             Event::Conflicted => "conflicted",
             Event::Paired => "paired",
             Event::Failed => "failed",
+            Event::Cancelled => "cancelled",
             Event::Other(word) => word,
         }
     }
@@ -2042,6 +2060,7 @@ impl Event {
             "conflicted" => Event::Conflicted,
             "paired" => Event::Paired,
             "failed" => Event::Failed,
+            "cancelled" => Event::Cancelled,
             other => Event::Other(other.to_string()),
         }
     }

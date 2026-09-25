@@ -270,6 +270,8 @@ mod tests {
             Event::Restored,
             Event::Conflicted,
             Event::Paired,
+            // The person's own act, done in front of them.
+            Event::Cancelled,
             Event::Other("teleported".into()),
         ] {
             assert!(

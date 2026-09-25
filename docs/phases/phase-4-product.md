@@ -25,7 +25,8 @@ warns is not the fun part and is a full quarter.
 | pairing | ✅ scan a QR code, once, and it stays paired |
 | a folder that needs no path | ✅ `~/qurb`, with a registry (it was `~/Downloads/qurb` until [0037](../decisions/0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md)) |
 | files sent to this desktop | ✅ saved to `Downloads/qurb` as ordinary files |
-| transfer progress | ✅ both directions, live, with rate and time left; ⬜ cancel and retry |
+| transfer progress | ✅ both directions, live, with rate and time left |
+| cancelling a send | ✅ before it is collected; ⬜ stopping one mid-transfer |
 | storing each file once | ✅ the folder *is* the payload store |
 | a storage cap | ✅ limit, eviction, fetch-back — and a slider |
 | a replica anybody can run | ✅ `qurb replica` |
@@ -34,7 +35,7 @@ warns is not the fun part and is a full quarter.
 | the services deployable | ✅ systemd units, TLS, ports written down |
 | garbage collection running | ✅ every 5 minutes, 7-day retention |
 
-641 tests pass in 75 test binaries on Linux (2026-09-25, debug build, the
+642 tests pass in 75 test binaries on Linux (2026-09-25, debug build, the
 development laptop); clippy is clean.
 
 ## The interface
@@ -571,6 +572,28 @@ with a nested subfolder, an empty file and a link, plus two files both called
 folder chosen through the real GTK folder chooser arrived as `Trip/b.txt` and
 `Trip/day1/a.txt`. Dragging onto the window was not exercised: nothing here
 can synthesise a drag from another application.
+
+## Taking a send back
+
+**2026-09-25.** A send nobody has collected can be cancelled, from the window's
+Transfers and Send screens or with `qurb cancel`. It becomes a tombstone in the
+recipient's vault, which a recipient never takes as a delivery, so it does not
+arrive however long the device was away. Once the device has reported holding
+it, cancelling is refused: the file is theirs, as decision 0030 already said.
+
+The window's button is pressed twice — the first press asks, in place, and the
+second within five seconds cancels. In the page rather than a dialog, because
+the list redraws every second and a half and would otherwise redraw under the
+question.
+
+Verified in the window with two devices on the laptop: two files queued, one
+cancelled with the two presses, the other device started an hour later — only
+the other file arrived, and *Finished* read "taken back before desk collected
+it".
+
+Not built: stopping a transfer already moving, in either direction, and pause.
+A failed file needs no retry button — the next sync retries it — which the
+Transfers screen does not yet say.
 
 ## Still to do
 

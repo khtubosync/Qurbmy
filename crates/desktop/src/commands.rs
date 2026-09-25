@@ -144,6 +144,9 @@ pub struct Outgoing {
     path: String,
     size: String,
     to: String,
+    /// The device's short id, for naming it back in `cancel_send`: two devices
+    /// may share a name.
+    to_id: String,
 }
 
 #[derive(Serialize)]
@@ -741,8 +744,27 @@ pub fn outgoing(hosted: Host<'_>) -> Answer<Vec<Outgoing>> {
                 .find(|d| d.id == o.to)
                 .map(|d| d.name.clone())
                 .unwrap_or_else(|| o.to.short()),
+            to_id: o.to.short(),
         })
         .collect())
+}
+
+/// Take back a send the other device has not collected yet.
+///
+/// Refused once it has been: the file is theirs by then. See
+/// [`qurb_storage::Store::cancel_send`].
+#[tauri::command]
+pub fn cancel_send(hosted: Host<'_>, path: String, to: String) -> Answer<()> {
+    let device = match hosted
+        .with_store(|store| Ok(View::new(store, 0).device_named(&to)?))
+        .map_err(failed)?
+    {
+        qurb_cli::Recipient::One(device) => device,
+        _ => return Err(format!("no paired device {to}")),
+    };
+    hosted
+        .with_store_mut(|store| Ok(store.cancel_send(&path, &device.id)?))
+        .map_err(failed)
 }
 
 /// Ask for a file whose local copy was dropped.

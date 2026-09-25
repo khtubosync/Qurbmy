@@ -40,6 +40,11 @@ pub enum Error {
     /// risked: a storage cap is a promise about disk, not about data.
     #[error("cannot drop {path}: {why}")]
     CannotEvict { path: String, why: &'static str },
+
+    /// A send that has already arrived cannot be taken back. The file is the
+    /// other device's now, and nothing this device does reaches into it.
+    #[error("{path} has already been collected, and cannot be taken back")]
+    AlreadyCollected { path: String },
 }
 
 impl Error {

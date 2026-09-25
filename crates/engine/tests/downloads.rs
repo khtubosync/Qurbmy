@@ -213,3 +213,36 @@ fn a_folder_arrives_as_a_folder() {
     assert_eq!(fs::read(base.join("Photos/2026/summer/beach.jpg")).unwrap(), b"beach");
     assert_eq!(fs::read(phone.root.join("Photos/2026/summer/beach.jpg")).unwrap(), b"beach");
 }
+
+/// A send taken back before it is collected never arrives, however long the
+/// other device was away. One already collected cannot be taken back.
+#[test]
+fn a_cancelled_send_never_arrives() {
+    let mut sender = Device::new();
+    let mut desktop = Device::desktop();
+    sender.send("wrong-file.pdf", b"not meant for them", &desktop);
+    sender.send("right-file.pdf", b"meant for them", &desktop);
+
+    sender.engine.store_mut().cancel_send("wrong-file.pdf", &desktop.id()).unwrap();
+    let waiting: Vec<String> =
+        sender.engine.store().pending_deliveries().unwrap().into_iter().map(|(p, _, _)| p).collect();
+    assert_eq!(waiting, vec!["right-file.pdf".to_string()]);
+
+    let stats = desktop.sync_from(&sender);
+    assert!(stats.failures.is_empty(), "{:?}", stats.failures);
+    assert!(!desktop.downloads.join("wrong-file.pdf").exists(), "a cancelled send arrived");
+    assert_eq!(fs::read(desktop.downloads.join("right-file.pdf")).unwrap(), b"meant for them");
+
+    // Collected is final. The receiver says so the way it does over the
+    // network, and the sender records it.
+    sender
+        .engine
+        .store()
+        .note_replica_in_vault(&blake3::hash(b"meant for them"), &desktop.id())
+        .unwrap();
+    let refused = sender.engine.store_mut().cancel_send("right-file.pdf", &desktop.id());
+    assert!(
+        matches!(refused, Err(qurb_storage::Error::AlreadyCollected { .. })),
+        "{refused:?}"
+    );
+}

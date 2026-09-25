@@ -196,6 +196,8 @@ button.act:hover, #more:hover, #older:hover, #apply:hover {
 
 #more, #older { margin-top: 16px; }
 
+button.act.small { padding: 2px 10px; font-size: 12px; }
+
 input[type="search"] {
   width: 100%;
   font: inherit;

@@ -1032,6 +1032,35 @@ impl Store {
         Ok(stats)
     }
 
+    /// Take back a send the other device has not collected yet.
+    ///
+    /// The entry becomes a tombstone in that device's vault. A recipient never
+    /// takes a tombstone as a delivery, so nothing arrives however long it has
+    /// been switched off. The bytes held for it are released like any other
+    /// deleted file's, after the retention window rather than at once.
+    ///
+    /// Refused once collected: the file is the other device's by then, and
+    /// [decision 0030](../../docs/decisions/0030-sending-a-file-to-one-device.md)
+    /// is that a send cannot be withdrawn from somebody who has it. A device in
+    /// the middle of collecting when this runs may still finish.
+    pub fn cancel_send(&mut self, logical_path: &str, recipient: &DeviceId) -> Result<()> {
+        let Some(row) = self.db.live_row_in(logical_path, Some(recipient))? else {
+            return Err(Error::NotFound { path: logical_path.to_string() });
+        };
+        if self.db.device_holds(&row.content_hash, recipient)? {
+            return Err(Error::AlreadyCollected { path: logical_path.to_string() });
+        }
+        self.tombstone(logical_path, Stamp::Local, Some(*recipient))?;
+        let _ = self.db.record(
+            db::Event::Cancelled,
+            Some(logical_path),
+            Some(row.size),
+            Some(recipient),
+            None,
+        );
+        Ok(())
+    }
+
     /// Drop payloads this device is holding only on somebody else's behalf.
     ///
     /// Vault content is kept after the recipient has taken it, so a send is

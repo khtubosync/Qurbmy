@@ -161,8 +161,9 @@ const ANSWERS = {
   },
 
   outgoing: () => [
-    { path: "tickets.pdf", size: "700416", to: "phone" },
+    { path: "tickets.pdf", size: "700416", to: "phone", to_id: "a1b2c3d4" },
   ],
+  cancel_send: () => null,
 
   fetch: () => true,
   set_limit: () => null,

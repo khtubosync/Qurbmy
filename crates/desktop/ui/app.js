@@ -581,6 +581,7 @@ async function drawOutgoing() {
         row.append(el("span", "name", o.path));
         row.append(el("span", "size", size(o.size)));
         row.append(el("span", "when", `waiting for ${o.to}`));
+        row.append(cancelButton(o, drawOutgoing));
         $(list).append(row);
       }
     }
@@ -680,6 +681,8 @@ function finishedLine(r) {
     // under "Waiting to be collected" until it is finished.
     case "collected":
       return `delivered to ${who}`;
+    case "cancelled":
+      return `taken back before ${who} collected it`;
     case "failed":
       return "did not finish";
     default:
@@ -691,6 +694,50 @@ async function drawTransfers() {
   await drawArriving();
   await drawWaiting();
   await drawFinished();
+}
+
+/** The send a Cancel button is waiting to be pressed a second time for. */
+let cancelling = null;
+/** Why the last cancel failed, kept across redraws for a few seconds. */
+let cancelFailed = null;
+
+/**
+ * A button that takes back a send nobody has collected yet.
+ *
+ * Pressed twice: taking something back cannot be undone, so the first press
+ * asks and the second, within a few seconds, does it. In the page rather than
+ * a dialog, because a list that is redrawn every second and a half would
+ * otherwise redraw underneath the question. The rows are redrawn often, so
+ * which send is waiting for its second press is remembered here, not on the
+ * button.
+ */
+function cancelButton(o, afterwards) {
+  const key = `${o.to_id}\u0000${o.path}`;
+  if (cancelFailed?.key === key && Date.now() < cancelFailed.until) {
+    return el("span", "detail", cancelFailed.why);
+  }
+  const asking = cancelling?.key === key && Date.now() < cancelling.until;
+  const button = el("button", "act small", asking ? "Stop sending?" : "Cancel");
+  button.setAttribute("aria-label",
+    asking ? `Press again to stop sending ${o.path} to ${o.to}` : `Cancel sending ${o.path} to ${o.to}`);
+  button.addEventListener("click", async () => {
+    if (!(cancelling?.key === key && Date.now() < cancelling.until)) {
+      cancelling = { key, until: Date.now() + 5000 };
+      button.textContent = "Stop sending?";
+      button.setAttribute("aria-label", `Press again to stop sending ${o.path} to ${o.to}`);
+      return;
+    }
+    cancelling = null;
+    button.disabled = true;
+    try {
+      await invoke("cancel_send", { path: o.path, to: o.to_id });
+    } catch (e) {
+      // Collected in the meantime, most likely. Said where it happened.
+      cancelFailed = { key, why: String(e), until: Date.now() + 10000 };
+    }
+    afterwards();
+  });
+  return button;
 }
 
 /** Which sends were waiting last time, to notice one being collected. */
@@ -726,6 +773,7 @@ async function drawWaiting() {
         row.append(el("span", "size", size(o.size)));
         row.append(el("span", "when", `waiting for ${o.to}`));
       }
+      row.append(cancelButton(o, () => { drawWaiting(); drawFinished(); }));
       waiting.append(row);
     }
   } catch (e) {
@@ -744,7 +792,10 @@ async function drawFinished() {
       const line = finishedLine(r);
       if (!line) continue;
       const row = el("li");
-      row.append(el("span", "tag", r.kind === "failed" ? "!" : "✓"));
+      // A tick only for what arrived. A send taken back did not fail, but it
+      // did not happen either.
+      const mark = { failed: "!", cancelled: "–" }[r.kind] ?? "✓";
+      row.append(el("span", "tag", mark));
       row.append(el("span", "name", r.path ?? ""));
       row.append(el("span", "when", line));
       if (r.size) row.append(el("span", "size", size(r.size)));

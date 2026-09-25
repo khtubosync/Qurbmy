@@ -518,8 +518,8 @@ qurb/
 │   │   ├── src/lib.rs       the daemon, as a library, so an interface can
 │   │   │                    run the same one the terminal does
 │   │   ├── src/main.rs      init, enrol, pair, join, run, replica, status,
-│   │   │                    verify, reclaim, fetch, send, activity, ls, find,
-│   │   │                    config, protect
+│   │   │                    verify, reclaim, fetch, send, cancel, activity, ls,
+│   │   │                    find, config, protect
 │   │   ├── src/daemon.rs    watch, apply, sync, collect, stay under the limit
 │   │   ├── src/lock.rs      one daemon per folder, enforced not assumed
 │   │   ├── src/profiles.rs  which folders exist, so commands need no path
@@ -694,7 +694,7 @@ for the workspace as it stands.
 | Recovery, end to end | the phrase turns back into the user's files |
 | Key hygiene | redacted in `Debug`, wiped on drop, owner-only on disk |
 
-641 tests pass in 75 test binaries on Linux (2026-09-25, debug build, the
+642 tests pass in 75 test binaries on Linux (2026-09-25, debug build, the
 development laptop); clippy is clean. The last run on
 a Galaxy S23 was 426 of them, before this week's work — see
 [phases/phase-5-mobile.md](phases/phase-5-mobile.md).
@@ -928,7 +928,8 @@ network. iOS needs Xcode, which needs a Mac. See
 | Pairing | show a code — QR, typed or spoken — or enter one, with a countdown |
 | Sending | drop files or folders on the window or choose them, then pick a device |
 | Notifications | three things only: a file sent to you, one collected, one that failed |
-| Transfer progress | both directions, live, with a rate and time left; no cancel or retry |
+| Transfer progress | both directions, live, with a rate and time left |
+| Cancelling a send | before it is collected, from the window or `qurb cancel`; never after |
 
 ### Designed but not built
 

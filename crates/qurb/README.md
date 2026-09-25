@@ -16,6 +16,8 @@ qurb reclaim <dir>               free space the folder itself already holds
 qurb fetch <dir> <path>          ask for a dropped file's contents back
 qurb send [dir] <file|folder>... to <dev>
                                  send files and folders to one device, privately
+qurb cancel [dir] <name> to <dev>
+                                 take back a send not yet collected
 qurb activity <dir> [path]       what happened, newest first
 qurb ls <dir> [path]             what this folder holds, and where
 qurb find <dir> <text>           files whose name contains something
@@ -94,6 +96,16 @@ with why, and the rest still goes.
 
 The folder to send from is the one given first if it has a store in it, and
 otherwise the one most recently used.
+
+```bash
+qurb cancel tickets.pdf to phone
+```
+
+Takes back a send the device has not collected yet, by the name `qurb send`
+printed. It never arrives, however long the device was switched off. Once
+collected it cannot be taken back — the file is theirs then — and a device in
+the middle of collecting when you cancel may still finish. The space it held
+comes back after the usual seven-day retention, not at once.
 
 The file goes to that device and to no other, and nothing about it is
 advertised to the rest of the fleet. Where it lands depends on what the
