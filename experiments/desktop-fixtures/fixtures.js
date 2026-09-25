@@ -60,6 +60,8 @@ const ANSWERS = {
     protection: "file",
     root: "/home/saqib/Sync",
     identity: "cfe05b03",
+    downloads: "",
+    downloads_at: { Ok: "/home/saqib/Downloads/qurb" },
   }),
 
   save_settings: () => null,
@@ -164,6 +166,8 @@ const ANSWERS = {
     { path: "tickets.pdf", size: "700416", to: "phone", to_id: "a1b2c3d4" },
   ],
   cancel_send: () => null,
+  open_downloads: () => null,
+  show_received: () => null,
 
   fetch: () => true,
   set_limit: () => null,

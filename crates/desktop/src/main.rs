@@ -69,6 +69,8 @@ fn run() -> Result<()> {
             commands::situation,
             commands::send_files,
             commands::cancel_send,
+            commands::open_downloads,
+            commands::show_received,
             commands::start_pairing,
             commands::pairing_state,
             commands::stop_pairing,

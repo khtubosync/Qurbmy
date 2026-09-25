@@ -336,6 +336,21 @@
       </label>
 
       <label class="field">
+        <span>Files sent to this device</span>
+        <input type="text" id="set-downloads" spellcheck="false" autocomplete="off"
+               placeholder="qurb, in your Downloads folder">
+        <span class="quiet" id="downloads-at"></span>
+        <span class="quiet">
+          Saved as ordinary files, outside qurb's storage allowance — yours to
+          open, move or delete. Leave empty for the usual place, or write
+          <code>off</code> to keep them inside the synced folder.
+        </span>
+      </label>
+      <div class="buttons">
+        <button class="act" id="open-downloads">Open that folder</button>
+      </div>
+
+      <label class="field">
         <span>Port</span>
         <input type="number" id="set-port" min="0" max="65535">
         <span class="quiet">Zero means any. A fixed one helps if you forward it.</span>
@@ -346,8 +361,8 @@
         <span id="settings-says" class="quiet"></span>
       </div>
       <p class="quiet note">
-        The name takes effect at once. A changed service, relay or port applies
-        when qurb next starts.
+        The name, and where files sent here go, take effect at once. A changed
+        service, relay or port applies when qurb next starts.
       </p>
 
       <h2>Recovery phrase</h2>

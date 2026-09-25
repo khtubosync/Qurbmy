@@ -35,7 +35,7 @@ warns is not the fun part and is a full quarter.
 | the services deployable | ✅ systemd units, TLS, ports written down |
 | garbage collection running | ✅ every 5 minutes, 7-day retention |
 
-642 tests pass in 75 test binaries on Linux (2026-09-25, debug build, the
+645 tests pass in 75 test binaries on Linux (2026-09-25, debug build, the
 development laptop); clippy is clean.
 
 ## The interface
@@ -594,6 +594,35 @@ it".
 Not built: stopping a transfer already moving, in either direction, and pause.
 A failed file needs no retry button — the next sync retries it — which the
 Transfers screen does not yet say.
+
+## Finding what was sent to you
+
+**2026-09-25.** A received file on the Transfers screen has *Show in folder*,
+and Settings has where files sent here go, with *Open that folder*. The folder
+opened is looked up from the history entry on the Rust side, never taken from
+the page, and only a folder inside the downloads directory is opened — checked
+after resolving links, so a link inside Downloads pointing elsewhere does not
+count. A changed location is refused in Settings if it overlaps the synced
+folder, and a running daemon picks it up on its next pass.
+
+**Verified:** the path check by three unit tests, including a `../` path and a
+link out of Downloads. The live pickup with two devices on the laptop: the
+location changed with `qurb config` on a running device, and the next file sent
+landed in the new place with no restart, the daemon logging "files sent here
+now go to". An overlapping location was refused while it ran.
+
+**Not verified:** the Settings screen itself and the two buttons were not
+pressed in the window. Screenshots of the window came back blank for this run,
+though the page was drawing — the accessibility tree read the setting off the
+screen — and filling a text field needs keystrokes sent into the desktop, which
+was stopped rather than risk them reaching another window. `xdg-open` was not
+run, since it opens a file manager on the screen.
+
+**Measured on the way:** with no rendezvous service, a receiving device already
+running took **19 seconds** to collect from a sender that started after it —
+two daemons on one laptop, loopback. The sender reached the receiver at once;
+the receiver found the sender only on its own next look. Recorded rather than
+changed here.
 
 ## Still to do
 

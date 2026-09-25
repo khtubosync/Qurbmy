@@ -803,6 +803,22 @@ async function drawFinished() {
       // Where a received file went, or why something failed. Said in full: it
       // is the answer to "where is it" and "what went wrong".
       if (r.detail) row.append(el("span", "detail", r.detail));
+
+      // And a way to it, for a file that went to Downloads. The entry is what
+      // is sent back, never a path: which folder to open is looked up and
+      // checked on the other side.
+      if (r.kind === "received" && (r.detail ?? "").includes("; saved to ")) {
+        const show = el("button", "act small", "Show in folder");
+        show.setAttribute("aria-label", `Show ${r.path} in its folder`);
+        show.addEventListener("click", async () => {
+          try {
+            await invoke("show_received", { id: r.id });
+          } catch (e) {
+            row.append(el("span", "detail", String(e)));
+          }
+        });
+        row.append(show);
+      }
       finished.append(row);
       if (++shown === 30) break;
     }
@@ -1113,7 +1129,17 @@ async function drawSettings() {
     $("set-signal").value = s.signal;
     $("set-relay").value = s.relay ?? "";
     $("set-port").value = String(s.port);
+    $("set-downloads").value = s.downloads;
   }
+
+  // Where that actually is, since the setting can be empty or "off". Serde
+  // sends a Result as {Ok} or {Err}.
+  const at = s.downloads_at;
+  $("downloads-at").textContent =
+    "Err" in at ? `Refused: ${at.Err}` :
+    at.Ok === null ? "Kept inside the synced folder." :
+    `Now: ${at.Ok}`;
+  $("open-downloads").classList.toggle("hidden", !("Ok" in at) || at.Ok === null);
 
   const facts = $("facts");
   facts.replaceChildren();
@@ -1135,11 +1161,23 @@ $("settings-save").addEventListener("click", async () => {
       signal: $("set-signal").value,
       relay: $("set-relay").value,
       port: Number($("set-port").value) || 0,
+      downloads: $("set-downloads").value,
     });
     says.textContent = "saved";
+    // So "Now: …" shows what was just saved rather than what was there.
+    document.activeElement?.blur?.();
+    drawSettings();
     setTimeout(() => { says.textContent = ""; }, 1600);
   } catch (e) {
     says.textContent = String(e);
+  }
+});
+
+$("open-downloads").addEventListener("click", async () => {
+  try {
+    await invoke("open_downloads");
+  } catch (e) {
+    $("settings-says").textContent = String(e);
   }
 });
 

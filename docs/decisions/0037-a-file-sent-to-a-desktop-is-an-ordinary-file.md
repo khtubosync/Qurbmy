@@ -127,8 +127,12 @@ restarted and reconnected, it did not come back.
 
 - **From a phone.** A phone cannot send yet — its interface has no send — so the
   pair this decision is really about, phone to desktop, is unexercised.
-- **"Open folder".** The notification now says where the file was saved; the
-  brief's button to open that folder, in the notification or the window, is
-  not built.
-- **The setting in the window.** It is a config line and a command, not yet a
-  field in Settings.
+- **"Open folder" in the notification.** The notification says where the
+  file was saved; the button is in the window instead — *Show in folder* on the
+  Transfers screen, and *Open that folder* in Settings (2026-09-25). A
+  notification action needs the notifier to wait on the notification, which the
+  desktop's notifier does not do yet.
+
+The setting is in the window's Settings since 2026-09-25, refused there if it
+overlaps the folder, and a running daemon picks up a change on its next pass
+rather than at restart.

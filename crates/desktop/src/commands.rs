@@ -184,6 +184,11 @@ pub struct Settings {
     protection: String,
     root: String,
     identity: String,
+    /// Where files sent here go, as written: empty for the default, `off`, or
+    /// a directory.
+    downloads: String,
+    /// Where that actually is, or why it is refused.
+    downloads_at: Result<Option<String>, String>,
 }
 
 /// What screen the window should be on.
@@ -319,6 +324,12 @@ pub fn settings(hosted: Host<'_>) -> Answer<Settings> {
         relay: config.relay.map(|r| r.to_string()),
         port: config.port,
         protection,
+        downloads: config.downloads.as_setting(),
+        downloads_at: config
+            .downloads
+            .resolve(&root)
+            .map(|dir| dir.map(|d| d.display().to_string()))
+            .map_err(|e| e.to_string()),
         root: root.display().to_string(),
         identity: hosted.status().map(|s| s.identity).unwrap_or_default(),
     })
@@ -337,9 +348,18 @@ pub fn save_settings(
     signal: String,
     relay: Option<String>,
     port: u16,
+    downloads: String,
 ) -> Answer<()> {
-    let dir = qurb_cli::store_dir(&hosted.root());
+    let root = hosted.root();
+    let dir = qurb_cli::store_dir(&root);
     let mut config = qurb_cli::Config::load(&dir).map_err(failed)?;
+
+    // Refused here, where it can be corrected, rather than by the daemon,
+    // which would keep the old setting and say so only in its log. A place
+    // overlapping the folder would sync every file sent here to every device.
+    let downloads = qurb_cli::config::Downloads::parse(&downloads);
+    downloads.resolve(&root).map_err(failed)?;
+    config.downloads = downloads;
 
     if name.trim().is_empty() {
         return Err("a device needs a name — it is what the others will call it".to_string());
@@ -355,6 +375,77 @@ pub fn save_settings(
         ),
     };
     config.save(&dir).map_err(failed)
+}
+
+/// Open the folder files sent here are saved to, in the file manager.
+#[tauri::command]
+pub fn open_downloads(hosted: Host<'_>) -> Answer<()> {
+    let root = hosted.root();
+    let config = qurb_cli::Config::load(&qurb_cli::store_dir(&root)).map_err(failed)?;
+    let dir = config
+        .downloads
+        .resolve(&root)
+        .map_err(failed)?
+        .ok_or("files sent here are kept in the folder")?;
+    std::fs::create_dir_all(&dir).map_err(failed)?;
+    reveal(&dir)
+}
+
+/// Open the folder a received file was saved to, from its activity entry.
+///
+/// Takes the entry, not a path. The page never names somewhere to open: the
+/// path comes from what the daemon recorded, and is opened only if it is
+/// inside the downloads directory -- so nothing the page says can make this
+/// open anywhere else on the disk.
+#[tauri::command]
+pub fn show_received(hosted: Host<'_>, id: i64) -> Answer<()> {
+    let root = hosted.root();
+    let entry = hosted
+        .with_store(|store| Ok(store.db().activity_entry(id)?))
+        .map_err(failed)?
+        .ok_or("that is no longer in the history")?;
+    let config = qurb_cli::Config::load(&qurb_cli::store_dir(&root)).map_err(failed)?;
+    let downloads = config.downloads.resolve(&root).map_err(failed)?.ok_or("no downloads folder")?;
+    reveal(&folder_to_show(entry.detail.as_deref().unwrap_or(""), &downloads)?)
+}
+
+/// The folder to open for a received file, from what its activity entry says.
+///
+/// Only a folder inside `downloads`, compared after resolving links, so that
+/// neither a changed setting, a moved file nor anything written into the
+/// history can make "Show in folder" open somewhere else.
+fn folder_to_show(detail: &str, downloads: &std::path::Path) -> Answer<std::path::PathBuf> {
+    let saved = detail
+        .split_once("; saved to ")
+        .map(|(_, path)| std::path::PathBuf::from(path))
+        .ok_or("that file was not saved to Downloads")?;
+    let folder = saved.parent().ok_or("that file has no folder")?;
+    let (Ok(folder), Ok(downloads)) = (folder.canonicalize(), downloads.canonicalize()) else {
+        return Err("that folder is not there any more".to_string());
+    };
+    if !folder.starts_with(&downloads) {
+        return Err("that file is no longer in the downloads folder".to_string());
+    }
+    Ok(folder)
+}
+
+/// Hand a folder to the desktop's file manager.
+///
+/// `xdg-open`, which every Linux desktop answers with its own file manager.
+/// Waited for on a thread of its own, so it neither blocks the window nor
+/// leaves a finished process behind.
+fn reveal(dir: &std::path::Path) -> Answer<()> {
+    let mut child = std::process::Command::new("xdg-open")
+        .arg(dir)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("could not open the file manager: {e}"))?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
 }
 
 /// Expand a leading `~`, which people type and no filesystem understands.
@@ -810,4 +901,55 @@ fn as_file(f: qurb_cli::view::File) -> File {
 /// 1970 — which is not worth propagating an error over.
 fn unix(at: std::time::SystemTime) -> Option<i64> {
     at.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs() as i64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn detail(path: &std::path::Path) -> String {
+        format!("sent to this device; saved to {}", path.display())
+    }
+
+    #[test]
+    fn a_file_in_downloads_opens_its_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let downloads = dir.path().join("Downloads/qurb");
+        fs::create_dir_all(downloads.join("Trip/day1")).unwrap();
+        let saved = downloads.join("Trip/day1/a.txt");
+
+        let shown = folder_to_show(&detail(&saved), &downloads).unwrap();
+        assert_eq!(shown, downloads.join("Trip/day1").canonicalize().unwrap());
+    }
+
+    /// Nothing in the history can make it open anywhere else.
+    #[test]
+    fn nowhere_outside_downloads_is_opened() {
+        let dir = tempfile::tempdir().unwrap();
+        let downloads = dir.path().join("Downloads/qurb");
+        fs::create_dir_all(&downloads).unwrap();
+        fs::create_dir_all(dir.path().join("private")).unwrap();
+
+        let outside: [std::path::PathBuf; 3] = [
+            dir.path().join("private/x.txt"),
+            downloads.join("../../private/x.txt"),
+            "/etc/passwd".into(),
+        ];
+        for saved in outside {
+            assert!(folder_to_show(&detail(&saved), &downloads).is_err(), "{}", saved.display());
+        }
+
+        // Nor through a link inside Downloads pointing out of it.
+        std::os::unix::fs::symlink(dir.path().join("private"), downloads.join("sneaky")).unwrap();
+        let through_link = downloads.join("sneaky/x.txt");
+        assert!(folder_to_show(&detail(&through_link), &downloads).is_err());
+    }
+
+    #[test]
+    fn an_entry_that_is_not_a_download_opens_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(folder_to_show("sent to this device", dir.path()).is_err());
+        assert!(folder_to_show("", dir.path()).is_err());
+    }
 }

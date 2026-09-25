@@ -392,8 +392,9 @@ tombstone expired. See [phase 4](phases/phase-4-product.md), "Files sent to a
 desktop go to Downloads". **Progress** is built in both directions — a
 Transfers screen with a rate and time left, seen working in a real window.
 **Several files or a folder** in one send is built, and so is **cancelling a
-send** not yet collected. Still owed: **"Open folder"** for a received file;
-and which path a transfer took, **direct or relay**. Stopping a transfer
+send** not yet collected, and **showing a received file in its folder**, with
+the Downloads location in Settings. Still owed: which path a transfer took,
+**direct or relay**. Stopping a transfer
 already moving, and pause, are not planned: a failed file is retried by the
 next sync, and a send can be cancelled until it is collected.
 

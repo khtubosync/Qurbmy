@@ -694,7 +694,7 @@ for the workspace as it stands.
 | Recovery, end to end | the phrase turns back into the user's files |
 | Key hygiene | redacted in `Debug`, wiped on drop, owner-only on disk |
 
-642 tests pass in 75 test binaries on Linux (2026-09-25, debug build, the
+645 tests pass in 75 test binaries on Linux (2026-09-25, debug build, the
 development laptop); clippy is clean. The last run on
 a Galaxy S23 was 426 of them, before this week's work — see
 [phases/phase-5-mobile.md](phases/phase-5-mobile.md).
@@ -923,7 +923,7 @@ network. iOS needs Xcode, which needs a Mac. See
 | Devices | who is paired, when each was last reached |
 | Activity | what this device did, paged, with the reason where there is one |
 | Storage | usage, the allowance, and a control that can change it |
-| Settings | name, rendezvous, relay, port, and the 24 words again |
+| Settings | name, rendezvous, relay, port, where files sent here go, and the 24 words again |
 | Setting a device up | make a new one or join an existing, with the phrase shown and confirmed |
 | Pairing | show a code — QR, typed or spoken — or enter one, with a countdown |
 | Sending | drop files or folders on the window or choose them, then pick a device |

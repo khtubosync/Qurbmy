@@ -43,3 +43,6 @@ serde_json = "1"
 # For the size of the disk the folder is on, which the allowance control needs
 # as its maximum. There is no standard-library way to ask.
 libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"

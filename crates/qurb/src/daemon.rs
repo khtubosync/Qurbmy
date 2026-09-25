@@ -646,6 +646,33 @@ impl Daemon {
         Config::load(&self.store_dir).map(|c| c.limit).unwrap_or(self.config.limit)
     }
 
+    /// Where deliveries go, read fresh, for the same reason as [`limit`].
+    ///
+    /// A setting that fails to resolve -- a hand-edited file naming somewhere
+    /// inside the folder -- leaves the engine where it was and says so, rather
+    /// than starting to write deliveries somewhere that would sync them.
+    ///
+    /// [`limit`]: Self::limit
+    fn refresh_downloads(&self, engine: &mut Engine) {
+        if self.is_replica() {
+            return;
+        }
+        let Ok(config) = Config::load(&self.store_dir) else { return };
+        match config.downloads.resolve(&self.root) {
+            Ok(dir) if dir.as_deref() != engine.downloads() => {
+                match &dir {
+                    Some(dir) => {
+                        tracing::info!(downloads = %dir.display(), "files sent here now go to")
+                    }
+                    None => tracing::info!("files sent here are now kept in the folder"),
+                }
+                engine.set_downloads(dir);
+            }
+            Ok(_) => {}
+            Err(e) => tracing::warn!(error = %e, "not changing where files sent here go"),
+        }
+    }
+
     /// Pull from every peer we can reach.
     async fn sync_all(
         &self,
@@ -654,6 +681,7 @@ impl Daemon {
         peers: &mut Peers,
         generation: &Arc<qurb_peer::Generation>,
     ) {
+        self.refresh_downloads(engine);
         let mut reached = 0usize;
         // Set by whichever peer brought something new, so the others can be
         // told once at the end rather than per peer.

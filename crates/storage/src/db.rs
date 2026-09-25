@@ -1109,6 +1109,18 @@ impl Db {
         rows.collect::<std::result::Result<_, _>>().map_err(Into::into)
     }
 
+    /// One entry, by its id.
+    pub fn activity_entry(&self, id: i64) -> Result<Option<Activity>> {
+        self.conn
+            .query_row(
+                "SELECT id, at, kind, path, size, device, detail FROM activity WHERE id = ?1",
+                params![id],
+                activity_row,
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
     /// What happened to one path, newest first.
     ///
     /// This is the answer to "why is my file not here?" — the question the

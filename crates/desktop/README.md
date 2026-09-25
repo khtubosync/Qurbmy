@@ -24,7 +24,7 @@ a device up in the first place:
 | Storage | what qurb costs on this disk, and the allowance |
 | Send | a file to one device, by dropping it on the window or choosing one |
 | Transfers | what is arriving now, with a rate and the time left; what is waiting to be collected; what finished |
-| Settings | this device's name, how it finds the others, and the 24 words |
+| Settings | this device's name, how it finds the others, where files sent here go, and the 24 words |
 
 A folder with no device in it opens the setting-up flow instead: make a new
 qurb, or add this device to one that exists. Setting a device up is the job of
