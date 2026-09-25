@@ -1187,6 +1187,101 @@ impl Db {
             .map_err(Into::into)
     }
 
+    /// A live row for a path that is materialised in *this device's folder*.
+    ///
+    /// The folder holds two kinds of file: content shared with every device,
+    /// and content somebody sent to this one. Both are written into it, because
+    /// a person asked for a file and should find a file — so anything that
+    /// walks the folder and asks the index "do I know about this" has to look
+    /// in both places.
+    ///
+    /// Shared first, because it is overwhelmingly the common case and because a
+    /// path that is somehow in both should be treated as the shared one: that
+    /// is what every other device believes about it.
+    ///
+    /// Live rows only, on both sides. A shared *tombstone* at the path does not
+    /// count: a file of that name deleted long ago says nothing about a file
+    /// somebody sent here since, and answering with the tombstone made the
+    /// received file impossible to delete.
+    pub fn in_folder(&self, path: &str) -> Result<Option<FileRow>> {
+        Ok(self.folder_row(path)?.map(|(row, _)| row))
+    }
+
+    /// The same, and which area it is in: `None` for the shared area, this
+    /// device's id for its own vault. What a write to the row has to name, so
+    /// that it lands on the row that was found rather than on a namesake.
+    pub fn folder_row(&self, path: &str) -> Result<Option<(FileRow, Option<DeviceId>)>> {
+        if let Some(shared) = self.file_by_path(path)?.filter(|f| f.deleted_at.is_none()) {
+            return Ok(Some((shared, None)));
+        }
+        let me = self.local_device()?;
+        Ok(self.own_vault_row(path)?.map(|row| (row, Some(me))))
+    }
+
+    /// A live row for a path in this device's own vault: something sent here.
+    pub fn own_vault_row(&self, path: &str) -> Result<Option<FileRow>> {
+        let me = self.local_device()?;
+        self.live_row_in(path, Some(&me))
+    }
+
+    /// The live row for a path in one area: `None` for the shared area, a
+    /// device id for that device's vault.
+    ///
+    /// For a caller that already knows which area it means. A path can have a
+    /// row in several, and a write that looked the path up without saying
+    /// which would find a namesake.
+    pub fn live_row_in(&self, path: &str, area: Option<&DeviceId>) -> Result<Option<FileRow>> {
+        let Some(owner) = area else {
+            return Ok(self.file_by_path(path)?.filter(|f| f.deleted_at.is_none()));
+        };
+        self.conn
+            .query_row(
+                &format!(
+                    "SELECT {FILE_COLUMNS} FROM files
+                      WHERE path = ?1 AND scope = ?2 AND deleted_at IS NULL"
+                ),
+                params![path, owner.as_bytes().as_slice()],
+                file_row,
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    /// Every live path materialised in this device's folder, shared or sent
+    /// here. What a scan of the folder should expect to find.
+    ///
+    /// Used to notice deletions: a path the index lists and the walk did not
+    /// find is gone. Before this included received files, deleting one went
+    /// unnoticed and it stayed in the index for ever.
+    pub fn folder_paths(&self) -> Result<Vec<String>> {
+        let me = self.local_device()?;
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT path FROM files
+              WHERE deleted_at IS NULL AND (scope IS NULL OR scope = ?1)
+              ORDER BY path",
+        )?;
+        let rows = stmt.query_map(params![me.as_bytes().as_slice()], |r| r.get(0))?;
+        rows.collect::<std::result::Result<_, _>>().map_err(Into::into)
+    }
+
+    /// The same, beneath one path. See [`Db::live_paths_under`].
+    pub fn folder_paths_under(&self, prefix: &str) -> Result<Vec<String>> {
+        let me = self.local_device()?;
+        let pattern = format!("{}/%", prefix.trim_end_matches('/'));
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT path FROM files
+              WHERE deleted_at IS NULL
+                AND (scope IS NULL OR scope = ?3)
+                AND (path = ?1 OR path LIKE ?2 ESCAPE '\\')
+              ORDER BY path",
+        )?;
+        let rows = stmt.query_map(
+            params![prefix.trim_end_matches('/'), pattern, me.as_bytes().as_slice()],
+            |r| r.get(0),
+        )?;
+        rows.collect::<std::result::Result<_, _>>().map_err(Into::into)
+    }
+
     /// Whether this device has already taken delivery of these bytes.
     ///
     /// Tombstones count. A delivery the user accepted and then deleted has

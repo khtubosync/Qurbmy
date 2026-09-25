@@ -99,6 +99,13 @@ protocol version bump like 0030's. That is settled when it is built.
 
 ## Settled when it is built, not now
 
+- **One folder, two namespaces.** A phone's folder already holds the shared
+  area and its vault side by side, and a name can mean either. Found on
+  2026-09-24 and patched by refusing the clash (see
+  [phase 5](../phases/phase-5-mobile.md), "A file sent to the phone came straight
+  back"). Making the vault a phone's *default* makes clashes ordinary rather
+  than rare, so this decision has to give the two areas separate places on
+  disk, or an equally structural answer — not rely on the refusal.
 - **Which devices hold by default.** The brief's picture is "the desktop". The
   engine has no notion of device kind, so the first version lets the owner
   choose, offering every paired device that has a folder and an allowance.

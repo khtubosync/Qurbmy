@@ -276,7 +276,7 @@ impl Store {
                 )
             }
             Content::Deleted => {
-                self.tombstone(&version.path, Stamp::Remote(version))?;
+                self.tombstone(&version.path, Stamp::Remote(version), None)?;
                 Ok(PutStats::default())
             }
         }
@@ -384,26 +384,64 @@ impl Store {
         let Placement { stamp, payloads, vault } = placement;
         let mut stats = PutStats { chunks_total: manifest.chunks.len(), ..Default::default() };
 
+        // A path that is already this device's own private content stays
+        // private when it changes here.
+        //
+        // Received files live in the folder like any other, so an ordinary
+        // write to one -- an edit, or a scan re-reading it -- arrives here with
+        // no vault named. Letting that create a shared row would publish
+        // somebody's private file to every device the moment it was touched,
+        // which is what happened on a phone: the scan after a delivery indexed
+        // it as shared and advertised it straight back to the sender.
+        //
+        // Staying private is also the right answer for a genuine edit. A file
+        // that silently became public because it was opened and saved would be
+        // the worse of the two mistakes.
+        //
+        // Local changes only. A version arriving from another device says for
+        // itself which area it belongs to, and a shared one must never be
+        // re-filed as private because a received file happens to share its
+        // name -- that would quietly take it out of the shared area here while
+        // every other device still has it there.
+        let vault = match vault {
+            Some(owner) => Some(*owner),
+            None if matches!(stamp, Stamp::Local) => {
+                self.db.folder_row(logical_path)?.and_then(|(_, scope)| scope)
+            }
+            None => None,
+        };
+        let vault = vault.as_ref();
+
         // Short-circuit an unchanged file: the content hash already matches, so
         // the chunk list in the index is by definition still correct.
+        //
+        // Compared against the row this write would land on, in the area just
+        // decided, and not against whatever row the path happens to have. A file
+        // sent from the folder under its own name has the same path and the same
+        // bytes as the sender's own copy; comparing against that made every such
+        // send look like an unchanged file, and nothing was ever sent.
         if payloads == Payloads::TrustIndex {
-        if let Some(existing) = self.db.file_by_path(logical_path)? {
-            if existing.deleted_at.is_none() && existing.content_hash == manifest.file_hash {
-                self.db.conn().execute(
-                    "UPDATE files SET mtime_ns = ?1, updated_at = unixepoch() WHERE id = ?2",
-                    rusqlite::params![mtime_ns, existing.id],
-                )?;
-                // A local write of identical bytes is not a change and must not
-                // advance the clock. A version adopted from a peer still has to
-                // record the history it arrived with, even though no data moved.
-                if let Stamp::Remote(version) = stamp {
-                    self.merge_version(version)?;
+            if let Some(existing) = self.db.live_row_in(logical_path, vault)? {
+                if existing.content_hash == manifest.file_hash {
+                    self.db.conn().execute(
+                        "UPDATE files SET mtime_ns = ?1, updated_at = unixepoch() WHERE id = ?2",
+                        rusqlite::params![mtime_ns, existing.id],
+                    )?;
+                    // A local write of identical bytes is not a change and must
+                    // not advance the clock. A version adopted from a peer still
+                    // has to record the history it arrived with, even though no
+                    // data moved -- in the shared area, which is the only place
+                    // history is compared. `merge_version` writes the shared
+                    // row, so a private version's history would land on a
+                    // namesake.
+                    if let (Stamp::Remote(version), None) = (&stamp, vault) {
+                        self.merge_version(version)?;
+                    }
+                    stats.unchanged = true;
+                    stats.bytes_deduplicated = manifest.size;
+                    return Ok(stats);
                 }
-                stats.unchanged = true;
-                stats.bytes_deduplicated = manifest.size;
-                return Ok(stats);
             }
-        }
         }
 
         // Allocate the vector before opening the transaction: computing it
@@ -419,20 +457,6 @@ impl Store {
             }
         };
 
-        // Whether the file being recorded is the one the tree holds at this
-        // path -- in which case the tree supplies the payloads and the chunk
-        // store need not.
-        //
-        // Checked by path rather than assumed, because `put_file` accepts any
-        // source: importing from elsewhere on the disk copies into the tree
-        // first, but nothing in the type system says so, and skipping the
-        // write for a file that is *not* in the tree would lose the content
-        // entirely.
-        // A vault entry is held on somebody else's behalf and is never in this
-        // device's folder, whatever a file of the same name there might
-        // suggest. Saying otherwise would make its payloads depend on a file
-        // the owner of the vault has no say over: delete your own `report.pdf`
-        // and the copy you sent someone would stop being readable.
         // A vault entry held for *someone else* is never backed by a file in
         // this device's folder, even when a file of that name and content
         // happens to be sitting there. Letting it lean on that file would mean
@@ -445,6 +469,16 @@ impl Store {
             None => true,
             Some(owner) => *owner == self.db.local_device()?,
         };
+
+        // Whether the file being recorded is the one the tree holds at this
+        // path -- in which case the tree supplies the payloads and the chunk
+        // store need not.
+        //
+        // Checked by path rather than assumed, because `put_file` accepts any
+        // source: importing from elsewhere on the disk copies into the tree
+        // first, but nothing in the type system says so, and skipping the
+        // write for a file that is *not* in the tree would lose the content
+        // entirely.
         let materialised = backed_by_folder && self.supplies(logical_path);
 
         // Phase 1: get every payload on disk. Distinct hashes only -- a file
@@ -636,10 +670,11 @@ impl Store {
     /// written, so a caller streaming to a destination that matters should
     /// write somewhere temporary and move it once this returns.
     pub fn read_file_into(&self, logical_path: &str, out: &mut impl std::io::Write) -> Result<u64> {
+        // Anything in the folder, shared or sent here: reading back a file
+        // somebody sent you is the commonest reason to read one by name.
         let file = self
             .db
-            .file_by_path(logical_path)?
-            .filter(|f| f.deleted_at.is_none())
+            .in_folder(logical_path)?
             .ok_or_else(|| Error::NotFound { path: logical_path.to_string() })?;
 
         let mut whole = blake3::Hasher::new();
@@ -664,10 +699,11 @@ impl Store {
     /// against the file hash. The second check is not redundant: correct chunks
     /// in the wrong order would pass the first.
     pub fn read_file(&self, logical_path: &str) -> Result<Vec<u8>> {
+        // Anything in the folder, shared or sent here: reading back a file
+        // somebody sent you is the commonest reason to read one by name.
         let file = self
             .db
-            .file_by_path(logical_path)?
-            .filter(|f| f.deleted_at.is_none())
+            .in_folder(logical_path)?
             .ok_or_else(|| Error::NotFound { path: logical_path.to_string() })?;
 
         let mut out = Vec::with_capacity(file.size as usize);
@@ -720,16 +756,20 @@ impl Store {
     /// is right to call damage. Those references are released here instead.
     /// See [decision 0024](../../docs/decisions/0024-the-file-is-the-payload-store.md).
     pub fn delete_file(&mut self, logical_path: &str) -> Result<()> {
-        if self
-            .db
-            .file_by_path(logical_path)?
-            .is_none_or(|f| f.deleted_at.is_some())
-        {
+        // Either kind of file the folder holds. Deleting something sent to this
+        // device is the recipient's business and has to work; before this it
+        // came back as "not found" and the row stayed live for ever.
+        //
+        // The row found is the row tombstoned and the row released. Looking the
+        // path up again at each step would find the shared namesake whenever
+        // there is one, and leave the private file live with its references to
+        // a payload that has just been deleted.
+        let Some((row, scope)) = self.db.folder_row(logical_path)? else {
             return Err(Error::NotFound { path: logical_path.to_string() });
-        }
-        self.tombstone(logical_path, Stamp::Local)?;
+        };
+        self.tombstone(logical_path, Stamp::Local, scope)?;
         let _ = self.db.record(db::Event::Deleted, Some(logical_path), None, None, None);
-        self.release_unbacked(logical_path)
+        self.release_unbacked(row.id)
     }
 
     /// Drop a tombstone's references to payloads nothing holds any more.
@@ -738,15 +778,14 @@ impl Store {
     /// still restorable and keeps its reference for the retention window,
     /// which is what a replica and any content imported from outside the
     /// folder rely on.
-    fn release_unbacked(&mut self, logical_path: &str) -> Result<()> {
+    fn release_unbacked(&mut self, file_id: i64) -> Result<()> {
         if self.tree.is_none() {
             return Ok(());
         }
 
-        let Some(row) = self.db.file_by_path(logical_path)? else { return Ok(()) };
         let orphaned: Vec<blake3::Hash> = self
             .db
-            .chunk_hashes_for(row.id)?
+            .chunk_hashes_for(file_id)?
             .into_iter()
             .filter(|hash| !self.cas.contains(hash))
             .collect();
@@ -756,14 +795,25 @@ impl Store {
             // chunk's collection clock.
             self.db.conn().execute(
                 "DELETE FROM file_chunks WHERE file_id = ?1 AND chunk_hash = ?2",
-                rusqlite::params![row.id, hash.as_bytes().as_slice()],
+                rusqlite::params![file_id, hash.as_bytes().as_slice()],
             )?;
         }
         Ok(())
     }
 
     /// Write a tombstone, creating the row if this device never held the file.
-    fn tombstone(&mut self, logical_path: &str, stamp: Stamp<'_>) -> Result<()> {
+    ///
+    /// `scope` says which row: `None` for the shared area, this device's id for
+    /// something sent here. The caller says, rather than this guessing from the
+    /// path, because a deletion that arrived from another device is always
+    /// about the shared area — guessing would let a peer deleting its own
+    /// `notes.txt` tombstone the private `notes.txt` somebody sent here.
+    fn tombstone(
+        &mut self,
+        logical_path: &str,
+        stamp: Stamp<'_>,
+        scope: Option<DeviceId>,
+    ) -> Result<()> {
         let (vector, modified_by, modified_at) = match stamp {
             Stamp::Local => {
                 let (v, d) = self.db.next_local_vector(logical_path)?;
@@ -774,21 +824,28 @@ impl Store {
             }
         };
 
+        let conflict = match scope {
+            None => "ON CONFLICT (path) WHERE scope IS NULL DO UPDATE SET",
+            Some(_) => "ON CONFLICT (scope, path) WHERE scope IS NOT NULL DO UPDATE SET",
+        };
+
         self.db.conn().execute(
+            &format!(
             "INSERT INTO files
                  (path, size, content_hash, mtime_ns, created_at, updated_at, deleted_at,
-                  vector, modified_by)
-             VALUES (?1, 0, zeroblob(32), 0, unixepoch(), ?2, ?2, ?3, ?4)
-             ON CONFLICT (path) WHERE scope IS NULL DO UPDATE SET
+                  vector, modified_by, scope)
+             VALUES (?1, 0, zeroblob(32), 0, unixepoch(), ?2, ?2, ?3, ?4, ?5)
+             {conflict}
                  deleted_at = excluded.updated_at,
                  updated_at = excluded.updated_at,
                  vector = excluded.vector,
-                 modified_by = excluded.modified_by",
+                 modified_by = excluded.modified_by"),
             rusqlite::params![
                 logical_path,
                 modified_at,
                 vector.encode(),
                 modified_by.as_bytes().as_slice(),
+                scope.map(|d| d.as_bytes().to_vec()),
             ],
         )?;
         Ok(())

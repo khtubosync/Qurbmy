@@ -97,6 +97,30 @@ fn a_vault_send_does_not_collide_with_the_senders_own_file_of_that_name() {
     );
 }
 
+/// The commonest send there is: a file from the synced folder, under its own
+/// name, to one device. Same name *and* same bytes as the sender's own copy.
+///
+/// The shortcut for an unchanged file compared against whatever row the path
+/// had, found the sender's own identical file, and reported "unchanged" --
+/// so no vault entry was written and nothing was ever sent.
+#[test]
+fn sending_a_file_from_the_folder_under_its_own_name_is_recorded() {
+    let mut fixture = Fixture::new();
+    let payload = noisy(60_000);
+
+    std::fs::write(fixture.root.join("notes.txt"), &payload).unwrap();
+    fixture.store.put_file("notes.txt", &fixture.root.join("notes.txt")).unwrap();
+
+    let stats =
+        fixture.store.send_to_vault("notes.txt", &fixture.root.join("notes.txt"), &recipient()).unwrap();
+    assert!(!stats.unchanged, "a send was mistaken for an unchanged file");
+    assert_eq!(
+        fixture.store.db().vault_path_for(&blake3::hash(&payload), &recipient()).unwrap(),
+        Some("notes.txt".to_string()),
+        "no vault entry was written"
+    );
+}
+
 #[test]
 fn the_same_name_can_be_sent_to_two_different_devices() {
     let mut fixture = Fixture::new();

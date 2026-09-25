@@ -160,6 +160,63 @@ fn the_file_operations_round_trip() {
     assert!(!dir.path().join("album/photo.jpg").exists());
 }
 
+/// A file somebody sent this phone is the phone's own, and private.
+///
+/// It lives in the phone's vault rather than the shared area, and every call a
+/// file browser makes has to find it there: before, `list` left it out, `export`
+/// answered "not found", and the app could see neither the file nor a way to
+/// save a copy of it.
+#[test]
+fn a_file_sent_to_the_phone_can_be_listed_saved_and_deleted() {
+    let dir = scratch();
+    let staging = scratch();
+    let root = dir.path().display().to_string();
+    create(root.clone()).unwrap();
+
+    // Delivered the way the engine delivers one: written into the folder, then
+    // adopted into this device's vault. Done on the store directly, because a
+    // delivery needs a second device and the network to happen for real.
+    let contents = b"for this phone and nobody else";
+    let sender = qurb_sync::DeviceId::from_bytes([0xCC; 32]);
+    let mut vector = qurb_sync::VersionVector::new();
+    vector.increment(sender);
+    let version = qurb_sync::FileVersion {
+        path: "tickets.pdf".into(),
+        content: qurb_sync::Content::File {
+            hash: *blake3::hash(contents).as_bytes(),
+            size: contents.len() as u64,
+        },
+        vector,
+        modified_by: sender,
+        modified_at: 1_790_000_000,
+        private: true,
+    };
+    let landed = dir.path().join("tickets.pdf");
+    std::fs::write(&landed, contents).unwrap();
+    {
+        let mut store = Store::open(&dir.path().join(".qurb"), chunk_key_of(dir.path()))
+            .unwrap()
+            .in_tree(dir.path());
+        store.adopt_file_privately(&version, &landed, 0).unwrap();
+    }
+
+    let qurb = Qurb::open(root, None).unwrap();
+    qurb.scan().unwrap();
+
+    let listed = qurb.list().unwrap();
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert_eq!(listed[0].path, "tickets.pdf");
+    assert!(qurb.contains("tickets.pdf".into()).unwrap());
+
+    let out = staging.path().join("saved.pdf");
+    qurb.export("tickets.pdf".into(), out.display().to_string()).unwrap();
+    assert_eq!(std::fs::read(&out).unwrap(), contents);
+
+    qurb.remove("tickets.pdf".into()).unwrap();
+    assert!(!qurb.contains("tickets.pdf".into()).unwrap());
+    assert_eq!(qurb.list().unwrap(), vec![]);
+}
+
 /// Asking for a file that is not there is the commonest error a FileProvider
 /// hits, and it must arrive as `NotFound` rather than a generic failure.
 #[test]

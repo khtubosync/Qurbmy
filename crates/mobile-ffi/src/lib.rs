@@ -565,13 +565,16 @@ impl Qurb {
         Ok(self.engine()?.reconcile()?.into())
     }
 
-    /// Every live file, sorted by path.
+    /// Every live file in the folder, sorted by path: the shared area, and
+    /// whatever was sent to this phone. The second kind is private, and it is
+    /// still the phone's own file -- a list without it would hide exactly the
+    /// thing somebody just sent.
     pub fn list(&self) -> Result<Vec<FileEntry>, QurbError> {
         let engine = self.engine()?;
         let db = engine.store().db();
         let mut out = Vec::new();
-        for path in db.live_paths()? {
-            let Some(file) = db.file_by_path(&path)? else { continue };
+        for path in db.folder_paths()? {
+            let Some(file) = db.in_folder(&path)? else { continue };
             out.push(FileEntry {
                 path,
                 size: file.size,
@@ -583,7 +586,7 @@ impl Qurb {
 
     /// Whether a path exists in the index.
     pub fn contains(&self, path: String) -> Result<bool, QurbError> {
-        Ok(self.engine()?.store().db().file_by_path(&path)?.is_some_and(|f| f.deleted_at.is_none()))
+        Ok(self.engine()?.store().db().in_folder(&path)?.is_some())
     }
 
     /// Write a stored file's contents to `destination`, a chunk at a time.

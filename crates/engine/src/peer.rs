@@ -330,10 +330,21 @@ impl Engine {
 
         let path = self.root().join(&version.path);
 
+        // Whether the file at this path is one somebody sent here, rather than
+        // the shared file of the same name. Shared paths and received ones sit
+        // in one folder, so a name can mean either -- and a version arriving
+        // for the shared area is never about the private one.
+        let private_here = !version.private
+            && matches!(self.store().db().folder_row(&version.path)?, Some((_, Some(_))));
+
         match &version.content {
             Content::Deleted => {
                 // A replica records the tombstone but has no file to remove.
-                if !self.role().is_replica() {
+                // Nor is there one to remove when the file at this path is the
+                // private namesake: another device deleting its `notes.txt` is
+                // not a reason to delete the `notes.txt` somebody sent here.
+                let removes = !self.role().is_replica() && !private_here;
+                if removes {
                     match std::fs::remove_file(&path) {
                         Ok(()) => {}
                         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -341,7 +352,7 @@ impl Engine {
                     }
                 }
                 self.store_mut().adopt(version, None, 0)?;
-                if !self.role().is_replica() {
+                if removes {
                     prune_empty_parents(&path, self.root());
                 }
             }
@@ -370,6 +381,15 @@ impl Engine {
                     } else {
                         self.store().note_replica(&content, &version.modified_by)?;
                     }
+                }
+
+                // Refuse a shared file whose name a received one already has.
+                // Writing it would overwrite the private file, whose bytes live
+                // nowhere else here -- the folder *is* its payload store. The
+                // shared file is not lost by waiting: it arrives once the
+                // received one is renamed or deleted.
+                if private_here {
+                    return Err(Error::TakenPrivately { path: version.path.clone() });
                 }
 
                 // Refuse a path this filesystem cannot keep separate from one

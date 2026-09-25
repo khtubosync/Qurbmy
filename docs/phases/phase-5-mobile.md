@@ -795,6 +795,109 @@ phone is unknown.
 Desktop-to-desktop local discovery is verified and has tests, including a full
 sync between two devices with no rendezvous service in existence.
 
+## A file sent to the phone came straight back
+
+**Found 2026-09-24 on the Galaxy S23 and the laptop. Fixed 2026-09-25 and
+verified on both the same day.**
+
+The laptop sent the phone a file, which the phone filed privately, as
+[decision 0030](../decisions/0030-sending-a-file-to-one-device.md) says it
+should. The phone's next scan of its folder then found the file, asked the
+index about it, and was told nothing: every "what do you know about this path"
+looked only in the shared area. So the scan indexed the file as new and shared,
+advertised it, and the laptop wrote it into its synced folder. The one device
+that was meant to have it had published it to every device, starting with the
+one that sent it.
+
+**The cause was one assumption, repeated.** A received file lives in the same
+folder as the shared ones, because somebody asked for a file and should find a
+file. Every piece of code that walks the folder or looks a path up had been
+written when the folder held only the shared area, and each still assumed it.
+
+**Looking for the other places turned up ten more**, each now with a test:
+
+| | what went wrong | consequence |
+|---|---|---|
+| 1 | the scan's deletion sweep did not see received files | deleting one went unnoticed; it stayed live in the index for ever |
+| 2 | reading one by name answered "not found" | the app's *Save a copy* failed on exactly the files most likely to be saved |
+| 3 | the app's list was the shared area only | received files were invisible in the app, though the system picker showed them |
+| 4 | deleting one kept its chunk references | the index claimed bytes that had left with the file, which `verify` reports as missing data |
+| 5 | a shared *tombstone* at the same name was taken for the file | a received file whose name had once been used and deleted could not be deleted |
+| 6 | a tombstone chose its row by name | another device's deletion of an unrelated shared file could tombstone the private one |
+| 7 | another device's deletion removed whatever was at the path on disk | **the received file was deleted** |
+| 8 | a shared file arriving at a received file's name was written over it | **the received file was destroyed** — its bytes lived nowhere else here |
+| 9 | "stays private when edited" also applied to versions from other devices | a shared version could be re-filed as private on this device alone |
+| 10 | a send's check for "unchanged" compared against the sender's own file of the same name | **sending a file from the folder under its own name recorded nothing, and nothing was sent** — present since sending existed |
+
+Rows 7 and 8 lose a file outright, and row 10 is a send that silently does not happen. Row 8 is now refused, as a case collision
+is ([decision 0013](../decisions/0013-case-collisions.md)): the shared file waits,
+recorded as a failure saying why, and arrives once the received one is renamed
+or deleted.
+
+None of this was reachable by any earlier test, for a plain reason: no test
+ever gave a received file a name that also meant something in the shared
+area. It is the Phase 2 shape again — every component right on its own, wrong
+where two of them meet.
+
+**Verified on Linux** — the laptop (CachyOS, kernel 7.2.6), debug build,
+2026-09-25. Twelve tests in `crates/engine/tests/received_files.rs`, one in
+`crates/mobile-ffi/tests/lifecycle.rs` and one in
+`crates/storage/tests/vault_send.rs`. The tests for rows 2 to 5 and 10 failed
+before their fix was written, and rows 7, 8 and 9 were each checked by removing the
+fix and watching the test fail. Rows 1 and 6 are covered by tests that were not
+separately seen failing. The whole workspace: 611 tests in 72 test binaries
+pass, and clippy is clean.
+
+**Verified on the phone** — 2026-09-25. Galaxy S23 (SM-S911B) running the debug
+APK, and the laptop running `qurb run ~/qurb` from a release build, on the same
+Wi-Fi with no rendezvous service anywhere: they found each other by local
+discovery. A 67-byte file, `private-check-0925.txt`, sent from the laptop with
+`qurb send`:
+
+| check | result |
+|---|---|
+| the phone collects it | the app's count went from 21 files to 22; the laptop recorded *sent* and *collected* |
+| it does not come back | three syncs from the phone, each with a scan; no *received* on the laptop, and nothing new in `~/qurb` |
+| the app lists it | listed, 67 B |
+| *Save a copy* | written to the phone's Downloads through the system picker; SHA-256 identical to the original |
+| deleting it sticks | back to 21 files after two syncs; the laptop did not deliver it again |
+
+The app has no way to delete a file — deliberately, see *The files, from the
+rest of the phone* — so the deletion was made by removing the file from the
+app's folder with `adb shell run-as`. That exercises the scan noticing a
+deletion (row 1 above). The FFI's own `remove`, the path a future delete button
+would take, is verified on Linux only.
+
+**What yesterday's bug left behind is still there.** `sent-to-phone.bin`, the
+file that came back on 2026-09-24, is a shared file on both devices now,
+because that is what the phone turned it into. The fix stops it happening
+again; it does not guess which shared files were once private. Deleting it is
+safe.
+
+**Still open, and stated here so nobody assumes otherwise:**
+
+- **One folder, two namespaces.** The refusal in row 8 trades data loss for a
+  shared file that does not arrive until somebody renames something, with only
+  an activity entry saying why. On a desktop,
+  [decision 0037](../decisions/0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md)
+  removes the problem by taking received files out of the folder. On a phone,
+  [decision 0036](../decisions/0036-a-phone-keeps-its-own-files.md) has to solve
+  it, and says so.
+- **Version vectors on received files are bookkeeping, not history.** An edit or
+  deletion of one is stamped from the shared area's history for that name —
+  usually none — rather than from the version that was delivered. Nothing
+  compares them today. 0036's propagation to a holder will.
+- **`Store::restore_file` matches by name alone**, so undeleting would revive
+  every tombstone at that path, whichever area it is in. It has no caller
+  outside tests yet; it needs the same treatment before it gets one.
+- **`Store::evict` still looks only at the shared area.** Nothing asks it to
+  free one chosen file yet. When *Free local space* is built, a received file
+  must be refused with the real reason — the sender's copy is one the phone may
+  not count on — not "not found".
+- **Case collisions are checked against the shared area only.** A received
+  `Report.pdf` beside a shared `report.pdf` is not reported. Both of this
+  project's platforms are case-sensitive, so it is latent rather than live.
+
 ## Deliberately left undone
 
 - **Keychain, on iOS.** The Android half is done and verified on a device —

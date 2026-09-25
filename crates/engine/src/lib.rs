@@ -293,7 +293,11 @@ impl Engine {
         // gone. Sorting lets a binary search replace a linear scan per path,
         // which matters on a library with many files.
         on_disk.sort();
-        for logical in self.store.db().live_paths()? {
+        // Everything the folder is supposed to hold, which is the shared area
+        // *and* anything sent to this device: both are written into it, and a
+        // sweep that looked only at the first would never notice a received
+        // file being deleted.
+        for logical in self.store.db().folder_paths()? {
             if on_disk.binary_search(&logical).is_ok() {
                 continue;
             }
@@ -436,7 +440,9 @@ impl Engine {
     ///
     /// See `store_if_changed` for what this trades away.
     fn looks_unchanged(&self, logical: &str, size: u64, mtime_ns: i64) -> Result<bool> {
-        Ok(match self.store.db().file_by_path(logical)? {
+        // Either kind of file the folder holds. A received file that looked
+        // unknown here would be read and stored on every scan.
+        Ok(match self.store.db().in_folder(logical)? {
             Some(existing) => {
                 existing.deleted_at.is_none()
                     && existing.size == size
@@ -526,7 +532,7 @@ impl Engine {
     ) -> Result<SyncStats> {
         let mut stats = SyncStats::default();
 
-        if let Some(existing) = self.store.db().file_by_path(logical)? {
+        if let Some(existing) = self.store.db().in_folder(logical)? {
             if existing.deleted_at.is_none()
                 && existing.size == size
                 && existing.mtime_ns == mtime_ns
@@ -557,7 +563,7 @@ impl Engine {
     fn apply_removal(&mut self, logical: &str) -> Result<SyncStats> {
         let mut stats = SyncStats::default();
 
-        for path in self.store.db().live_paths_under(logical)? {
+        for path in self.store.db().folder_paths_under(logical)? {
             // Evicting a file removes it from the folder, and the watcher
             // reports that like any other removal. The index was marked before
             // the unlink precisely so this check can tell the two apart.

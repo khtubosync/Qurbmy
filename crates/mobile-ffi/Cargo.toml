@@ -35,6 +35,7 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 uniffi = { version = "0.32", features = ["build"] }
 
 [dev-dependencies]
+blake3.workspace = true
 tempfile = "3"
 qurb-signal = { path = "../signal" }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

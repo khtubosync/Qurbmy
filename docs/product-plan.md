@@ -357,12 +357,13 @@ building; it cannot verify.
 The specification's phases (§74) are sound. Reordered only where the repository
 says something must come first.
 
-**0. Finish what is in flight.** Not yet committed on 2026-09-25: a file sent
-to a phone was re-filed as shared by the phone's next folder scan and offered
-straight back to the laptop that sent it. The fix and five tests are written and
-pass on Linux. Still owed: watching it on the phone; making the app list
-received files, since the fix makes them private and `list()` shows only the
-shared area; and its entry in the Phase 5 document.
+**0. Finish what is in flight.** A file sent to a phone was re-filed as shared
+by the phone's next folder scan and offered straight back to the laptop that
+sent it. Fixed on 2026-09-25 together with ten related defects: two lost a file
+outright, and one made a send from the folder under its own name do nothing —
+see
+[phase 5](phases/phase-5-mobile.md), "A file sent to the phone came straight
+back". ✅ Verified on Linux and on the phone the same day.
 
 **1. Decide the data model.** ✅ Done. Two areas, enforced in the protocol, and
 the transfer primitive: `qurb send <file> to <device>` writes into a vault, the
