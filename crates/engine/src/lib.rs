@@ -122,6 +122,13 @@ pub struct Engine {
     fold_case: bool,
     role: Role,
     workers: usize,
+    /// Where a file sent to this device goes, if not into the folder.
+    ///
+    /// Set on a desktop, where a delivery is an ordinary file in Downloads that
+    /// qurb stops tracking once it is written. `None` files it in the folder,
+    /// privately, which is what a phone does. See
+    /// [decision 0037](../../docs/decisions/0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md).
+    downloads: Option<PathBuf>,
 }
 
 impl Engine {
@@ -141,7 +148,15 @@ impl Engine {
         // convention.
         let store = store.in_tree(&root);
 
-        Self { root, store, ignore, fold_case, role: Role::Syncing, workers: default_workers() }
+        Self {
+            root,
+            store,
+            ignore,
+            fold_case,
+            role: Role::Syncing,
+            workers: default_workers(),
+            downloads: None,
+        }
     }
 
     /// A device that holds content without a directory behind it.
@@ -157,6 +172,7 @@ impl Engine {
             fold_case: false,
             role: Role::Replica(pins),
             workers: default_workers(),
+            downloads: None,
         }
     }
 
@@ -170,6 +186,18 @@ impl Engine {
 
     pub fn role(&self) -> &Role {
         &self.role
+    }
+
+    /// File deliveries into `dir` as ordinary files, rather than into the
+    /// folder. The caller has checked that `dir` does not overlap the folder:
+    /// a delivery written inside it would be scanned into the shared area and
+    /// advertised to every device.
+    pub fn set_downloads(&mut self, dir: Option<PathBuf>) {
+        self.downloads = dir;
+    }
+
+    pub fn downloads(&self) -> Option<&Path> {
+        self.downloads.as_deref()
     }
 
     /// Whether two paths differing only in case are treated as a collision.

@@ -81,24 +81,20 @@ impl<'a> StoreSource<'a> {
     }
 }
 
+// By content, the way a peer is asked over the network (decision 0010). Asking
+// by path could never serve content held for another device's vault: there is
+// no path for it in this device's folder.
 impl ContentSource for StoreSource<'_> {
     fn fetch(&mut self, hash: &[u8; 32], _size: u64) -> Result<Vec<u8>> {
-        Ok(self.store.read_file(&self.path_for(hash)?)?)
+        self.store
+            .read_content(&blake3::Hash::from(*hash))?
+            .ok_or_else(|| Error::ContentUnavailable { hash: hex(hash) })
     }
 
     fn fetch_into(&mut self, hash: &[u8; 32], _size: u64, out: &mut dyn Write) -> Result<u64> {
-        let path = self.path_for(hash)?;
-        Ok(self.store.read_file_into(&path, &mut Adapter(out))?)
-    }
-}
-
-impl StoreSource<'_> {
-    fn path_for(&self, hash: &[u8; 32]) -> Result<String> {
-        let hash = blake3::Hash::from(*hash);
         self.store
-            .db()
-            .live_path_with_content(&hash)?
-            .ok_or_else(|| Error::ContentUnavailable { hash: hex(hash.as_bytes()) })
+            .read_content_into(&blake3::Hash::from(*hash), &mut Adapter(out))?
+            .ok_or_else(|| Error::ContentUnavailable { hash: hex(hash) })
     }
 }
 
@@ -310,6 +306,23 @@ impl Engine {
         source: &mut dyn ContentSource,
         stats: &mut PlanStats,
     ) -> Result<()> {
+        // Checked before anything else, because everything after this joins
+        // the path onto a directory and writes or deletes there. The wire
+        // refuses these already; this is the same rule for any other route in,
+        // and it also keeps a peer out of qurb's own store inside the folder.
+        if !qurb_sync::is_safe_path(&version.path)
+            || self.ignore.is_ignored(&self.root().join(&version.path))
+        {
+            return Err(Error::UnsafePath { path: version.path.clone() });
+        }
+
+        // A delivery, on a device that files them outside the folder.
+        if version.private && !version.is_deleted() {
+            if let Some(dir) = self.downloads().map(Path::to_path_buf) {
+                return self.take_into_downloads(version, &dir, source, stats);
+            }
+        }
+
         // Content sent to this device's vault is filed under a name that is
         // free here. The sender named it the way *they* think of it, so a
         // clash with something the recipient already has is ordinary rather
@@ -508,6 +521,116 @@ impl Engine {
         }
         Ok(())
     }
+}
+
+impl Engine {
+    /// Take a delivery as an ordinary file in `dir`, outside the folder.
+    ///
+    /// Nothing about it enters the index as content: it is not scanned, not
+    /// counted against the storage limit, and deleting it is the person tidying
+    /// their Downloads, not a qurb event. What is kept is the record that it
+    /// was taken, so the sender offering it again changes nothing. See
+    /// [decision 0037](../../docs/decisions/0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md).
+    fn take_into_downloads(
+        &mut self,
+        version: &FileVersion,
+        dir: &Path,
+        source: &mut dyn ContentSource,
+        stats: &mut PlanStats,
+    ) -> Result<()> {
+        let Content::File { hash, size } = &version.content else { return Ok(()) };
+        let content = blake3::Hash::from(*hash);
+
+        // Named as the sender named it, and never over anything already there:
+        // this is somebody's Downloads folder, and what is in it is theirs. A
+        // name that is taken gets the same treatment as in the folder.
+        //
+        // A file already there with exactly these bytes is this delivery, put
+        // in place by an earlier attempt that stopped before recording it --
+        // a crash between the rename and the record. Recorded now rather than
+        // written a second time under another name.
+        let mut target = None;
+        for candidate in [dir.join(&version.path), dir.join(qurb_sync::received_path(version))] {
+            if !candidate.exists() {
+                target = Some(candidate);
+                break;
+            }
+            if hash_of(&candidate).is_some_and(|existing| existing == content) {
+                return self.taken_into_downloads(version, &candidate, source);
+            }
+        }
+        let Some(path) = target else {
+            return Err(Error::Io {
+                path: dir.join(&version.path),
+                source: std::io::Error::new(
+                    std::io::ErrorKind::AlreadyExists,
+                    "both this name and the name it would be filed under are taken",
+                ),
+            });
+        };
+
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| Error::Io { path: parent.to_path_buf(), source: e })?;
+        }
+
+        // Beside the destination and moved into place, as in the folder, so
+        // that nobody opens a half-written file. And on disk before the rename:
+        // the sender is told it can stop holding this the moment the rename is
+        // done, so it has to survive the power going off straight afterwards.
+        let staging = staging_path(&path);
+        let written = (|| -> Result<()> {
+            let mut file = std::fs::File::create(&staging)
+                .map_err(|e| Error::Io { path: staging.clone(), source: e })?;
+            if self.store().read_content_into(&content, &mut file)?.is_none() {
+                stats.fetched += 1;
+                source.fetch_into(hash, *size, &mut file)?;
+            }
+            file.sync_all().map_err(|e| Error::Io { path: staging.clone(), source: e })
+        })();
+        if let Err(e) = written {
+            let _ = std::fs::remove_file(&staging);
+            return Err(e);
+        }
+        std::fs::rename(&staging, &path).map_err(|e| {
+            let _ = std::fs::remove_file(&staging);
+            Error::Io { path: path.clone(), source: e }
+        })?;
+
+        self.taken_into_downloads(version, &path, source)
+    }
+
+    /// Record a delivery that is now in place in Downloads, and say so.
+    fn taken_into_downloads(
+        &mut self,
+        version: &FileVersion,
+        path: &Path,
+        source: &mut dyn ContentSource,
+    ) -> Result<()> {
+        let Content::File { hash, size } = &version.content else { return Ok(()) };
+        let where_ = path.display().to_string();
+        self.store().note_taken(&blake3::Hash::from(*hash), Some(&version.modified_by), &where_)?;
+        crate::note(
+            self.store(),
+            db::Event::Received,
+            Some(&version.path),
+            Some(*size),
+            Some(&version.modified_by),
+            // The desktop's notifier recognises a delivery by this wording and
+            // reads the path after "saved to"; see `qurb-desktop`'s `notify`.
+            Some(&format!("sent to this device; saved to {where_}")),
+        );
+        source.received(hash);
+        Ok(())
+    }
+}
+
+/// The content hash of a file on disk, or `None` if it cannot be read.
+fn hash_of(path: &Path) -> Option<blake3::Hash> {
+    let mut hasher = blake3::Hasher::new();
+    let mut file = std::fs::File::open(path).ok()?;
+    std::io::copy(&mut file, &mut hasher).ok()?;
+    Some(hasher.finalize())
 }
 
 /// Remove directories left empty by a deletion, up to but never including the

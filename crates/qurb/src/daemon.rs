@@ -313,6 +313,19 @@ impl Daemon {
 
         let mut engine = self.engine()?;
 
+        // Where a file sent to this device goes. Checked before anything
+        // syncs: a directory overlapping the folder would put deliveries where
+        // the scan finds them and advertises them to every device, so the
+        // daemon refuses to start rather than begin doing that.
+        if !self.is_replica() {
+            let downloads = self.config.downloads.resolve(&self.root)?;
+            match &downloads {
+                Some(dir) => tracing::info!(downloads = %dir.display(), "files sent here go to"),
+                None => tracing::info!("files sent here are kept in the folder"),
+            }
+            engine.set_downloads(downloads);
+        }
+
         // The trust store answers who may connect, so a device paired after
         // this point needs a restart to be let in. Stated as a limitation
         // rather than hidden: it is the same one `PeerServer::bind_trusting`

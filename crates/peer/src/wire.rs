@@ -279,6 +279,13 @@ fn decode_version(r: &mut Reader<'_>) -> Result<FileVersion> {
     let path = std::str::from_utf8(r.take(len)?)
         .map_err(|_| Error::Protocol { detail: "path is not utf-8".into() })?
         .to_string();
+    // The receiver joins this onto a directory of its own and writes there, or
+    // deletes there. A path that leaves that directory is refused here, at the
+    // edge, rather than trusted because the peer authenticated -- a stolen
+    // device keeps its identity. The engine checks again before it writes.
+    if !qurb_sync::is_safe_path(&path) {
+        return Err(Error::Protocol { detail: format!("path {path:?} leaves the folder") });
+    }
 
     let content = match r.u8()? {
         0 => Content::File { hash: r.hash()?, size: r.u64()? },
@@ -507,6 +514,19 @@ mod tests {
     fn empty_input_is_an_error() {
         assert!(Request::decode(&[]).is_err());
         assert!(Response::decode(&[]).is_err());
+    }
+
+    /// A tree naming somewhere outside the folder is refused as a whole. A
+    /// peer that sends one is not a working copy of this software, and
+    /// nothing else it says is worth acting on.
+    #[test]
+    fn a_path_that_leaves_the_folder_is_refused() {
+        for path in ["../../.bashrc", "/etc/cron.d/qurb", "photos/../../x", ""] {
+            let bytes = Response::Tree(vec![version(path)]).encode();
+            assert!(Response::decode(&bytes).is_err(), "{path:?} was accepted");
+        }
+        let bytes = Response::Tree(vec![version("photos/beach.jpg")]).encode();
+        assert!(Response::decode(&bytes).is_ok(), "an ordinary path was refused");
     }
 
     #[test]

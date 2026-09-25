@@ -24,7 +24,7 @@ use std::path::Path;
 ///
 /// Migrations are append-only. Editing one that has already shipped would leave
 /// databases in the field at a schema nobody can reproduce.
-const MIGRATIONS: &[&str] = &[V1, V2, V3, V4, V5, V6, V7, V8, V9, V10];
+const MIGRATIONS: &[&str] = &[V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11];
 
 const V1: &str = r#"
 CREATE TABLE IF NOT EXISTS chunks (
@@ -340,6 +340,37 @@ CREATE INDEX IF NOT EXISTS idx_activity_recent ON activity (at DESC, id DESC);
 -- "What happened to this file" is the other question, and it is asked about
 -- one path at a time.
 CREATE INDEX IF NOT EXISTS idx_activity_path ON activity (path, at DESC);
+"#;
+
+const V11: &str = r#"
+-- Deliveries this device has taken, kept for good.
+--
+-- A delivery is taken once, keyed by its content. Until now the only record of
+-- having taken one was the received file's own row -- and once the person
+-- deleted the file, that row was a tombstone, which garbage collection expires
+-- after the retention window. The sender goes on offering what it sent for as
+-- long as it keeps the entry, so a week after somebody deleted a file they had
+-- been sent, it arrived again.
+--
+-- And a delivery filed outside the folder, as an ordinary file in Downloads
+-- (decision 0037), has no row at all. This table is the record for both, and
+-- nothing expires it: one short row per file somebody sent, which is not a
+-- cost worth managing.
+CREATE TABLE IF NOT EXISTS taken (
+    content_hash BLOB PRIMARY KEY,
+    -- Who sent it, where known.
+    sender       BLOB,
+    taken_at     INTEGER NOT NULL,
+    -- Where it went: a path in the folder, or a file in Downloads.
+    filed_as     TEXT NOT NULL
+) STRICT;
+
+-- Everything already taken into this device's vault, deleted or not, so that
+-- nothing an existing device has received becomes deliverable again.
+INSERT OR IGNORE INTO taken (content_hash, sender, taken_at, filed_as)
+SELECT content_hash, modified_by, updated_at, path FROM files
+ WHERE scope = (SELECT device_id FROM local WHERE id = 1)
+   AND content_hash != zeroblob(32);
 "#;
 
 pub struct Db {
@@ -1286,17 +1317,43 @@ impl Db {
     ///
     /// Tombstones count. A delivery the user accepted and then deleted has
     /// been taken, and offering it again every time the sender reappears would
-    /// make deleting a received file impossible.
+    /// make deleting a received file impossible. So does the `taken` record,
+    /// which outlives a tombstone's retention window and is the only record of
+    /// a delivery filed outside the folder.
     pub fn vault_knows(&self, content: &blake3::Hash) -> Result<bool> {
         let me = self.local_device()?;
         let known: bool = self.conn.query_row(
             "SELECT EXISTS (
                  SELECT 1 FROM files WHERE content_hash = ?1 AND scope = ?2
+             ) OR EXISTS (
+                 SELECT 1 FROM taken WHERE content_hash = ?1
              )",
             params![content.as_bytes().as_slice(), me.as_bytes().as_slice()],
             |r| r.get(0),
         )?;
         Ok(known)
+    }
+
+    /// Remember, for good, that this device took a delivery of these bytes.
+    ///
+    /// The first record stands: a delivery is taken once, so a second call for
+    /// the same content changes nothing.
+    pub fn note_taken(
+        &self,
+        content: &blake3::Hash,
+        sender: Option<&DeviceId>,
+        filed_as: &str,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO taken (content_hash, sender, taken_at, filed_as)
+             VALUES (?1, ?2, unixepoch(), ?3)",
+            params![
+                content.as_bytes().as_slice(),
+                sender.map(|d| d.as_bytes().to_vec()),
+                filed_as
+            ],
+        )?;
+        Ok(())
     }
 
     /// Whether a device may fetch the bytes of this chunk.

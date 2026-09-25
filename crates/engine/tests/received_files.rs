@@ -91,7 +91,7 @@ impl Device {
 
 /// Somebody sent this device a file: written into the folder, scoped to this
 /// device, and adopted the way a delivery is.
-fn receive(device: &mut Device, name: &str, contents: &[u8]) {
+fn receive(device: &mut Device, name: &str, contents: &[u8]) -> FileVersion {
     let sender = qurb_sync::DeviceId::from_bytes([0xCC; 32]);
     let mut vector = VersionVector::new();
     vector.increment(sender);
@@ -110,6 +110,7 @@ fn receive(device: &mut Device, name: &str, contents: &[u8]) {
     let path = device.root.join(name);
     fs::write(&path, contents).unwrap();
     device.engine.store_mut().adopt_file_privately(&version, &path, 0).unwrap();
+    version
 }
 
 #[test]
@@ -375,4 +376,25 @@ fn a_version_from_elsewhere_is_not_refiled_as_private() {
         b"for you and nobody else",
         "the received file on disk was touched"
     );
+}
+
+/// A received file, deleted, stays deleted -- past the retention window too.
+///
+/// The sender goes on offering what it sent for as long as it keeps the entry.
+/// The only record of having taken it was the file's own row, and a deleted
+/// file's row is a tombstone that garbage collection expires; the daemon keeps
+/// tombstones for seven days. So a week after somebody deleted a file they had
+/// been sent, it arrived again.
+#[test]
+fn a_deleted_delivery_is_not_offered_again_after_collection() {
+    let mut device = Device::new();
+    let version = receive(&mut device, "holiday.jpg", b"for you and nobody else");
+
+    fs::remove_file(device.root.join("holiday.jpg")).unwrap();
+    device.engine.reconcile().unwrap();
+    // No retention at all: every tombstone expires now, as it would a week on.
+    device.engine.store_mut().gc(std::time::Duration::ZERO).unwrap();
+
+    let plan = device.engine.plan_against(&[version]).unwrap();
+    assert!(plan.is_empty(), "a deleted delivery was offered again: {plan:?}");
 }

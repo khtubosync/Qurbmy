@@ -894,6 +894,10 @@ safe.
   free one chosen file yet. When *Free local space* is built, a received file
   must be refused with the real reason — the sender's copy is one the phone may
   not count on — not "not found".
+- **Nothing on a phone collects garbage.** Only the desktop daemon runs it, so
+  on a phone tombstones never expire and chunks nothing references are never
+  removed. Found 2026-09-25 while tracing a different bug; not yet measured for
+  how much it costs over time.
 - **Case collisions are checked against the shared area only.** A received
   `Report.pdf` beside a shared `report.pdf` is not reported. Both of this
   project's platforms are case-sensitive, so it is latent rather than live.

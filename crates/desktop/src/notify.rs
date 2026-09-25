@@ -113,14 +113,31 @@ fn worth_saying(row: &Activity, who: Option<String>) -> Option<Notice> {
     match &row.kind {
         // A file somebody sent *to this device*, rather than one that arrived
         // because it was in a shared folder. The detail is what distinguishes
-        // them, and it is set at the point of adoption.
-        Event::Received if row.detail.as_deref() == Some("sent to this device") => Some(Notice {
-            title: match &who {
-                Some(name) => format!("{name} sent you a file"),
-                None => "Somebody sent you a file".to_string(),
-            },
-            body: what,
-        }),
+        // them, and it is set at the point of adoption: "sent to this device",
+        // followed by "; saved to <path>" when it went to Downloads rather
+        // than into the folder. Both strings are written in
+        // `qurb_engine::peer`, and a change to either has to happen in both.
+        Event::Received
+            if row.detail.as_deref().is_some_and(|d| d.starts_with("sent to this device")) =>
+        {
+            let saved = row
+                .detail
+                .as_deref()
+                .and_then(|d| d.split_once("; saved to "))
+                .map(|(_, path)| path);
+            Some(Notice {
+                title: match &who {
+                    Some(name) => format!("{name} sent you a file"),
+                    None => "Somebody sent you a file".to_string(),
+                },
+                // Where it is, because on a desktop it is an ordinary file in
+                // Downloads rather than something in qurb's own window.
+                body: match saved.and_then(|p| std::path::Path::new(p).parent()) {
+                    Some(folder) => format!("{what}\nSaved to {}", tidy(folder)),
+                    None => what,
+                },
+            })
+        }
 
         Event::Collected => Some(Notice {
             title: "Delivered".to_string(),
@@ -139,6 +156,18 @@ fn worth_saying(row: &Activity, who: Option<String>) -> Option<Notice> {
         }),
 
         _ => None,
+    }
+}
+
+/// A folder as a person would write it: `~/Downloads/qurb` rather than the
+/// whole path from the root of the disk.
+fn tidy(folder: &std::path::Path) -> String {
+    match std::env::var_os("HOME").map(std::path::PathBuf::from) {
+        Some(home) => match folder.strip_prefix(&home) {
+            Ok(rest) => format!("~/{}", rest.display()),
+            Err(_) => folder.display().to_string(),
+        },
+        None => folder.display().to_string(),
     }
 }
 
@@ -184,6 +213,20 @@ mod tests {
             worth_saying(&sent, Some("phone".into())).expect("a delivery should be announced");
         assert_eq!(notice.title, "phone sent you a file");
         assert_eq!(notice.body, "holiday.jpg");
+    }
+
+    /// On a desktop a delivery goes to Downloads, and the notification says
+    /// where -- the file is not in qurb's window to be found there.
+    #[test]
+    fn a_file_saved_to_downloads_says_where() {
+        let sent = row(
+            Event::Received,
+            "photo.jpg",
+            Some("sent to this device; saved to /data/Downloads/qurb/photo.jpg"),
+        );
+        let notice = worth_saying(&sent, Some("phone".into())).expect("announced");
+        assert_eq!(notice.title, "phone sent you a file");
+        assert_eq!(notice.body, "photo.jpg\nSaved to /data/Downloads/qurb");
     }
 
     /// A device that has since been forgotten still sent you something, and the

@@ -83,9 +83,11 @@ it lists everything, newest first.
 qurb send ~/Sync ~/Downloads/tickets.pdf to phone
 ```
 
-The file goes into that device's private vault: it appears in their folder and
-on no other device, and nothing about it is advertised to the rest of the
-fleet. Name the recipient the way `qurb status` lists it, or by its short id if
+The file goes to that device and to no other, and nothing about it is
+advertised to the rest of the fleet. Where it lands depends on what the
+recipient is: a desktop running this daemon saves it as an ordinary file in
+`Downloads/qurb` (see `downloads` below), and a phone keeps it in its own
+folder, privately. Name the recipient the way `qurb status` lists it, or by its short id if
 two devices share a name.
 
 The bytes stay on this device until the recipient confirms they arrived, so
@@ -149,6 +151,7 @@ relay  = 198.51.100.7:443
 name   = Study desktop
 port   = 0
 limit  = 10G
+downloads =
 ```
 
 An unknown key is an error rather than being ignored, because a misspelled
@@ -175,6 +178,28 @@ On Linux a dropped file is simply absent from the folder — there is no
 placeholder API to keep its name visible, so `qurb status` is where you find
 out it still exists.
 
+### `downloads`
+
+Where a file somebody sends this device is saved. Empty, the default, means
+`qurb` inside your Downloads folder (wherever `XDG_DOWNLOAD_DIR` says it is).
+A path means there. `off` keeps received files inside the synced folder,
+privately, which is what qurb did before.
+
+A file saved there is an ordinary file. qurb does not scan it, does not count
+it against `limit`, and does not treat deleting it as anything: it is yours to
+open, move or delete. What qurb keeps is a record that it took the delivery, so
+the sender offering it again changes nothing. A name already taken in that
+directory is never overwritten; the arriving file is saved beside it as
+`name.from-<device>-<when>.ext`.
+
+The directory may not overlap the synced folder, in either direction —
+received files inside the folder would be synced to every device. `qurb
+config` refuses such a setting and `qurb run` refuses to start with one. If
+the synced folder is itself `Downloads/qurb`, where new folders used to go, the
+default becomes `Downloads/qurb-received` instead.
+
+See [decision 0037](../../docs/decisions/0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md).
+
 ## What is waiting to be delivered
 
 `qurb status` ends with a line like:
@@ -200,4 +225,6 @@ nothing.
 - **Choose what to keep.** The storage limit picks by what is coldest. There
   is no way to say "always keep this folder here, never that one".
 - **Run as a service.** No unit file, no launch agent, no Windows service.
-- **Anything graphical.** This is the daemon the interface will sit on.
+- **Anything graphical on its own.** The window is
+  [`qurb-desktop`](../desktop/README.md), which runs this same daemon inside
+  itself.

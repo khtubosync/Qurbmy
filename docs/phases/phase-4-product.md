@@ -11,19 +11,21 @@ warns is not the fun part and is a full quarter.
 | area | status |
 |---|---|
 | a daemon that runs | ✅ [`qurb`](../../crates/qurb/) |
-| the commands around it | ✅ init, enrol, pair, join, run, status, verify, reclaim, fetch, config |
+| the commands around it | ✅ init, enrol, pair, join, run, status, verify, reclaim, fetch, send, activity, ls, find, config, protect |
 | running the services | ✅ `qurb signal`, `qurb relay` |
 | push, rather than polling | ✅ ~430ms, measured |
 | protecting the key at rest | ✅ keystore and passphrase |
 | storing files in parallel | ✅ 487 → 830-888 files/s |
-| onboarding and the recovery phrase | ◐ works, in a terminal |
+| onboarding and the recovery phrase | ◐ in the window, phrase shown and confirmed; the storage question is not asked yet ([0038](../decisions/0038-the-storage-question-during-setup.md)) |
 | installers | ⬜ not started |
 | signed updates with rollback | ⬜ not started |
 | observability | ◐ structured logs, nothing more |
-| the interface | ◐ a window with the settings that matter |
+| the interface | ◐ a window: set up, pair, send, and where every file is — see *The window* |
 | one daemon per folder | ✅ an advisory lock, not a convention |
 | pairing | ✅ scan a QR code, once, and it stays paired |
-| a folder that needs no path | ✅ `~/Downloads/qurb`, with a registry |
+| a folder that needs no path | ✅ `~/qurb`, with a registry (it was `~/Downloads/qurb` until [0037](../decisions/0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md)) |
+| files sent to this desktop | ✅ saved to `Downloads/qurb` as ordinary files |
+| transfer progress | ⬜ outcomes are recorded; a transfer in flight is not |
 | storing each file once | ✅ the folder *is* the payload store |
 | a storage cap | ✅ limit, eviction, fetch-back — and a slider |
 | a replica anybody can run | ✅ `qurb replica` |
@@ -32,7 +34,8 @@ warns is not the fun part and is a full quarter.
 | the services deployable | ✅ systemd units, TLS, ports written down |
 | garbage collection running | ✅ every 5 minutes, 7-day retention |
 
-495 tests pass across eleven crates; clippy is clean.
+626 tests pass in 74 test binaries on Linux (2026-09-25, debug build, the
+development laptop); clippy is clean.
 
 ## The interface
 
@@ -231,6 +234,11 @@ default to a folder: `$XDG_DOWNLOAD_DIR/qurb`, falling back to
 recording which folders exist so the most recently used one wins. The legacy
 `~/qurb` is still found if it is there.
 
+Since 2026-09-25 a *new* folder goes in `~/qurb` again. `Downloads/qurb` became
+where files sent to this device are saved, and the two must never overlap — see
+[decisions/0037](../decisions/0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md).
+A folder already in Downloads stays there and is still found.
+
 Several people on one computer is answered by several operating-system
 accounts rather than by a qurb-level notion of a user — see
 [decisions/0023](../decisions/0023-one-person-per-account.md).
@@ -408,6 +416,88 @@ a minute and resetting after a connection that lasted. Verified live: a daemon
 left for two minutes with no service reconnected twenty-six seconds after one
 appeared.
 
+## The window
+
+Recorded here late: the desktop application was built in this phase and this
+document did not say so. It is [`qurb-desktop`](../../crates/desktop/README.md),
+a Tauri window that runs the daemon inside itself
+([decision 0032](../decisions/0032-the-interface-hosts-the-daemon.md)): home,
+files with where each one's contents are, devices, activity, storage with the
+allowance, sending by dropping a file on the window, settings, and setting a
+device up from nothing — the 24 words shown, three of them confirmed, and never
+written down ([decision 0033](../decisions/0033-the-phrase-on-a-screen.md)).
+Pairing is a QR code, a typed code or a spoken one, with a countdown. Three
+things raise a notification and nothing else does: a file sent to you, one
+collected, and a failure.
+
+The applications menu still launches `qurb-tray`, the smaller front end, rather
+than this window. Choosing one is packaging work, and it is not done.
+
+## Files sent to a desktop go to Downloads
+
+**2026-09-25.** A file somebody sends this desktop is saved as an ordinary file
+in `Downloads/qurb`, outside the folder, and qurb stops tracking it: it is not
+scanned, not counted against the limit, and deleting it is the person tidying
+their Downloads. That is
+[decision 0037](../decisions/0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md),
+which records what was built, how it was verified, and what is not done yet —
+notably that a phone cannot send one yet, so phone to desktop is unexercised.
+
+Building it turned up two defects that had nothing to do with Downloads and
+were serious anyway.
+
+### A path is an instruction
+
+A version from another device names a path, and the receiving device joins it
+onto its folder and writes there — or, for a deletion, deletes there. **Nothing
+checked the path.** Not the wire format, which bounds its length and checks it
+is UTF-8, and not the engine. A paired device could have sent `../../.bashrc`,
+an absolute path, or `.qurb/config`, and this device would have written it, or
+deleted it.
+
+Pairing does not make that safe. It proves which device is talking; a device
+that is stolen or compromised keeps its pinned identity, and the whole point of
+the hostile-peer tests in Phase 2 was that authentication says nothing about
+whether a peer is telling the truth. Those tests covered wrong bytes, nonsense
+and silence. They did not cover a well-formed message naming somewhere it
+should not.
+
+Now refused in two places, with one rule —
+[`qurb_sync::is_safe_path`](../../crates/sync/src/path.rs): relative, no empty,
+`.` or `..` components, no NUL. The wire refuses a tree containing such a path
+as a whole, since a peer that sends one is not a working copy of this software.
+The engine refuses it again before writing or deleting, and also refuses
+anything its ignore rules exclude, which keeps a peer out of qurb's own store
+inside the folder.
+
+Checked by disabling the engine's check and running
+`crates/engine/tests/hostile_paths.rs`: every hostile version was written, one
+file landed a directory above the test's own temporary directory, and a file
+outside the folder was deleted. With the check, all of them are refused.
+
+Backslashes are not refused. On Linux they are ordinary characters in a name;
+on Windows they would be separators, and that is one of the things supporting
+Windows will mean revisiting.
+
+### Taken once, for good
+
+A delivery is taken once, keyed by content, so that the sender offering it
+again changes nothing. The only record of having taken one was the received
+file's own row — and once the person deleted the file, that row was a tombstone,
+which garbage collection expires after the retention window. The daemon keeps
+tombstones for seven days, so a file sent to a desktop and deleted there would
+have arrived again once its tombstone expired. (A phone was spared only because
+nothing on a phone collects garbage at all — which is its own gap: tombstones
+and released chunks there are never reclaimed.) Shown by
+`a_deleted_delivery_is_not_offered_again_after_collection` in
+`crates/engine/tests/received_files.rs`, which collects with no retention
+window and fails without the fix; not waited out for a real week.
+
+A `taken` table, never expired, is the record now; the index migration fills
+it from everything an existing device had received. Found because a delivery
+saved to Downloads has no row at all, which would have made the same thing
+happen on the very next sync.
+
 ## Still to do
 
 - **Running the *daemon* as a service** — a user unit, a launch agent, a
@@ -420,8 +510,9 @@ appeared.
   deleting a file from a folder, so a cap on a replica reports the overrun
   rather than acting on it. Dropping chunk payloads is a different operation
   and is not written.
-- **The interface beyond the settings.** There is a window with status and a
-  storage slider; there is no way to pair a device, browse what is synced, or
-  recover a deleted file from it. The onboarding screen that asks someone to
-  write down 24 words is still a terminal, and is the highest-stakes part of
-  the product.
+- **The rest of the interface.** Transfer progress, cancel and retry; more
+  than one file per send; "Open folder" for a received file; the `downloads`
+  setting in the window; the storage question during setup
+  ([0038](../decisions/0038-the-storage-question-during-setup.md)); and
+  recovering a deleted file. See [product-plan.md](../product-plan.md) for the
+  order.

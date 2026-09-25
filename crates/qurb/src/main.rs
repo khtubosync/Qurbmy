@@ -436,6 +436,11 @@ fn status(root: &Path) -> Result<()> {
     println!("  identity   {}", identity.fingerprint().short());
     println!("  name       {}", config.name);
     println!("  key kept   {}", Vault::at(&store_dir(root)).protection()?.as_str());
+    match config.downloads.resolve(root) {
+        Ok(Some(dir)) => println!("  sent here  saved to {}", dir.display()),
+        Ok(None) => println!("  sent here  kept in the folder"),
+        Err(_) => println!("  sent here  refused — see `qurb config`"),
+    }
     println!("  files      {}", live.len());
     println!("  chunks     {chunks}");
     println!("  content    {} ({} on disk)", human(plaintext), human(stored));
@@ -944,6 +949,14 @@ fn configure(root: &Path, settings: &[String]) -> Result<()> {
                 qurb_cli::config::human_size(config.limit)
             }
         );
+        println!(
+            "downloads = {}",
+            match config.downloads.resolve(root) {
+                Ok(Some(dir)) => dir.display().to_string(),
+                Ok(None) => "off — kept in the folder".to_string(),
+                Err(e) => format!("refused: {e}"),
+            }
+        );
         println!("\n{}", Config::path(&store_dir).display());
         return Ok(());
     }
@@ -964,6 +977,13 @@ fn configure(root: &Path, settings: &[String]) -> Result<()> {
             "name" => config.name = value.trim().to_string(),
             "port" => config.port = value.trim().parse().context("port should be a number")?,
             "limit" => config.limit = qurb_cli::config::parse_size(value)?,
+            "downloads" => {
+                let downloads = qurb_cli::config::Downloads::parse(value);
+                // Refused here, where the person can fix it, rather than at the
+                // next start, where the daemon would refuse to run.
+                downloads.resolve(root)?;
+                config.downloads = downloads;
+            }
             other => bail!("unknown setting `{other}`"),
         }
     }

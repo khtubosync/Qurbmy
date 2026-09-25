@@ -272,14 +272,18 @@ what a send promises — including the rule that a copy in somebody's vault is a
 copy this device may *not* count on, which is the difference between eviction
 and data loss.
 
-**Decided and not yet built.** Two decisions change this picture, and nothing
-in the code does what they say yet. A phone's own files are to go into its
-vault rather than the shared area, with another device holding a copy for it
-that it does not show
-([decisions/0036](decisions/0036-a-phone-keeps-its-own-files.md)). A file
-sent to a desktop is to land in Downloads as an ordinary file that qurb stops
-tracking ([decisions/0037](decisions/0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md)).
-Until they are built, everything above is what actually happens.
+**On a desktop, a received file leaves qurb.** The daemon saves it as an
+ordinary file in `Downloads/qurb`, outside the folder, and stops tracking it:
+not scanned, not counted against the limit, the person's to delete. What it
+keeps is a `taken` record, never expired, so the sender offering it again
+changes nothing. A phone has no downloads directory and files deliveries in its
+folder, privately, as described above. See
+[decisions/0037](decisions/0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md).
+
+**Decided and not yet built:** a phone's own files are to go into its vault
+rather than the shared area, with another device holding a copy for it that it
+does not show ([decisions/0036](decisions/0036-a-phone-keeps-its-own-files.md)).
+Until that is built, a file added on a phone goes into the shared area.
 
 ### 2.7 The index remembers what happened, not just what is
 
@@ -473,7 +477,8 @@ qurb/
 │   │       ├── clock.rs     version vectors and their partial order
 │   │       ├── version.rs   one device's view of one path
 │   │       ├── resolve.rs   deciding between two versions
-│   │       └── reconcile.rs deciding about a whole tree
+│   │       ├── reconcile.rs deciding about a whole tree
+│   │       └── path.rs      which paths another device may name
 │   │
 │   ├── peer/              Reaching another device, over QUIC.
 │   │   ├── src/wire.rs      the message format; bounded and hostile-input safe
@@ -613,6 +618,8 @@ product around it largely is not.
 | Per-device private vaults | `files.scope`: `NULL` is shared, a device id is that device's vault |
 | A history of what happened | one table, pruned by age and count; `qurb activity` reads it |
 | Sending to one device | `qurb send <file> to <device>`; held until collected, released first afterwards |
+| Receiving on a desktop | saved to `Downloads/qurb` as an ordinary file; overlap with the folder refused |
+| Deliveries remembered | a `taken` record per delivery, never expired, so nothing is taken twice |
 
 ### Built and tested (`crates/watcher`, Phase 1)
 
@@ -686,7 +693,7 @@ for the workspace as it stands.
 | Recovery, end to end | the phrase turns back into the user's files |
 | Key hygiene | redacted in `Debug`, wiped on drop, owner-only on disk |
 
-611 tests pass in 72 test binaries on Linux (2026-09-25, debug build, the
+626 tests pass in 74 test binaries on Linux (2026-09-25, debug build, the
 development laptop); clippy is clean. The last run on
 a Galaxy S23 was 426 of them, before this week's work — see
 [phases/phase-5-mobile.md](phases/phase-5-mobile.md).
@@ -773,6 +780,7 @@ Swift a phone calls. What that became is the Android section below.
 | Corruption repair | damaged chunks refetched from a peer and verified |
 | Large renames | free in both sort directions; empty directories pruned |
 | Hostile peers | wrong bytes, nonsense, silence — none reaches disk |
+| Hostile paths | `../`, absolute paths, qurb's own store — refused on the wire and again before any write or delete (added 2026-09-25) |
 | Concurrent collection | the collector runs against a live writer |
 
 The phase found five real defects, all of the same shape — correct in isolation,
@@ -1025,6 +1033,13 @@ introduce them, then `run` on both:
 ```bash
 # Bound how much disk this folder may use. 0, the default, means no limit.
 ./target/release/qurb config ~/Sync limit=10G
+```
+
+```bash
+# Where files sent to this device are saved. Empty means Downloads/qurb; a
+# directory inside the synced folder is refused, since they would sync to
+# every device. `off` keeps them in the folder instead.
+./target/release/qurb config ~/Sync downloads=~/Downloads/from-my-phone
 ```
 
 ```bash

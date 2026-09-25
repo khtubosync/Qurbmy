@@ -197,3 +197,50 @@ fn releasing_never_takes_the_last_copy_of_a_shared_chunk() {
     assert_eq!(released.chunks_removed, 0, "that payload is somebody's only copy");
     assert_eq!(fixture.store.read_content(&blake3::hash(&payload)).unwrap().unwrap(), payload);
 }
+
+/// An index from before the `taken` record keeps everything it had received.
+///
+/// The migration fills the record from the received files already in the
+/// index. Without that, upgrading would make every delivery a device had ever
+/// deleted deliverable again the moment its tombstone expired.
+#[test]
+fn upgrading_remembers_every_delivery_already_taken() {
+    let fixture = Fixture::new();
+    let store_dir = fixture.root.join(".qurb");
+    let mut store = fixture.store;
+
+    let contents = noisy(20_000);
+    let sender = DeviceId::from_bytes([0xCC; 32]);
+    let mut vector = qurb_sync::VersionVector::new();
+    vector.increment(sender);
+    let version = qurb_sync::FileVersion {
+        path: "tickets.pdf".into(),
+        content: qurb_sync::Content::File {
+            hash: *blake3::hash(&contents).as_bytes(),
+            size: contents.len() as u64,
+        },
+        vector,
+        modified_by: sender,
+        modified_at: 1_790_000_000,
+        private: true,
+    };
+    let landed = fixture.root.join("tickets.pdf");
+    std::fs::write(&landed, &contents).unwrap();
+    store.adopt_file_privately(&version, &landed, 0).unwrap();
+
+    // Put the index back the way a build before the record left it.
+    store
+        .db()
+        .conn()
+        .execute_batch("DELETE FROM taken; PRAGMA user_version = 10;")
+        .unwrap();
+    drop(store);
+
+    let reopened = Store::open(&store_dir, ChunkKey::from_bytes([7; 32])).unwrap();
+    let remembered: i64 = reopened
+        .db()
+        .conn()
+        .query_row("SELECT count(*) FROM taken", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(remembered, 1, "the migration did not carry over what had been received");
+}

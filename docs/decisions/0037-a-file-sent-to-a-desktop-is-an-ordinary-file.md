@@ -1,6 +1,6 @@
 # 0037 — A file sent to a desktop is an ordinary file in Downloads
 
-**Status:** Accepted — not built
+**Status:** Accepted — built 2026-09-25
 **Date:** 2026-09-25
 
 Amends [0023](0023-one-person-per-account.md) on the default location, and
@@ -85,3 +85,50 @@ not.
 Cheap. Files already written to Downloads stay there; turning the setting off
 goes back to filing deliveries into the folder.
 
+## As built
+
+**2026-09-25.** A `downloads` setting in the folder's config: empty for the
+default, a path, or `off`. `qurb run` resolves it before anything syncs and
+hands it to the engine; `qurb config` and `qurb run` both refuse a directory
+that overlaps the folder, compared after resolving symbolic links. `qurb
+status` says where received files go. New folders default to `~/qurb`; the
+previous default, `Downloads/qurb`, is still found for existing installs.
+
+Three things the decision did not spell out, found while building it:
+
+- **"Taken" needed a record of its own.** It had been the received file's row,
+  and a deleted file's row is a tombstone that garbage collection expires after
+  seven days on a desktop. A file sent to one, filed in the folder and deleted,
+  would have come back once its tombstone expired; saved to Downloads, with no
+  row at all, it would have come back on the next sync. A
+  `taken` table (index schema V11), never expired, is now the record for both,
+  and the migration fills it from everything an existing device had received.
+- **A crash between the rename and the record** leaves the file in place and
+  unrecorded. The next attempt finds a file of that name with exactly the
+  delivered bytes, and records it rather than saving a second copy.
+- **Paths from the other device were never checked.** Writing a delivery
+  outside the folder is what this decision does, so it forced the question of
+  where else a peer's path could reach. The answer was anywhere: see
+  [phase 4](../phases/phase-4-product.md), "A path is an instruction".
+
+**On upgrade, an existing desktop starts saving received files to
+`Downloads/qurb`**, because its config has no `downloads` line and empty means
+the default. That is this decision applied, and it is stated here so it is not
+a surprise; `downloads = off` restores the old behaviour.
+
+**Verified** on the development laptop (CachyOS), 2026-09-25: five engine tests
+in `crates/engine/tests/downloads.rs`, and two daemons on one machine sharing a
+throwaway identity, paired through `qurb pair` and `qurb join`. A 3 MB file sent
+with `qurb send` arrived in the receiver's downloads directory with an identical
+SHA-256, not in its folder; after it was deleted there and the receiver
+restarted and reconnected, it did not come back.
+
+**Not yet:**
+
+- **From a phone.** A phone cannot send yet — its interface has no send — so the
+  pair this decision is really about, phone to desktop, is unexercised.
+- **"Open folder".** The notification now says where the file was saved; the
+  brief's button to open that folder, in the notification or the window, is
+  not built.
+- **The setting in the window.** It is a config line and a command, not yet a
+  field in Settings.

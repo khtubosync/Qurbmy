@@ -35,6 +35,11 @@ pub enum Error {
     #[error("{path} cannot be stored: a file sent to this device already has that name")]
     TakenPrivately { path: String },
 
+    /// A version naming somewhere this device will not write: outside the
+    /// folder, or inside qurb's own store. See [`qurb_sync::is_safe_path`].
+    #[error("{path:?} is not somewhere another device may write")]
+    UnsafePath { path: String },
+
     #[error("io error at {path}: {source}")]
     Io {
         path: PathBuf,

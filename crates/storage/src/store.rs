@@ -312,7 +312,15 @@ impl Store {
         mtime_ns: i64,
     ) -> Result<PutStats> {
         let me = self.db.local_device()?;
-        self.adopt_file_scoped(version, source, mtime_ns, Some(&me))
+        let stats = self.adopt_file_scoped(version, source, mtime_ns, Some(&me))?;
+        if let Some(hash) = version.content.hash() {
+            self.db.note_taken(
+                &blake3::Hash::from(*hash),
+                Some(&version.modified_by),
+                &version.path,
+            )?;
+        }
+        Ok(stats)
     }
 
     fn adopt_file_scoped(
@@ -1288,6 +1296,17 @@ impl Store {
     /// [`Db::vault_knows`](crate::db::Db::vault_knows).
     pub fn vault_knows(&self, content: &blake3::Hash) -> Result<bool> {
         self.db.vault_knows(content)
+    }
+
+    /// Record a delivery taken somewhere other than the folder. See
+    /// [`Db::note_taken`](crate::db::Db::note_taken).
+    pub fn note_taken(
+        &self,
+        content: &blake3::Hash,
+        sender: Option<&DeviceId>,
+        filed_as: &str,
+    ) -> Result<()> {
+        self.db.note_taken(content, sender, filed_as)
     }
 
     /// Files whose bytes could be dropped, coldest first. See [`Db::evictable`].

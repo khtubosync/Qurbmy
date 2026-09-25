@@ -197,7 +197,8 @@ requests by itself:
 - Transfer progress, cancel and retry — live state, which the daemon does not
   yet publish per transfer.
 - Direct or relay, per device, in the daemon's status.
-- A file sent to the desktop landing outside the store — [0037](decisions/0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md).
+- ~~A file sent to the desktop landing outside the store~~ — built,
+  [0037](decisions/0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md).
 - A phone's own files in its vault, and another device holding them for it — [0036](decisions/0036-a-phone-keeps-its-own-files.md), which lists the five engine changes.
 - Selective sync for ordinary devices.
 - A replica freeing space.
@@ -386,9 +387,15 @@ activity, storage, send, settings, setting a device up from nothing, and
 pairing on the existing infrastructure.
 
 **5. Transfers.** Mostly done. Sending from the window is built, and so are the
-three notifications. Still owed: **progress** for a transfer in flight, with
-cancel and retry; **several files or a folder** in one send; the **Downloads
-destination** (§3.2); and which path a transfer took, **direct or relay**.
+three notifications. The **Downloads destination** is built — decision 0037 —
+and building it found and closed two defects that were not about Downloads: a
+peer's path was never checked, so a paired device could write or delete
+anywhere on the disk, and a deleted delivery could arrive again once its
+tombstone expired. See [phase 4](phases/phase-4-product.md), "Files sent to a
+desktop go to Downloads". Still owed: **progress** for a transfer in flight,
+with cancel and retry; **several files or a folder** in one send; **"Open
+folder"** for a received file; and which path a transfer took, **direct or
+relay**.
 
 **6. Android product UI.** Built on
 [0036](decisions/0036-a-phone-keeps-its-own-files.md), whose engine changes

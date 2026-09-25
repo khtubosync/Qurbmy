@@ -79,14 +79,22 @@ pub fn forget(root: &Path) -> Result<()> {
 
 /// Where to put a folder when the person has not said.
 ///
-/// Under Downloads rather than a hidden directory or the home root: files that
-/// sync between devices are files someone wants to *find*, and Downloads is
-/// where every desktop already looks. `XDG_DOWNLOAD_DIR` is honoured because on
-/// a non-English system the folder is not called "Downloads".
+/// `~/qurb`. It was `Downloads/qurb` for a while, on the reasoning that files
+/// from another device are files somebody wants to find; decision 0037 gave
+/// that place to files sent *to* this device instead, which are ordinary files
+/// qurb stops tracking, and the two must not overlap. Existing folders in
+/// Downloads stay where they are -- see [`current`].
 pub fn default_root() -> Result<PathBuf> {
+    Ok(PathBuf::from(std::env::var("HOME").context("no HOME set")?).join("qurb"))
+}
+
+/// The person's Downloads folder.
+///
+/// From the XDG user-dirs file, which is what the file manager itself reads,
+/// because on a non-English system the folder is not called "Downloads".
+pub fn user_downloads() -> Result<PathBuf> {
     let home = PathBuf::from(std::env::var("HOME").context("no HOME set")?);
 
-    // The XDG user-dirs file, which is what the file manager itself reads.
     let config = home.join(".config").join("user-dirs.dirs");
     if let Ok(text) = std::fs::read_to_string(&config) {
         for line in text.lines() {
@@ -94,13 +102,13 @@ pub fn default_root() -> Result<PathBuf> {
                 let value = value.trim().trim_matches('"');
                 let expanded = value.replace("$HOME", &home.display().to_string());
                 if !expanded.is_empty() {
-                    return Ok(PathBuf::from(expanded).join("qurb"));
+                    return Ok(PathBuf::from(expanded));
                 }
             }
         }
     }
 
-    Ok(home.join("Downloads").join("qurb"))
+    Ok(home.join("Downloads"))
 }
 
 /// The folder to act on when none was named.
@@ -114,33 +122,29 @@ pub fn current() -> Option<PathBuf> {
             return Some(folder);
         }
     }
-    // Both the new default and the old one, so an existing install keeps
-    // working after the default moved.
-    [default_root().ok(), legacy_root()]
+    // The default, and where the default was before, so an existing install
+    // keeps working after it moved.
+    [default_root().ok(), user_downloads().ok().map(|d| d.join("qurb"))]
         .into_iter()
         .flatten()
         .find(|candidate| crate::is_set_up(candidate))
-}
-
-/// Where folders used to go, before the default moved to Downloads.
-fn legacy_root() -> Option<PathBuf> {
-    std::env::var("HOME").ok().map(|h| PathBuf::from(h).join("qurb"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The default has to land inside Downloads, because that is where someone
-    /// looks for a file that arrived from another device.
+    /// A new folder goes in the home directory, and deliveries go to Downloads:
+    /// the two must never be the same place, or a received file would be
+    /// synced to every device.
     #[test]
-    fn the_default_is_under_downloads() {
-        let Ok(root) = default_root() else { return };
-        let text = root.display().to_string();
+    fn the_default_folder_is_not_where_deliveries_go() {
+        let (Ok(root), Ok(downloads)) = (default_root(), user_downloads()) else { return };
+        assert!(root.ends_with("qurb"), "the folder should be named qurb, got {}", root.display());
         assert!(
-            text.to_lowercase().contains("download"),
-            "the default should be under Downloads, got {text}"
+            !crate::config::overlaps(&root, &downloads.join("qurb")),
+            "the default folder {} overlaps the default downloads directory",
+            root.display()
         );
-        assert!(text.ends_with("qurb"), "the folder should be named qurb, got {text}");
     }
 }
