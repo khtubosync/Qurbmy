@@ -1,6 +1,6 @@
 # 0030 — Sending a file to one device
 
-**Status:** Accepted
+**Status:** Accepted — rule 3 amended by [0037](0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md) on devices with a downloads directory; extended by [0036](0036-a-phone-keeps-its-own-files.md)
 **Date:** 2026-09-23
 
 ## Decision

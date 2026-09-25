@@ -1,6 +1,6 @@
 # 0033 — The recovery phrase on a screen
 
-**Status:** Accepted
+**Status:** Accepted — the storage clause amended by [0038](0038-the-storage-question-during-setup.md)
 **Date:** 2026-09-23
 
 ## Decision

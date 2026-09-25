@@ -1,6 +1,6 @@
 # 0029 — Two areas: one shared, one private per device
 
-**Status:** Accepted
+**Status:** Accepted — extended by [0036](0036-a-phone-keeps-its-own-files.md)
 **Date:** 2026-09-23
 
 ## Decision

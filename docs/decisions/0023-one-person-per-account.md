@@ -1,6 +1,6 @@
 # 0023 — One person per operating-system account
 
-**Status:** Accepted
+**Status:** Accepted — default location amended by [0037](0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md)
 **Date:** 2026-09-22
 
 ## Decision

@@ -272,6 +272,15 @@ what a send promises — including the rule that a copy in somebody's vault is a
 copy this device may *not* count on, which is the difference between eviction
 and data loss.
 
+**Decided and not yet built.** Two decisions change this picture, and nothing
+in the code does what they say yet. A phone's own files are to go into its
+vault rather than the shared area, with another device holding a copy for it
+that it does not show
+([decisions/0036](decisions/0036-a-phone-keeps-its-own-files.md)). A file
+sent to a desktop is to land in Downloads as an ordinary file that qurb stops
+tracking ([decisions/0037](decisions/0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md)).
+Until they are built, everything above is what actually happens.
+
 ### 2.7 The index remembers what happened, not just what is
 
 Everything above describes the index as a picture of the present: these paths,
@@ -425,8 +434,8 @@ qurb/
 │
 ├── docs/
 │   ├── CODEBASE.md        ← you are here
-│   ├── product-plan.md    Turning the engine into a product, and the one
-│   │                      decision that blocks it
+│   ├── product-plan.md    Turning the engine into a product: what exists
+│   │                      against the brief, and the decisions still open
 │   ├── glossary.md        Every term, defined plainly
 │   ├── trying-it.md       Running it yourself, from one machine to a phone
 │   ├── architecture.md    The target design, all subsystems

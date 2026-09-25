@@ -49,16 +49,19 @@ is worth more than a tidy directory.
 | [0020](0020-sync-takes-a-deadline.md) | Sync takes a deadline, and running out is not an error | Accepted |
 | [0021](0021-the-platform-supplies-the-keystore.md) | On mobile, the app supplies the keystore | Accepted |
 | [0022](0022-the-service-announces-arrivals.md) | The rendezvous service announces arrivals | Accepted |
-| [0023](0023-one-person-per-account.md) | One person per operating-system account | Accepted |
+| [0023](0023-one-person-per-account.md) | One person per operating-system account | Accepted, default location amended by 0037 |
 | [0024](0024-the-file-is-the-payload-store.md) | The file in the folder is the payload store | Accepted |
 | [0025](0025-a-storage-cap-that-cannot-lose-data.md) | A storage cap that cannot lose data | Accepted |
 | [0026](0026-sharing-while-the-other-device-is-off.md) | Sharing while the other device is off | Accepted |
 | [0027](0027-plaintext-stops-at-the-local-network.md) | Plaintext rendezvous stops at the local network | Accepted |
 | [0028](0028-waking-a-sleeping-device.md) | Waking a sleeping device, and what it costs | Accepted |
-| [0029](0029-two-areas-shared-and-private.md) | Two areas: one shared, one private per device | Accepted |
-| [0030](0030-sending-a-file-to-one-device.md) | Sending a file to one device | Accepted |
+| [0029](0029-two-areas-shared-and-private.md) | Two areas: one shared, one private per device | Accepted, extended by 0036 |
+| [0030](0030-sending-a-file-to-one-device.md) | Sending a file to one device | Accepted, amended by 0037, extended by 0036 |
 | [0031](0031-what-happened-is-written-down.md) | What happened is written down | Accepted |
 | [0032](0032-the-interface-hosts-the-daemon.md) | The interface hosts the daemon, and asks it nouns | Accepted |
-| [0033](0033-the-phrase-on-a-screen.md) | The recovery phrase on a screen | Accepted |
+| [0033](0033-the-phrase-on-a-screen.md) | The recovery phrase on a screen | Accepted, storage clause amended by 0038 |
 | [0034](0034-finding-each-other-with-no-server.md) | Finding each other with no server | Accepted |
 | [0035](0035-a-rendezvous-on-a-bare-address.md) | A rendezvous on a bare address | Accepted |
+| [0036](0036-a-phone-keeps-its-own-files.md) | A phone keeps its own files, and another device holds them for it | Accepted — not built |
+| [0037](0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md) | A file sent to a desktop is an ordinary file in Downloads | Accepted — not built |
+| [0038](0038-the-storage-question-during-setup.md) | The storage question is asked during setup | Accepted — not built |
