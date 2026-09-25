@@ -58,6 +58,48 @@ pub trait ContentSource {
     fn received(&mut self, _content: &[u8; 32]) {}
 }
 
+/// Told about content as it arrives from another device, so that something
+/// can show a transfer moving.
+///
+/// Only content that actually crosses from the source is reported. A file
+/// whose bytes were already here under another name -- a rename, a copy, an
+/// earlier version -- costs a lookup, not a transfer, and showing it as one
+/// would be showing work that is not happening.
+///
+/// `finished` is called whether or not the fetch succeeded, and before the
+/// file is moved into place. It means "no longer in flight", never "arrived":
+/// what arrived is the activity record, written once the file is committed.
+pub trait Progress {
+    /// The content of `path`, `size` bytes, is about to be fetched.
+    fn started(&mut self, _path: &str, _size: u64) {}
+    /// `bytes` more of it have been written.
+    fn advanced(&mut self, _bytes: u64) {}
+    /// It is no longer in flight.
+    fn finished(&mut self, _path: &str) {}
+}
+
+/// Nobody is watching.
+pub struct NoProgress;
+
+impl Progress for NoProgress {}
+
+/// Counts what passes through to `out`, for [`Progress`].
+struct Counting<'a> {
+    out: &'a mut dyn Write,
+    progress: &'a mut dyn Progress,
+}
+
+impl Write for Counting<'_> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let n = self.out.write(buf)?;
+        self.progress.advanced(n as u64);
+        Ok(n)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.out.flush()
+    }
+}
+
 /// A source that has nothing, for plans expected not to need content.
 pub struct NoContent;
 
@@ -230,6 +272,17 @@ impl Engine {
         actions: &[Action],
         source: &mut dyn ContentSource,
     ) -> Result<PlanStats> {
+        self.apply_plan_reporting(actions, source, &mut NoProgress)
+    }
+
+    /// [`apply_plan`](Self::apply_plan), telling `progress` about content as it
+    /// arrives.
+    pub fn apply_plan_reporting(
+        &mut self,
+        actions: &[Action],
+        source: &mut dyn ContentSource,
+        progress: &mut dyn Progress,
+    ) -> Result<PlanStats> {
         let mut stats = PlanStats::default();
 
         // Additions before removals. Within one plan a rename is both, and
@@ -257,11 +310,11 @@ impl Engine {
                 }
                 Action::Adopt { remote } => {
                     stats.adopted += 1;
-                    self.take(remote, source, &mut stats)
+                    self.take(remote, source, &mut stats, progress)
                 }
                 Action::Resurrect { resolved } => {
                     stats.resurrected += 1;
-                    self.take(resolved, source, &mut stats)
+                    self.take(resolved, source, &mut stats, progress)
                 }
                 Action::Conflict { keeps_path, renamed } => {
                     stats.conflicts += 1;
@@ -276,8 +329,8 @@ impl Engine {
                     // Order matters. The renamed copy is written first, so an
                     // interruption leaves the losing version saved beside the
                     // original rather than lost with the original overwritten.
-                    self.take(renamed, source, &mut stats)
-                        .and_then(|()| self.take(keeps_path, source, &mut stats))
+                    self.take(renamed, source, &mut stats, progress)
+                        .and_then(|()| self.take(keeps_path, source, &mut stats, progress))
                 }
             };
 
@@ -305,6 +358,7 @@ impl Engine {
         version: &FileVersion,
         source: &mut dyn ContentSource,
         stats: &mut PlanStats,
+        progress: &mut dyn Progress,
     ) -> Result<()> {
         // Checked before anything else, because everything after this joins
         // the path onto a directory and writes or deletes there. The wire
@@ -319,7 +373,7 @@ impl Engine {
         // A delivery, on a device that files them outside the folder.
         if version.private && !version.is_deleted() {
             if let Some(dir) = self.downloads().map(Path::to_path_buf) {
-                return self.take_into_downloads(version, &dir, source, stats);
+                return self.take_into_downloads(version, &dir, source, stats, progress);
             }
         }
 
@@ -431,7 +485,13 @@ impl Engine {
                         Some(held) => held,
                         None => {
                             stats.fetched += 1;
-                            source.fetch(hash, *size)?
+                            progress.started(&version.path, *size);
+                            let fetched = source.fetch(hash, *size);
+                            if let Ok(bytes) = &fetched {
+                                progress.advanced(bytes.len() as u64);
+                            }
+                            progress.finished(&version.path);
+                            fetched?
                         }
                     };
                     self.store_mut().adopt(version, Some(&bytes), version.modified_at)?;
@@ -474,7 +534,14 @@ impl Engine {
                         Some(bytes) => bytes,
                         None => {
                             stats.fetched += 1;
-                            source.fetch_into(hash, *size, &mut file)?
+                            progress.started(&version.path, *size);
+                            let fetched = source.fetch_into(
+                                hash,
+                                *size,
+                                &mut Counting { out: &mut file, progress: &mut *progress },
+                            );
+                            progress.finished(&version.path);
+                            fetched?
                         }
                     }
                 };
@@ -537,6 +604,7 @@ impl Engine {
         dir: &Path,
         source: &mut dyn ContentSource,
         stats: &mut PlanStats,
+        progress: &mut dyn Progress,
     ) -> Result<()> {
         let Content::File { hash, size } = &version.content else { return Ok(()) };
         let content = blake3::Hash::from(*hash);
@@ -584,7 +652,14 @@ impl Engine {
                 .map_err(|e| Error::Io { path: staging.clone(), source: e })?;
             if self.store().read_content_into(&content, &mut file)?.is_none() {
                 stats.fetched += 1;
-                source.fetch_into(hash, *size, &mut file)?;
+                progress.started(&version.path, *size);
+                let fetched = source.fetch_into(
+                    hash,
+                    *size,
+                    &mut Counting { out: &mut file, progress: &mut *progress },
+                );
+                progress.finished(&version.path);
+                fetched?;
             }
             file.sync_all().map_err(|e| Error::Io { path: staging.clone(), source: e })
         })();

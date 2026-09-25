@@ -109,6 +109,7 @@
     <button data-screen="activity">Activity</button>
     <button data-screen="storage">Storage</button>
     <button data-screen="send">Send</button>
+    <button data-screen="transfers">Transfers</button>
     <button data-screen="settings">Settings</button>
   </nav>
 
@@ -208,6 +209,26 @@
           <button class="act primary" id="pair-finish">Done</button>
         </div>
       </div>
+    </section>
+
+    <section id="transfers" class="screen">
+      <header>
+        <h1>Transfers</h1>
+        <p class="quiet">What is moving between your devices, and what has.</p>
+      </header>
+
+      <h2>Arriving now</h2>
+      <ul id="arriving" class="rows"><li class="quiet">nothing is arriving</li></ul>
+
+      <h2>Waiting to be collected</h2>
+      <ul id="waiting" class="rows"><li class="quiet">nothing you sent is waiting</li></ul>
+
+      <h2>Finished</h2>
+      <ul id="finished" class="rows"><li class="quiet">nothing yet</li></ul>
+      <p class="quiet note">
+        Files that arrive because they are in your synced folder are not listed
+        here, only in Activity — this is for what somebody sent on purpose.
+      </p>
     </section>
 
     <section id="activity" class="screen">

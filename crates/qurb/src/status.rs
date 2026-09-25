@@ -56,6 +56,22 @@ pub struct Recent {
     pub from_peer: bool,
 }
 
+/// A file on its way to this device, right now.
+///
+/// Live state rather than history: it exists while the bytes are moving and
+/// is gone the moment they stop, whether they arrived or not. What arrived is
+/// the activity record, written once the file is in place.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Transfer {
+    pub path: String,
+    /// The device it is coming from, by the name it was paired under.
+    pub from: String,
+    pub size: u64,
+    /// How much has arrived so far.
+    pub done: u64,
+    pub started: SystemTime,
+}
+
 /// Everything an interface needs, in one value.
 #[derive(Debug, Clone)]
 pub struct Status {
@@ -78,6 +94,8 @@ pub struct Status {
     /// The last thing that went wrong, if anything has.
     pub problem: Option<String>,
     pub last_sync: Option<SystemTime>,
+    /// Files arriving right now, oldest first.
+    pub incoming: Vec<Transfer>,
 }
 
 impl Status {
@@ -102,6 +120,7 @@ impl Status {
             recent: Vec::new(),
             problem: None,
             last_sync: None,
+            incoming: Vec::new(),
         }
     }
 

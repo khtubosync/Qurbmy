@@ -97,6 +97,16 @@ const ANSWERS = {
       { path: "work/report.pdf", at: now - 300, from_peer: false },
       { path: "photos/cat.png", at: now - 4000, from_peer: true },
     ],
+    // One transfer moving, growing on every poll, so the bar can be looked at.
+    incoming: [
+      {
+        path: "videos/holiday.mp4",
+        from: "phone",
+        size: "4000000000",
+        done: String(Math.min(4000000000, (Math.floor(Date.now() / 1000) - now) * 45000000 + 1200000000)),
+        started: now - 30,
+      },
+    ],
   }),
 
   storage: () => ({

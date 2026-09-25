@@ -693,7 +693,7 @@ for the workspace as it stands.
 | Recovery, end to end | the phrase turns back into the user's files |
 | Key hygiene | redacted in `Debug`, wiped on drop, owner-only on disk |
 
-626 tests pass in 74 test binaries on Linux (2026-09-25, debug build, the
+631 tests pass in 75 test binaries on Linux (2026-09-25, debug build, the
 development laptop); clippy is clean. The last run on
 a Galaxy S23 was 426 of them, before this week's work — see
 [phases/phase-5-mobile.md](phases/phase-5-mobile.md).
@@ -915,7 +915,7 @@ network. iOS needs Xcode, which needs a Mac. See
 
 | thing | status |
 |---|---|
-| A window | Tauri 2, five screens, no framework and no build step |
+| A window | Tauri 2, eight screens, no framework and no build step |
 | It hosts the daemon | the same one `qurb run` starts, on its own threads |
 | Home | live state, recent files, what is still on its way |
 | Files | listing, paging, search, and three-way availability |
@@ -927,7 +927,7 @@ network. iOS needs Xcode, which needs a Mac. See
 | Pairing | show a code — QR, typed or spoken — or enter one, with a countdown |
 | Sending | drop a file on the window or choose one, then pick a device |
 | Notifications | three things only: a file sent to you, one collected, one that failed |
-| Transfer progress | **not built** — see the crate's README |
+| Transfer progress | a file arriving: live, with a rate and time left. A file being sent: **not built** |
 
 ### Designed but not built
 

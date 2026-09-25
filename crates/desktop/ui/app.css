@@ -138,6 +138,25 @@ code { background: var(--panel); padding: 1px 5px; border-radius: 4px; font-size
 }
 
 .rows li:last-child { border-bottom: 0; }
+
+/* A transfer's progress. The width is the whole of what it says, so it moves
+   smoothly between updates -- unless somebody has asked for less motion. */
+.bar {
+  flex: 1 0 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+.bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width .25s linear;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bar > span { transition: none; }
+}
 /* Long enough that a path is readable before it wraps, and still allowed to
  * give way to the columns on its right. */
 .rows .name { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; }

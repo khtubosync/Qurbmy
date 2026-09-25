@@ -736,7 +736,10 @@ impl Daemon {
         // before there was any way to say so is, by definition, content
         // neither side needs to transfer again.
         let reader = self.open_store()?;
-        if let Ok(Some(known)) = engine.store().db().peer_by_fingerprint(peer.as_bytes()) {
+        let known = engine.store().db().peer_by_fingerprint(peer.as_bytes()).ok().flatten();
+        // What a transfer from this peer is shown as coming from.
+        let from = known.as_ref().map(|k| k.name.clone()).unwrap_or_else(|| peer.short());
+        if let Some(known) = known {
             let told = qurb_peer::report_holdings(&client, &reader, &known.device_id, 64).await;
             if told > 0 {
                 tracing::debug!(peer = %peer.short(), told, "reported holdings");
@@ -756,7 +759,8 @@ impl Daemon {
 
         let outcome = tokio::task::block_in_place(|| {
             let mut source = qurb_peer::NetworkSource::new(&client, &reader);
-            engine.apply_plan(&plan, &mut source)
+            let mut progress = Reporting::new(self.status.as_ref(), from);
+            engine.apply_plan_reporting(&plan, &mut source, &mut progress)
         })?;
 
         if outcome.adopted > 0 || outcome.conflicts > 0 {
@@ -777,6 +781,73 @@ impl Daemon {
         }
 
         Ok(outcome.adopted + outcome.conflicts + outcome.resurrected)
+    }
+}
+
+/// How often a transfer's progress is published, at most.
+///
+/// Often enough that a bar moves smoothly to the eye, rarely enough that a
+/// fast local transfer -- hundreds of megabytes a second -- is not spending
+/// its time telling a window about itself.
+const PUBLISH_EVERY: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Shows content arriving from one peer on the status channel.
+///
+/// The engine takes one file at a time, so there is at most one transfer in
+/// flight per observer, and `finished` removes it whether or not it arrived.
+struct Reporting<'a> {
+    status: Option<&'a crate::status::Publisher>,
+    from: String,
+    /// Bytes counted since the last publish.
+    unpublished: u64,
+    published_at: std::time::Instant,
+}
+
+impl<'a> Reporting<'a> {
+    fn new(status: Option<&'a crate::status::Publisher>, from: String) -> Self {
+        Self { status, from, unpublished: 0, published_at: std::time::Instant::now() }
+    }
+
+    fn publish(&self, change: impl FnOnce(&mut Vec<crate::status::Transfer>)) {
+        if let Some(status) = self.status {
+            status.send_modify(|s| change(&mut s.incoming));
+        }
+    }
+}
+
+impl qurb_engine::Progress for Reporting<'_> {
+    fn started(&mut self, path: &str, size: u64) {
+        self.unpublished = 0;
+        self.published_at = std::time::Instant::now();
+        let transfer = crate::status::Transfer {
+            path: path.to_string(),
+            from: self.from.clone(),
+            size,
+            done: 0,
+            started: std::time::SystemTime::now(),
+        };
+        self.publish(|incoming| incoming.push(transfer));
+    }
+
+    fn advanced(&mut self, bytes: u64) {
+        self.unpublished += bytes;
+        if self.published_at.elapsed() < PUBLISH_EVERY {
+            return;
+        }
+        let (from, arrived) = (self.from.clone(), self.unpublished);
+        self.publish(|incoming| {
+            if let Some(current) = incoming.iter_mut().rev().find(|t| t.from == from) {
+                current.done = (current.done + arrived).min(current.size);
+            }
+        });
+        self.unpublished = 0;
+        self.published_at = std::time::Instant::now();
+    }
+
+    fn finished(&mut self, path: &str) {
+        self.unpublished = 0;
+        let from = self.from.clone();
+        self.publish(|incoming| incoming.retain(|t| !(t.path == path && t.from == from)));
     }
 }
 
@@ -959,4 +1030,68 @@ struct Counted {
     peers: usize,
     used: u64,
     limit: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use qurb_engine::Progress;
+
+    fn channel() -> (crate::status::Publisher, crate::status::Watcher) {
+        crate::status::channel(crate::status::Status::starting("/q".into(), "abcd".into()))
+    }
+
+    /// A transfer is shown while it moves and gone the moment it stops, with
+    /// its bytes counted -- including those that arrived since the last time
+    /// anything was published.
+    #[test]
+    fn a_transfer_appears_moves_and_goes() {
+        let (publisher, watcher) = channel();
+        let mut progress = Reporting::new(Some(&publisher), "phone".into());
+
+        progress.started("video.mp4", 1000);
+        let shown = watcher.borrow().incoming.clone();
+        assert_eq!(shown.len(), 1);
+        assert_eq!((shown[0].path.as_str(), shown[0].from.as_str(), shown[0].size, shown[0].done),
+                   ("video.mp4", "phone", 1000, 0));
+
+        // Held back while inside the publishing interval...
+        progress.advanced(300);
+        assert_eq!(watcher.borrow().incoming[0].done, 0, "published faster than it should");
+
+        // ...and carried into the next publish rather than lost.
+        progress.published_at -= PUBLISH_EVERY;
+        progress.advanced(200);
+        assert_eq!(watcher.borrow().incoming[0].done, 500);
+
+        progress.finished("video.mp4");
+        assert!(watcher.borrow().incoming.is_empty(), "a finished transfer stayed on screen");
+    }
+
+    /// Two devices sending at once are two transfers, and one finishing does
+    /// not take the other off the screen.
+    #[test]
+    fn transfers_from_two_devices_are_kept_apart() {
+        let (publisher, watcher) = channel();
+        let mut phone = Reporting::new(Some(&publisher), "phone".into());
+        let mut tablet = Reporting::new(Some(&publisher), "tablet".into());
+
+        phone.started("a.jpg", 10);
+        tablet.started("a.jpg", 20);
+        phone.finished("a.jpg");
+
+        let shown = watcher.borrow().incoming.clone();
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].from, "tablet");
+    }
+
+    /// With nobody displaying anything there is nothing to publish to, and
+    /// reporting must cost nothing and fail at nothing.
+    #[test]
+    fn nobody_watching_is_fine() {
+        let mut progress = Reporting::new(None, "phone".into());
+        progress.started("x", 1);
+        progress.advanced(1);
+        progress.finished("x");
+    }
 }

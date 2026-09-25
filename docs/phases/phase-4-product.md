@@ -25,7 +25,7 @@ warns is not the fun part and is a full quarter.
 | pairing | ✅ scan a QR code, once, and it stays paired |
 | a folder that needs no path | ✅ `~/qurb`, with a registry (it was `~/Downloads/qurb` until [0037](../decisions/0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md)) |
 | files sent to this desktop | ✅ saved to `Downloads/qurb` as ordinary files |
-| transfer progress | ⬜ outcomes are recorded; a transfer in flight is not |
+| transfer progress | ◐ a file arriving: live, with rate and time left; a file being sent: not yet |
 | storing each file once | ✅ the folder *is* the payload store |
 | a storage cap | ✅ limit, eviction, fetch-back — and a slider |
 | a replica anybody can run | ✅ `qurb replica` |
@@ -34,7 +34,7 @@ warns is not the fun part and is a full quarter.
 | the services deployable | ✅ systemd units, TLS, ports written down |
 | garbage collection running | ✅ every 5 minutes, 7-day retention |
 
-626 tests pass in 74 test binaries on Linux (2026-09-25, debug build, the
+631 tests pass in 75 test binaries on Linux (2026-09-25, debug build, the
 development laptop); clippy is clean.
 
 ## The interface
@@ -498,6 +498,35 @@ it from everything an existing device had received. Found because a delivery
 saved to Downloads has no row at all, which would have made the same thing
 happen on the very next sync.
 
+## A transfer you can watch
+
+**2026-09-25.** A file arriving from another device now shows on a Transfers
+screen as it moves: how much of it, how fast, and about how long is left.
+
+The engine reports bytes as they are written, but only for content that
+actually crosses from the other device. A rename or a copy of something
+already here costs a lookup, and showing it as a transfer would be showing work
+that is not happening. The daemon publishes what it is told on the same status
+channel that carries "syncing" and "up to date" — live state, never the index,
+as [decision 0032](../decisions/0032-the-interface-hosts-the-daemon.md) says it
+must be — and at most four times a second, so a fast transfer is not spending
+its time describing itself.
+
+**Seen working**, on the development laptop: the real window receiving from a
+second device on the same machine, both release builds, stores on tmpfs. A
+1.2 GiB file showed its bar filling at 153 to 207 MiB/s with the time left
+counting down, and moved to *Finished* the moment it arrived. Those rates are
+what the screen displayed over loopback, not a measurement of anything a real
+network would do.
+
+Watching it found one thing no test did: *Finished* was drawn only when the
+screen opened, so a file that had arrived vanished from *Arriving now* and
+appeared nowhere. It is redrawn now whenever something stops arriving.
+
+Not built: progress for a file this device is *sending*, which has to be
+worked out from the chunk requests the other device makes; and cancel, pause
+and retry.
+
 ## Still to do
 
 - **Running the *daemon* as a service** — a user unit, a launch agent, a
@@ -510,7 +539,7 @@ happen on the very next sync.
   deleting a file from a folder, so a cap on a replica reports the overrun
   rather than acting on it. Dropping chunk payloads is a different operation
   and is not written.
-- **The rest of the interface.** Transfer progress, cancel and retry; more
+- **The rest of the interface.** Progress for a file being sent, and cancel and retry; more
   than one file per send; "Open folder" for a received file; the `downloads`
   setting in the window; the storage question during setup
   ([0038](../decisions/0038-the-storage-question-during-setup.md)); and

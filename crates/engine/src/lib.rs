@@ -33,7 +33,7 @@ pub mod repair;
 pub mod role;
 
 pub use error::{Error, FileFailure, Result};
-pub use peer::{ContentSource, NoContent, PlanStats, StoreSource};
+pub use peer::{ContentSource, NoContent, NoProgress, PlanStats, Progress, StoreSource};
 pub use repair::RepairStats;
 pub use role::{PinSet, Role};
 

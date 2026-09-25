@@ -568,6 +568,145 @@ async function drawOutgoing() {
   }
 }
 
+// ---------------------------------------------------------------- transfers
+
+/** Seconds as a person would say a wait. */
+function duration(seconds) {
+  if (!isFinite(seconds) || seconds < 0) return "";
+  if (seconds < 60) return `${Math.max(1, Math.round(seconds))} s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)} min`;
+  return `${(seconds / 3600).toFixed(1)} h`;
+}
+
+/** Which transfers were on screen last time, to notice one stopping. */
+let arrivingBefore = "";
+
+/** What is arriving right now. Live, so redrawn on the same beat as home. */
+async function drawArriving() {
+  const list = $("arriving");
+  try {
+    const s = await invoke("summary");
+
+    // A transfer that has stopped has either arrived or failed, and either way
+    // it belongs in the lists below, which are otherwise drawn only when the
+    // screen is opened. Redrawn now, so a finished file does not vanish from
+    // "arriving" without appearing anywhere else.
+    const arriving = s.incoming.map((t) => `${t.from}\u0000${t.path}`).join("\n");
+    const stopped = arrivingBefore !== "" &&
+      arrivingBefore.split("\n").some((k) => !arriving.split("\n").includes(k));
+    arrivingBefore = arriving;
+    if (stopped) { drawWaiting(); drawFinished(); }
+
+    list.replaceChildren();
+    if (s.incoming.length === 0) {
+      list.append(el("li", "quiet", "nothing is arriving"));
+      return;
+    }
+    const now = Date.now() / 1000;
+    for (const t of s.incoming) {
+      const done = Number(t.done), total = Number(t.size);
+      const row = el("li");
+      row.append(el("span", "name", t.path));
+      row.append(el("span", "when", `from ${t.from}`));
+
+      // A rate from the whole transfer so far rather than the last moment:
+      // steadier to read, and the first seconds of a connection are not
+      // typical of the rest.
+      const elapsed = Math.max(1, now - t.started);
+      const rate = done / elapsed;
+      let said = `${size(t.done)} of ${size(t.size)}`;
+      if (done > 0 && total > done) {
+        said += ` · ${size(String(Math.round(rate)))}/s · about ${duration((total - done) / rate)} left`;
+      }
+      row.append(el("span", "size", said));
+
+      const bar = el("span", "bar");
+      const fill = el("span");
+      fill.style.width = `${total > 0 ? Math.min(100, (100 * done) / total) : 0}%`;
+      bar.append(fill);
+      bar.setAttribute("role", "progressbar");
+      bar.setAttribute("aria-label", `${t.path} from ${t.from}`);
+      bar.setAttribute("aria-valuemin", "0");
+      bar.setAttribute("aria-valuemax", "100");
+      bar.setAttribute("aria-valuenow", String(total > 0 ? Math.round((100 * done) / total) : 0));
+      row.append(bar);
+      list.append(row);
+    }
+  } catch (e) {
+    oops(list, e);
+  }
+}
+
+/** The kinds of history that are a transfer somebody meant, rather than sync. */
+function finishedLine(r) {
+  const who = r.device ?? "another device";
+  switch (r.kind) {
+    case "received":
+      return (r.detail ?? "").startsWith("sent to this device") ? `from ${who}` : null;
+    case "sent":
+      return `sent to ${who}`;
+    case "collected":
+      return `${who} has it`;
+    case "failed":
+      return "did not finish";
+    default:
+      return null;
+  }
+}
+
+async function drawTransfers() {
+  await drawArriving();
+  await drawWaiting();
+  await drawFinished();
+}
+
+/** What this device sent that has not been collected yet. */
+async function drawWaiting() {
+  const waiting = $("waiting");
+  try {
+    const out = await invoke("outgoing");
+    waiting.replaceChildren();
+    if (out.length === 0) waiting.append(el("li", "quiet", "nothing you sent is waiting"));
+    for (const o of out) {
+      const row = el("li");
+      row.append(el("span", "name", o.path));
+      row.append(el("span", "size", size(o.size)));
+      row.append(el("span", "when", `waiting for ${o.to}`));
+      waiting.append(row);
+    }
+  } catch (e) {
+    oops(waiting, e);
+  }
+}
+
+/** Transfers somebody meant, that are over: arrived, collected, or failed. */
+async function drawFinished() {
+  const finished = $("finished");
+  try {
+    const rows = await invoke("activity", { path: null, limit: 200, before: null });
+    finished.replaceChildren();
+    let shown = 0;
+    for (const r of rows) {
+      const line = finishedLine(r);
+      if (!line) continue;
+      const row = el("li");
+      row.append(el("span", "tag", r.kind === "failed" ? "!" : "✓"));
+      row.append(el("span", "name", r.path ?? ""));
+      row.append(el("span", "when", line));
+      if (r.size) row.append(el("span", "size", size(r.size)));
+      row.append(el("span", "when", when(r.at)));
+      // Where a received file went, or why something failed. Said in full: it
+      // is the answer to "where is it" and "what went wrong".
+      if (r.detail && r.kind !== "sent") row.append(el("span", "detail", r.detail));
+      finished.append(row);
+      if (++shown === 30) break;
+    }
+    if (shown === 0) finished.append(el("li", "quiet", "nothing yet"));
+  } catch (e) {
+    oops(finished, e);
+  }
+}
+
 // ------------------------------------------------------------------- pairing
 
 // Which of the four panels under the device list is showing.
@@ -846,6 +985,7 @@ function refreshScreen() {
   if (screen === "storage") drawStorage();
   if (screen === "settings") drawSettings();
   if (screen === "send") { drawSendTo(); drawOutgoing(); }
+  if (screen === "transfers") drawTransfers();
 }
 
 decide();
@@ -927,7 +1067,10 @@ $("show-phrase").addEventListener("click", async () => {
 // The live state, often. A poll rather than a subscription because the value is
 // one small struct and the window is in the same process as the daemon that
 // publishes it: the cost of asking is a channel read.
-setInterval(() => { if (screen === "home") drawHome(); }, 1500);
+setInterval(() => {
+  if (screen === "home") drawHome();
+  if (screen === "transfers") drawArriving();
+}, 1500);
 
 // Lists, rarely, and only the one being looked at. Redrawing a list somebody is
 // reading is a cost, not a feature.

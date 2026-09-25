@@ -56,6 +56,19 @@ pub struct Summary {
     last_sync: Option<i64>,
     problem: Option<String>,
     recent: Vec<RecentFile>,
+    /// Files arriving right now. Live, like the rest of this struct: each
+    /// exists while its bytes are moving and is gone the moment they stop.
+    incoming: Vec<InFlight>,
+}
+
+#[derive(Serialize)]
+pub struct InFlight {
+    path: String,
+    from: String,
+    size: String,
+    done: String,
+    /// Unix seconds, for the page to work out a rate and a time left.
+    started: i64,
 }
 
 #[derive(Serialize)]
@@ -548,6 +561,17 @@ pub fn summary(hosted: Host<'_>) -> Answer<Summary> {
             .into_iter()
             .filter_map(|r| {
                 Some(RecentFile { path: r.path, at: unix(r.at)?, from_peer: r.from_peer })
+            })
+            .collect(),
+        incoming: status
+            .incoming
+            .into_iter()
+            .map(|t| InFlight {
+                path: t.path,
+                from: t.from,
+                size: big(t.size),
+                done: big(t.done),
+                started: unix(t.started).unwrap_or(0),
             })
             .collect(),
     })

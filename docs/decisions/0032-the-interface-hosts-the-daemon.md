@@ -98,7 +98,9 @@ so `CAFÉ` does not find `café`; and what somebody typed is treated as text, so
 
 - **No notifications from the view.** It is pull-only. The push side is the
   status channel, which carries the daemon's state and not the index's.
-- **No transfer progress.** A transfer in flight is live state, not history.
+- **No transfer progress in the view.** A transfer in flight is live state, not
+  history, so it belongs on the status channel and never in the index. Since
+  2026-09-25 a file arriving is published there as it moves.
 - **No writes.** Acting on a file — fetch, send, evict — goes through the store
   and the daemon as it always did.
 - **No vault listing.** `files()` is the shared area. What a device holds in

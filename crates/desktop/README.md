@@ -12,7 +12,7 @@ applications menu and running `qurb status` in a terminal address the same one.
 
 ## What it is
 
-Six screens over `qurb_cli::View` and the daemon's status channel, plus setting
+Eight screens over `qurb_cli::View` and the daemon's status channel, plus setting
 a device up in the first place:
 
 | screen | what it answers |
@@ -23,6 +23,7 @@ a device up in the first place:
 | Activity | what this device did — the answer to "why is my file not here?" |
 | Storage | what qurb costs on this disk, and the allowance |
 | Send | a file to one device, by dropping it on the window or choosing one |
+| Transfers | what is arriving now, with a rate and the time left; what is waiting to be collected; what finished |
 | Settings | this device's name, how it finds the others, and the 24 words |
 
 A folder with no device in it opens the setting-up flow instead: make a new
@@ -39,7 +40,7 @@ attention.
 ## How it is put together
 
 Tauri 2, a single stylesheet, and one file of plain JavaScript. No framework and
-no build step: the application is five screens of lists and numbers, and a
+no build step: the application is a handful of screens of lists and numbers, and a
 bundler would be more moving parts than the thing it was moving.
 
 ```
@@ -126,8 +127,10 @@ useful exactly when nobody is looking at the window.
 
 ## What it does not do yet
 
-- **No transfer progress.** Outcomes are recorded and shown; a transfer in
-  flight is not.
+- **No progress for what is being sent.** A file arriving shows its bytes as
+  they come, from the daemon's status channel. A file this device is sending is
+  "waiting to be collected" until the other device says it has it, with nothing
+  in between. Nor is there cancel, pause or retry.
 - **One file at a time.** Dropping several takes the first and says so. A queue
   is a different interaction, with something to say about partial failure.
 - **No passphrase prompt.** A passphrase-protected key is asked for on the
