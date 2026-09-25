@@ -560,6 +560,14 @@ impl Daemon {
                     // alternative of a send sitting unnoticed until the next
                     // five-minute maintenance tick.
                     self.announce_deliveries(&engine, &connector, &peers);
+
+                    // Which devices are connected, kept current between sync
+                    // passes -- which may be minutes apart -- so a device that
+                    // went away stops being shown as connected within the
+                    // half-minute it takes the connection to time out.
+                    peers.forget_closed();
+                    let links = peers.links();
+                    self.report(|status| status.links = links);
                 }
 
                 // A peer said it changed. This is how news travels now; the
@@ -725,6 +733,12 @@ impl Daemon {
         if news_from.is_some() {
             self.announce_news(connector, peers, news_from).await;
         }
+
+        // How each device is reached, from the connections actually held
+        // rather than from anything remembered about them, so a device that
+        // dropped off is not shown as connected.
+        let links = peers.links();
+        self.report(|status| status.links = links);
 
         // Counted per pass rather than accumulated, because the question an
         // interface answers is "can I reach my devices *now*".
@@ -1083,6 +1097,35 @@ impl Peers {
         self.connections.get(&peer).cloned()
     }
 
+    /// Drop connections that have ended, so the next attempt makes a new one
+    /// and nothing reports a device as connected that is not.
+    fn forget_closed(&mut self) {
+        let closed: Vec<Fingerprint> = self
+            .connections
+            .iter()
+            .filter(|(_, client)| client.is_closed())
+            .map(|(peer, _)| *peer)
+            .collect();
+        for peer in closed {
+            self.disconnected(peer);
+        }
+    }
+
+    /// Every connection held, and how it runs.
+    fn links(&self) -> Vec<crate::status::Link> {
+        let mut links: Vec<_> = self
+            .connections
+            .iter()
+            .map(|(peer, client)| crate::status::Link {
+                fingerprint: peer.short(),
+                relayed: client.is_relayed(),
+                address: client.remote_address().to_string(),
+            })
+            .collect();
+        links.sort_by(|a, b| a.fingerprint.cmp(&b.fingerprint));
+        links
+    }
+
     fn connected(&mut self, peer: Fingerprint, client: Arc<PeerClient>) {
         self.connections.insert(peer, client);
     }
@@ -1236,6 +1279,58 @@ mod tests {
         assert_eq!(shown.len(), 1);
         assert_eq!((shown[0].path.as_str(), shown[0].device.as_str()), ("video.mp4", "phone"));
         assert_eq!((shown[0].size, shown[0].done), (600_000, total));
+    }
+
+    /// A device shown as connected is one a connection is actually held to,
+    /// with the route it takes, and stops being shown the moment that
+    /// connection ends -- not at the next sync pass, which may be minutes away.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_connection_that_ends_stops_being_shown() {
+        let dir = tempfile::tempdir().unwrap();
+        let (server_dir, client_dir) = (dir.path().join("server"), dir.path().join("client"));
+        std::fs::create_dir_all(&server_dir).unwrap();
+        std::fs::create_dir_all(&client_dir).unwrap();
+        let server_id = Identity::load_or_create(&server_dir).unwrap();
+        let client_id = Identity::load_or_create(&client_dir).unwrap();
+
+        let store = qurb_storage::Store::open(
+            &server_dir.join("store"),
+            qurb_storage::ChunkKey::from_bytes([6; 32]),
+        )
+        .unwrap();
+        let server = qurb_peer::PeerServer::bind(
+            "127.0.0.1:0".parse().unwrap(),
+            &server_id,
+            &qurb_peer::tls::TrustList::new(vec![client_id.fingerprint()]),
+        )
+        .unwrap();
+        let addr = server.local_addr().unwrap();
+        let server = Arc::new(server);
+        let serving = Arc::clone(&server);
+        tokio::spawn(async move { serving.serve(Arc::new(Mutex::new(store))).await });
+
+        let peer = server_id.fingerprint();
+        let client = PeerClient::connect(addr, &client_id, peer).await.unwrap();
+        client.tree().await.unwrap();
+
+        let mut peers = Peers::new(vec![peer]);
+        peers.connected(peer, Arc::new(client));
+        let links = peers.links();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].fingerprint, peer.short());
+        assert!(!links[0].relayed, "a direct connection was shown as relayed");
+
+        // The other device goes away.
+        server.close();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            peers.forget_closed();
+            if peers.links().is_empty() {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "a closed connection was still shown");
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
     }
 
     /// With nobody displaying anything there is nothing to publish to, and

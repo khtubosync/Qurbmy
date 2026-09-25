@@ -140,8 +140,10 @@ const ANSWERS = {
   },
 
   devices: () => [
-    { id: "4cef0d89", name: "phone", fingerprint: "a1b2c3d4", paired_at: now - 900000, last_seen: now - 300 },
-    { id: "77b10e2a", name: "spare laptop", fingerprint: "e5f60718", paired_at: now - 3600, last_seen: null },
+    { id: "4cef0d89", name: "phone", fingerprint: "a1b2c3d4", paired_at: now - 900000, last_seen: now - 300,
+      route: "direct", address: "192.168.1.2:57199" },
+    { id: "77b10e2a", name: "spare laptop", fingerprint: "e5f60718", paired_at: now - 3600, last_seen: null,
+      route: null, address: null },
   ],
 
   activity: ({ before }) => {

@@ -73,6 +73,19 @@ pub struct Transfer {
     pub updated: SystemTime,
 }
 
+/// A device this one is connected to right now, and how.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Link {
+    /// The device's short fingerprint, which is how an interface names it
+    /// back.
+    pub fingerprint: String,
+    /// Through the relay rather than straight to the device.
+    pub relayed: bool,
+    /// The address at the other end: the device's, or for a relayed
+    /// connection the relay's. For the technical details, not the headline.
+    pub address: String,
+}
+
 /// Everything an interface needs, in one value.
 #[derive(Debug, Clone)]
 pub struct Status {
@@ -105,6 +118,8 @@ pub struct Status {
     /// whose `updated` is more than a few seconds old is no longer moving, and
     /// the device's `Got` is what says it arrived.
     pub outgoing: Vec<Transfer>,
+    /// The devices this one holds a connection to, as of the last sync pass.
+    pub links: Vec<Link>,
 }
 
 impl Status {
@@ -131,6 +146,7 @@ impl Status {
             last_sync: None,
             incoming: Vec::new(),
             outgoing: Vec::new(),
+            links: Vec::new(),
         }
     }
 

@@ -175,6 +175,7 @@ async fn two_strangers_pair_find_each_other_and_sync() {
     .await
     .expect("reaching the desktop timed out")
     .expect("could not reach the desktop");
+    assert!(!client.is_relayed(), "a direct connection said it was relayed");
 
     // And the data plane works over the connection that came out of it.
     let tree = client.tree().await.expect("tree");
@@ -332,6 +333,7 @@ async fn a_file_syncs_through_the_relay_when_there_is_no_direct_path() {
     .await
     .expect("the relayed connection timed out")
     .expect("could not reach the desktop through the relay");
+    assert!(client.is_relayed(), "a relayed connection did not say so");
 
     let tree = client.tree().await.expect("tree over the relay");
     assert_eq!(tree.len(), 1);

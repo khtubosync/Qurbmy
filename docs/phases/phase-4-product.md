@@ -35,7 +35,7 @@ warns is not the fun part and is a full quarter.
 | the services deployable | ✅ systemd units, TLS, ports written down |
 | garbage collection running | ✅ every 5 minutes, 7-day retention |
 
-645 tests pass in 75 test binaries on Linux (2026-09-25, debug build, the
+646 tests pass in 75 test binaries on Linux (2026-09-25, debug build, the
 development laptop); clippy is clean.
 
 ## The interface
@@ -623,6 +623,38 @@ running took **19 seconds** to collect from a sender that started after it —
 two daemons on one laptop, loopback. The sender reached the receiver at once;
 the receiver found the sender only on its own next look. Recorded rather than
 changed here.
+
+## Directly, or through the relay
+
+**2026-09-25.** The Devices screen says, for each device, whether it is
+connected now and how: *connected directly*, or *connected through an
+encrypted relay* — named that way because "relay" alone sounds like somebody
+else holding your files. The address, the path and the transport are under
+*Details*.
+
+A connection records whether it went through the relay when it is made, since
+afterwards the relay looks like any other address. The daemon publishes the
+connections it actually holds, and drops ones that have ended every five
+seconds, rather than only at a sync pass.
+
+That second part was found by watching: the first version published the list
+only at sync passes, which can be minutes apart, and a device that had been
+switched off was still shown *connected directly* two and a half minutes later.
+A device that goes away without a word is now noticed by the connection's
+thirty-second idle timeout.
+
+**Verified:** in the window, a second device on the same laptop showed as
+*connected directly*. The route is asserted in the end-to-end tests for both
+the direct and the relayed case. Clearing it is covered by a daemon test
+against a real local peer, which fails with the fix removed. The live
+check of clearing it in the window did not complete: screen captures of the
+window stopped working partway through the session, and it was not repeated
+by simulated clicks. *Details* unfolding was fixed after it was seen to fold
+itself again on the screen's five-second redraw, and was not seen again
+afterwards.
+
+The relay path in the window is untested: on one machine every direct attempt
+succeeds, so nothing here falls back to the relay by itself.
 
 ## Still to do
 

@@ -126,6 +126,11 @@ pub struct Device {
     fingerprint: String,
     paired_at: i64,
     last_seen: Option<i64>,
+    /// "direct" or "relay" while this device holds a connection to it, and
+    /// absent when it does not.
+    route: Option<&'static str>,
+    /// The address at the other end of that connection, for the details.
+    address: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -760,16 +765,25 @@ pub fn search(hosted: Host<'_>, text: String) -> Answer<Vec<File>> {
 
 #[tauri::command]
 pub fn devices(hosted: Host<'_>) -> Answer<Vec<Device>> {
+    // Live, from the daemon: which devices it holds a connection to, and how.
+    // The index knows who is paired and when each was last reached; only the
+    // running daemon knows what is connected now.
+    let links = hosted.status().map(|s| s.links).unwrap_or_default();
     Ok(hosted
         .with_store(|store| Ok(View::new(store, 0).devices()?))
         .map_err(failed)?
         .into_iter()
-        .map(|d| Device {
-            id: d.id.short(),
-            name: d.name,
-            fingerprint: d.fingerprint,
-            paired_at: d.paired_at,
-            last_seen: d.last_seen,
+        .map(|d| {
+            let link = links.iter().find(|l| l.fingerprint == d.fingerprint);
+            Device {
+                id: d.id.short(),
+                route: link.map(|l| if l.relayed { "relay" } else { "direct" }),
+                address: link.map(|l| l.address.clone()),
+                name: d.name,
+                fingerprint: d.fingerprint,
+                paired_at: d.paired_at,
+                last_seen: d.last_seen,
+            }
         })
         .collect())
 }

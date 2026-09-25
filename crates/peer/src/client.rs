@@ -11,6 +11,10 @@ use std::net::SocketAddr;
 pub struct PeerClient {
     endpoint: quinn::Endpoint,
     connection: quinn::Connection,
+    /// Whether this connection runs through the relay rather than straight to
+    /// the other device. Recorded when it is made, because afterwards the two
+    /// look the same: the relay presents itself as an ordinary address.
+    relayed: bool,
 }
 
 impl PeerClient {
@@ -35,7 +39,7 @@ impl PeerClient {
         // The name is required by TLS and means nothing here: identity comes
         // from the pinned certificate, not from what the peer calls itself.
         let connection = endpoint.connect(addr, "qurb-device")?.await?;
-        Ok(Self { endpoint, connection })
+        Ok(Self { endpoint, connection, relayed: false })
     }
 
     /// Connect using a socket that has already been used for discovery and
@@ -54,7 +58,7 @@ impl PeerClient {
         let mut endpoint = crate::nat::endpoint_from(socket, None)?;
         endpoint.set_default_client_config(tls::client_config(identity, expected)?);
         let connection = endpoint.connect(addr, "qurb-device")?.await?;
-        Ok(Self { endpoint, connection })
+        Ok(Self { endpoint, connection, relayed: false })
     }
 
     /// Wrap a connection someone else established.
@@ -63,7 +67,30 @@ impl PeerClient {
     /// candidate addresses and cannot hand over a connection it has not made
     /// yet.
     pub fn from_parts(endpoint: quinn::Endpoint, connection: quinn::Connection) -> Self {
-        Self { endpoint, connection }
+        Self { endpoint, connection, relayed: false }
+    }
+
+    /// Mark a connection as running through the relay.
+    pub(crate) fn through_relay(mut self) -> Self {
+        self.relayed = true;
+        self
+    }
+
+    /// Whether the connection has ended, from either side or by going quiet.
+    ///
+    /// A device that disappears without saying goodbye -- switched off, out of
+    /// range -- is noticed by the idle timeout, within half a minute.
+    pub fn is_closed(&self) -> bool {
+        self.connection.close_reason().is_some()
+    }
+
+    /// Whether this connection runs through the relay.
+    ///
+    /// What a person is told as "through an encrypted relay" rather than
+    /// "directly". Either way the session inside is the same end-to-end QUIC
+    /// connection with the same pinned identity; only the path differs.
+    pub fn is_relayed(&self) -> bool {
+        self.relayed
     }
 
     pub fn remote_address(&self) -> SocketAddr {

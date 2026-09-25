@@ -415,6 +415,9 @@ $("find").addEventListener("input", (event) => {
 
 // ------------------------------------------------------------------ devices
 
+/** Which devices' details are unfolded, by fingerprint. */
+const openDetails = new Set();
+
 async function drawDevices() {
   const list = $("device-list");
   try {
@@ -427,8 +430,37 @@ async function drawDevices() {
     for (const d of devices) {
       const row = el("li");
       row.append(el("span", "name", d.name));
-      row.append(el("span", "size", d.fingerprint));
-      row.append(el("span", "when", d.last_seen ? `last reached ${when(d.last_seen)}` : "not reached yet"));
+
+      // How it is reached, when it is. The relay is named for what it is —
+      // encrypted, and unable to read what it carries — because "relay" on its
+      // own sounds like somebody else holding your files.
+      const status =
+        d.route === "direct" ? "connected directly" :
+        d.route === "relay" ? "connected through an encrypted relay" :
+        d.last_seen ? `last reached ${when(d.last_seen)}` : "not reached yet";
+      row.append(el("span", d.route ? "when live" : "when", status));
+
+      // The rest for whoever wants it, folded away -- and left open across
+      // the redraw every few seconds, which would otherwise fold it again
+      // under somebody reading it.
+      const more = el("details", "detail");
+      more.open = openDetails.has(d.fingerprint);
+      more.addEventListener("toggle", () => {
+        if (more.open) openDetails.add(d.fingerprint); else openDetails.delete(d.fingerprint);
+      });
+      more.append(el("summary", null, "Details"));
+      const facts = el("dl");
+      for (const [term, value] of [
+        ["Identity", d.fingerprint],
+        ["Path", d.route === "relay" ? "relayed" : d.route === "direct" ? "direct" : "not connected"],
+        ...(d.address ? [["Address", d.address]] : []),
+        ["Transport", "QUIC, encrypted end to end with this device's pinned key"],
+      ]) {
+        facts.append(el("dt", null, term));
+        facts.append(el("dd", null, value));
+      }
+      more.append(facts);
+      row.append(more);
       list.append(row);
     }
   } catch (e) {
@@ -438,11 +470,12 @@ async function drawDevices() {
 
 // ---------------------------------------------------------------------- send
 
-// The file waiting to be sent, as an absolute path. Held rather than read,
-// because reading it is the Rust side's job and a window that loaded a 4 GB
-// file into a JavaScript variable to hand it back would be a poor way to move
-// it four inches.
-/** What is about to be sent: paths of files and folders, never contents. */
+/**
+ * What is about to be sent: paths of files and folders, never contents.
+ * Reading them is the Rust side's job; a window that loaded a 4 GB file into a
+ * JavaScript variable to hand it back would be a poor way to move it four
+ * inches.
+ */
 let picked = [];
 
 function showPicked() {

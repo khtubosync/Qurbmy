@@ -570,7 +570,7 @@ impl Connector {
         match tokio::time::timeout(CANDIDATE_TIMEOUT, connecting).await {
             Ok(Ok(connection)) => {
                 tracing::info!(peer = %peer.short(), "connected via the relay");
-                Ok(PeerClient::from_parts(relay.endpoint.clone(), connection))
+                Ok(PeerClient::from_parts(relay.endpoint.clone(), connection).through_relay())
             }
             Ok(Err(e)) => Err(Error::Connection(e)),
             Err(_) => Err(Error::Unreachable { peer: peer.short() }),

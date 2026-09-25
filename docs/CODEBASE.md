@@ -694,7 +694,7 @@ for the workspace as it stands.
 | Recovery, end to end | the phrase turns back into the user's files |
 | Key hygiene | redacted in `Debug`, wiped on drop, owner-only on disk |
 
-645 tests pass in 75 test binaries on Linux (2026-09-25, debug build, the
+646 tests pass in 75 test binaries on Linux (2026-09-25, debug build, the
 development laptop); clippy is clean. The last run on
 a Galaxy S23 was 426 of them, before this week's work — see
 [phases/phase-5-mobile.md](phases/phase-5-mobile.md).
@@ -920,7 +920,7 @@ network. iOS needs Xcode, which needs a Mac. See
 | It hosts the daemon | the same one `qurb run` starts, on its own threads |
 | Home | live state, recent files, what is still on its way |
 | Files | listing, paging, search, and three-way availability |
-| Devices | who is paired, when each was last reached |
+| Devices | who is paired, whether each is connected now and whether directly or through the relay, when each was last reached |
 | Activity | what this device did, paged, with the reason where there is one |
 | Storage | usage, the allowance, and a control that can change it |
 | Settings | name, rendezvous, relay, port, where files sent here go, and the 24 words again |
