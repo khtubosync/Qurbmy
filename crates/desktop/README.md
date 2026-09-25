@@ -102,13 +102,19 @@ this process already has that one — see
 
 ## Sending
 
-Drop a file on the window, or choose one, then pick a device. It goes to that
-device and to nowhere else: your other devices never see it, and it is not added
-to the synced folder.
+Drop files or folders on the window, or choose them, then pick a device. They
+go to that device and to nowhere else: your other devices never see them, and
+they are not added to the synced folder. A folder arrives as a folder. What
+cannot be sent is named, with why, and the rest still goes.
+
+Each file is stored separately and the session let go of in between, so sending
+a large folder does not stop the rest of the window answering. What to send is
+worked out by `qurb_cli::send`, the same code `qurb send` uses.
 
 Dragging is the better gesture and needs no plugin — Tauri reports the drop to
 the window, and only the *path* crosses into the page, never the contents. The
-"Choose a file…" button does the same thing for anybody who cannot drag.
+two buttons do the same for anybody who cannot drag: one for files and one for a
+folder, because no platform's dialog picks both at once.
 
 ## Notifications
 
@@ -131,8 +137,6 @@ useful exactly when nobody is looking at the window.
   but not stopped. A send's progress is what this device has served, traced
   back from the chunks the other device asked for; the other device's `Got` is
   what says it arrived.
-- **One file at a time.** Dropping several takes the first and says so. A queue
-  is a different interaction, with something to say about partial failure.
 - **No passphrase prompt.** A passphrase-protected key is asked for on the
   terminal the application was launched from. The window cannot ask, because
   opening the key is what decides whether there is anything to show; launched

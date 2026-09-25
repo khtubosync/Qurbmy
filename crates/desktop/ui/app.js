@@ -442,28 +442,41 @@ async function drawDevices() {
 // because reading it is the Rust side's job and a window that loaded a 4 GB
 // file into a JavaScript variable to hand it back would be a poor way to move
 // it four inches.
-let picked = null;
+/** What is about to be sent: paths of files and folders, never contents. */
+let picked = [];
 
 function showPicked() {
-  $("chosen").textContent = picked ? picked.split("/").pop() : "";
+  const names = picked.map((p) => p.split("/").pop());
+  $("chosen").textContent =
+    names.length === 0 ? "" :
+    names.length <= 3 ? names.join(", ") :
+    `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
   drawSendTo();
 }
 
-$("choose").addEventListener("click", async () => {
-  // The plugin's own API, which `withGlobalTauri` exposes alongside the core
-  // one. A native dialog rather than a page of our own: the file system is the
-  // platform's, and every platform already has a good way to look at it.
+/**
+ * Ask the platform for files, or for one folder.
+ *
+ * The plugin's own API, which `withGlobalTauri` exposes alongside the core
+ * one. A native dialog rather than a page of our own: the file system is the
+ * platform's, and every platform already has a good way to look at it. Two
+ * buttons because no platform's dialog picks files and folders at once.
+ */
+async function choose(folder) {
   const dialog = window.__TAURI__?.dialog;
   if (!dialog) {
-    $("send-says").textContent = "no file chooser available — drag a file in instead";
+    $("send-says").textContent = "no file chooser available — drag them in instead";
     return;
   }
-  const chosen = await dialog.open({ multiple: false, directory: false });
-  if (chosen) {
-    picked = typeof chosen === "string" ? chosen : chosen.path;
-    showPicked();
-  }
-});
+  const chosen = await dialog.open({ multiple: !folder, directory: folder });
+  if (!chosen) return;
+  const list = Array.isArray(chosen) ? chosen : [chosen];
+  picked = list.map((c) => (typeof c === "string" ? c : c.path));
+  showPicked();
+}
+
+$("choose").addEventListener("click", () => choose(false));
+$("choose-folder").addEventListener("click", () => choose(true));
 
 // Dragging a file onto the window. Tauri reports these as window events rather
 // than DOM ones, because the drag is happening to the *window* — the page never
@@ -486,13 +499,10 @@ if (window.__TAURI__?.event) {
     const paths = event.payload?.paths ?? [];
     if (paths.length === 0) return;
 
-    // One file. Sending several at once is a reasonable thing to want and a
-    // different interaction — a queue, and something to say about partial
-    // failure — so it is deliberately not pretended at here.
-    picked = paths[0];
-    if (paths.length > 1) {
-      $("send-says").textContent = "one file at a time — taking the first";
-    }
+    // Everything dropped, files and folders alike. Which device is still the
+    // person's choice, so this picks and does not send.
+    picked = paths;
+    $("send-says").textContent = "";
     showScreen("send");
     showPicked();
   });
@@ -514,12 +524,12 @@ async function drawSendTo() {
       // Disabled until there is something to send, rather than hidden: the list
       // of devices is useful information on its own, and a row that appears
       // only after a file is chosen looks like it arrived from nowhere.
-      row.setAttribute("aria-disabled", picked ? "false" : "true");
+      row.setAttribute("aria-disabled", picked.length ? "false" : "true");
 
       const pick = el("button", "pick");
       pick.append(el("span", "name", d.name));
       pick.append(el("span", "when", d.last_seen ? `last reached ${when(d.last_seen)}` : "not reached yet"));
-      pick.disabled = !picked;
+      pick.disabled = picked.length === 0;
       pick.addEventListener("click", () => sendTo(d));
       row.append(pick);
       list.append(row);
@@ -531,14 +541,26 @@ async function drawSendTo() {
 
 async function sendTo(device) {
   const says = $("send-says");
-  if (!picked) return;
+  if (picked.length === 0) return;
 
-  says.textContent = `sending to ${device.name}…`;
+  // Storing a large folder takes a while, and the button would otherwise look
+  // as though it did nothing.
+  says.textContent = `getting ready to send to ${device.name}…`;
   try {
-    const name = await invoke("send_file", { path: picked, to: device.fingerprint });
-    says.textContent =
-      `${name} is waiting for ${device.name}. It will arrive the next time that device syncs.`;
-    picked = null;
+    const r = await invoke("send_files", { paths: picked, to: device.fingerprint });
+    const what = r.only ?? `${r.sent} files (${size(r.bytes)})`;
+    let said = r.sent === 0
+      ? "Nothing was sent."
+      : r.sent === 1
+        ? `${what} is waiting for ${device.name}. It arrives the next time that device syncs.`
+        : `${what} are waiting for ${device.name}. They arrive the next time that device syncs.`;
+    // What was not sent is said, with why, rather than only counted: "2 files
+    // were skipped" leaves somebody guessing which.
+    if (r.skipped.length > 0) {
+      said += ` Not sent: ${r.skipped.map((s) => `${s.path.split("/").pop()} (${s.why})`).join("; ")}.`;
+    }
+    says.textContent = said;
+    picked = [];
     showPicked();
     drawOutgoing();
   } catch (e) {

@@ -524,6 +524,7 @@ qurb/
 │   │   ├── src/lock.rs      one daemon per folder, enforced not assumed
 │   │   ├── src/profiles.rs  which folders exist, so commands need no path
 │   │   ├── src/qr.rs        a pairing code a camera can read
+│   │   ├── src/send.rs      what sending some files and folders actually sends
 │   │   ├── src/status.rs    what the daemon is doing now, on a watch channel
 │   │   ├── src/view.rs      what an interface asks: devices, files, storage,
 │   │   │                    history, outgoing, search — all read-only
@@ -617,7 +618,7 @@ product around it largely is not.
 | A storage limit | drops local copies, keeps the index, never the only copy |
 | Per-device private vaults | `files.scope`: `NULL` is shared, a device id is that device's vault |
 | A history of what happened | one table, pruned by age and count; `qurb activity` reads it |
-| Sending to one device | `qurb send <file> to <device>`; held until collected, released first afterwards |
+| Sending to one device | `qurb send <files and folders> to <device>`; held until collected, released first afterwards |
 | Receiving on a desktop | saved to `Downloads/qurb` as an ordinary file; overlap with the folder refused |
 | Deliveries remembered | a `taken` record per delivery, never expired, so nothing is taken twice |
 
@@ -693,7 +694,7 @@ for the workspace as it stands.
 | Recovery, end to end | the phrase turns back into the user's files |
 | Key hygiene | redacted in `Debug`, wiped on drop, owner-only on disk |
 
-633 tests pass in 75 test binaries on Linux (2026-09-25, debug build, the
+641 tests pass in 75 test binaries on Linux (2026-09-25, debug build, the
 development laptop); clippy is clean. The last run on
 a Galaxy S23 was 426 of them, before this week's work — see
 [phases/phase-5-mobile.md](phases/phase-5-mobile.md).
@@ -925,7 +926,7 @@ network. iOS needs Xcode, which needs a Mac. See
 | Settings | name, rendezvous, relay, port, and the 24 words again |
 | Setting a device up | make a new one or join an existing, with the phrase shown and confirmed |
 | Pairing | show a code — QR, typed or spoken — or enter one, with a countdown |
-| Sending | drop a file on the window or choose one, then pick a device |
+| Sending | drop files or folders on the window or choose them, then pick a device |
 | Notifications | three things only: a file sent to you, one collected, one that failed |
 | Transfer progress | both directions, live, with a rate and time left; no cancel or retry |
 

@@ -14,7 +14,8 @@ qurb status <dir>                what this device holds and trusts
 qurb verify <dir> [--deep]       check the store against itself
 qurb reclaim <dir>               free space the folder itself already holds
 qurb fetch <dir> <path>          ask for a dropped file's contents back
-qurb send <dir> <file> to <dev>  send a file to one device, privately
+qurb send [dir] <file|folder>... to <dev>
+                                 send files and folders to one device, privately
 qurb activity <dir> [path]       what happened, newest first
 qurb ls <dir> [path]             what this folder holds, and where
 qurb find <dir> <text>           files whose name contains something
@@ -80,8 +81,19 @@ it lists everything, newest first.
 ## Sending a file to one device
 
 ```bash
-qurb send ~/Sync ~/Downloads/tickets.pdf to phone
+qurb send ~/Downloads/tickets.pdf ~/Pictures/Trip to phone
+qurb send ~/Sync ~/Downloads/tickets.pdf to phone     # naming the folder
 ```
+
+Any number of files and folders, then `to` and the device. A folder is sent
+whole under its own name — `Trip/day1/beach.jpg` — and arrives as a folder.
+Links inside a folder are not followed, and a qurb store inside one is never
+sent, since it holds this device's keys. Two things with the same name are both
+sent, the second as `notes (2).txt`. Anything that cannot be sent is named,
+with why, and the rest still goes.
+
+The folder to send from is the one given first if it has a store in it, and
+otherwise the one most recently used.
 
 The file goes to that device and to no other, and nothing about it is
 advertised to the rest of the fleet. Where it lands depends on what the

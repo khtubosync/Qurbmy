@@ -12,6 +12,7 @@ pub mod daemon;
 pub mod lock;
 pub mod profiles;
 pub mod qr;
+pub mod send;
 pub mod setup;
 pub mod status;
 pub mod view;

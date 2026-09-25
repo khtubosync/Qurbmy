@@ -27,7 +27,8 @@ qurb — private cloud storage
   qurb verify [dir] [--deep]          check the store against itself
   qurb reclaim [dir]                  free space the folder itself already holds
   qurb fetch [dir] <path>             ask for a dropped file's contents back
-  qurb send [dir] <file> to <device>  send a file to one device, privately
+  qurb send [dir] <file or folder>... to <device>
+                                      send files to one device, privately
   qurb activity [dir] [path]          what happened, newest first
   qurb ls [dir] [path]                what this folder holds, and where
   qurb find [dir] <text>              files whose name contains something
@@ -118,23 +119,38 @@ fn run() -> Result<()> {
             fetch(&root, &wanted)
         }
         "send" => {
-            // `qurb send report.pdf to laptop`, or with an explicit directory
-            // first. The word `to` is what tells the two apart, so the
-            // arguments either side of it are found rather than counted.
+            // `qurb send report.pdf Photos to laptop`, optionally with the qurb
+            // folder first. The word `to` ends the list of things to send, and
+            // the first of them is the folder only if it has a store in it --
+            // counting arguments could not tell `qurb send a.pdf to x` from
+            // `qurb send ~/qurb a.pdf to x`, and used to open `a.pdf` as the
+            // folder.
             let rest = &args[1..];
             let at = rest
                 .iter()
                 .position(|a| a == "to")
-                .context("say which device: qurb send <file> to <device>")?;
+                .context("say which device: qurb send <file or folder>... to <device>")?;
             let (before, after) = rest.split_at(at);
-            let recipient =
-                after.get(1).context("say which device: qurb send <file> to <device>")?;
-            let file = before.last().context("give a file to send")?;
-            let root = match before.len() {
-                0 | 1 => directory(&args)?,
-                _ => PathBuf::from(&before[0]),
+            let recipient = after
+                .get(1)
+                .context("say which device: qurb send <file or folder>... to <device>")?;
+            let (root, picked) = match before.first() {
+                Some(first) if before.len() > 1 && PathBuf::from(first).join(".qurb").is_dir() => {
+                    (PathBuf::from(first), &before[1..])
+                }
+                _ => (
+                    qurb_cli::profiles::current().context(
+                        "no folder given, and none is set up yet.\n\
+                         Run `qurb init` to make one, or give its path first.",
+                    )?,
+                    before,
+                ),
             };
-            send(&root, Path::new(file), recipient)
+            if picked.is_empty() {
+                bail!("give a file or folder to send");
+            }
+            let picked: Vec<PathBuf> = picked.iter().map(PathBuf::from).collect();
+            send(&root, &picked, recipient)
         }
         "activity" => {
             let (root, about) = split_path(&args)?;
@@ -584,7 +600,7 @@ fn fetch(root: &Path, logical: &str) -> Result<()> {
 /// still be told apart; both the fingerprint shown by `qurb status` and the
 /// device id work, because a person reading either should not have to know
 /// which one they are looking at.
-fn send(root: &Path, file: &Path, recipient: &str) -> Result<()> {
+fn send(root: &Path, picked: &[PathBuf], recipient: &str) -> Result<()> {
     let (_, _, mut store, _) = open(root)?;
 
     let peer = match qurb_cli::View::new(&store, 0).device_named(recipient)? {
@@ -603,16 +619,35 @@ fn send(root: &Path, file: &Path, recipient: &str) -> Result<()> {
         }
     };
 
-    let name = file
-        .file_name()
-        .context("give a file, not a directory")?
-        .to_string_lossy()
-        .into_owned();
+    let plan = qurb_cli::send::plan(picked);
+    for (path, why) in &plan.skipped {
+        eprintln!("  not sending {}: {why}", path.display());
+    }
+    if plan.files.is_empty() {
+        bail!("nothing to send");
+    }
 
-    let stats = store.send_to_vault(&name, file, &peer.id)?;
-    println!("sending {name} to {} ({})", peer.name, peer.fingerprint);
-    println!("  {} stored, waiting for the device to collect it", human(stats.bytes_written));
-    println!("  it stays here until then, even if this device restarts");
+    println!("sending to {} ({})", peer.name, peer.fingerprint);
+    let (mut sent, mut stored) = (0usize, 0u64);
+    for (name, source) in &plan.files {
+        // One file failing is reported and the rest still go, for the same
+        // reason a folder is not refused for one unreadable file in it.
+        match store.send_to_vault(name, source, &peer.id) {
+            Ok(stats) => {
+                println!("  {name}");
+                sent += 1;
+                stored += stats.bytes_written;
+            }
+            Err(e) => eprintln!("  not sending {name}: {e}"),
+        }
+    }
+    println!(
+        "{sent} file{} waiting for {} to collect ({} stored)",
+        if sent == 1 { "" } else { "s" },
+        peer.name,
+        human(stored)
+    );
+    println!("they stay here until then, even if this device restarts");
     Ok(())
 }
 

@@ -34,7 +34,7 @@ warns is not the fun part and is a full quarter.
 | the services deployable | ✅ systemd units, TLS, ports written down |
 | garbage collection running | ✅ every 5 minutes, 7-day retention |
 
-633 tests pass in 75 test binaries on Linux (2026-09-25, debug build, the
+641 tests pass in 75 test binaries on Linux (2026-09-25, debug build, the
 development laptop); clippy is clean.
 
 ## The interface
@@ -542,6 +542,35 @@ listed a send as done the moment it was queued, and did not update when the
 send was collected. Both fixed.
 
 Not built: cancel, pause and retry.
+
+## Several files, and folders
+
+**2026-09-25.** A send can be any number of files and folders, from the window
+or from `qurb send`. A folder goes whole under its own name and arrives as a
+folder, on a desktop's Downloads and on a phone alike. What to send is worked
+out in one place, `qurb_cli::send`, which reads only the filesystem so the
+window can store each file separately rather than hold its lock for a whole
+folder.
+
+Three rules came out of writing the tests for it: links inside a folder are not
+followed, since they can point anywhere including back up the tree; a qurb store
+inside a folder is never sent, since it holds the device's keys; and two things
+picked together with one name are both sent, the second as `notes (2).txt`,
+because under one name the second would replace the first before either
+arrived.
+
+Two older defects were found on the way. `qurb send report.pdf to laptop`, the
+short form, opened `report.pdf` as the qurb folder; only the long form had ever
+worked. And sending an empty file recorded no *sent* event, so it never
+appeared in history.
+
+**Verified** with two devices on the laptop: from the command line, a folder
+with a nested subfolder, an empty file and a link, plus two files both called
+`notes.txt`, arrived as sent — the link skipped and named, the second
+`notes.txt` as `notes (2).txt`, a 2 MiB file byte-identical. From the window, a
+folder chosen through the real GTK folder chooser arrived as `Trip/b.txt` and
+`Trip/day1/a.txt`. Dragging onto the window was not exercised: nothing here
+can synthesise a drag from another application.
 
 ## Still to do
 

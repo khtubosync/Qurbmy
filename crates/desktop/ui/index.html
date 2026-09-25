@@ -272,17 +272,18 @@
     </section>
     <section id="send" class="screen">
       <header>
-        <h1>Send a file</h1>
+        <h1>Send</h1>
         <p class="quiet">
-          It goes to one device and to nowhere else. Your other devices never
-          see it, and it is not added to this folder.
+          Files and folders go to one device and to nowhere else. Your other
+          devices never see them, and they are not added to this folder.
         </p>
       </header>
 
       <div id="drop">
-        <p><strong>Drop a file here</strong></p>
+        <p><strong>Drop files or folders here</strong></p>
         <p class="quiet">or</p>
-        <button class="act" id="choose">Choose a file…</button>
+        <button class="act" id="choose">Choose files…</button>
+        <button class="act" id="choose-folder">Choose a folder…</button>
         <p id="chosen" class="quiet"></p>
       </div>
 
@@ -292,10 +293,10 @@
       <p id="send-says" class="quiet"></p>
 
       <p class="quiet note">
-        The file stays on this device until that one confirms it has it, so
-        sending to a phone that is switched off works — it collects the file the
+        What you send stays on this device until that one confirms it has it,
+        so sending to a phone that is switched off works — it collects it the
         next time it syncs. After that, this copy is the first thing dropped if
-        you run short of disk.
+        you run short of disk. A folder arrives as a folder.
       </p>
 
       <h2 id="sending-heading" class="hidden">Waiting to be collected</h2>

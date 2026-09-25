@@ -82,7 +82,12 @@ const ANSWERS = {
     return { state: "paired", name: "phone", fingerprint: "a1b2c3d4", message: null };
   },
 
-  send_file: ({ path }) => path.split("/").pop(),
+  send_files: ({ paths }) => ({
+    sent: paths.length,
+    bytes: "5242880",
+    only: paths.length === 1 ? paths[0].split("/").pop() : null,
+    skipped: [],
+  }),
   stop_pairing: () => null,
   join_device: () => ({ state: "paired", name: "phone", fingerprint: "a1b2c3d4", message: null }),
   summary: () => ({

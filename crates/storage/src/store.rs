@@ -1006,26 +1006,19 @@ impl Store {
         let meta = file.metadata().map_err(|e| Error::io(source, e))?;
         let mtime_ns = mtime_from(&meta);
 
-        if meta.len() == 0 {
-            let manifest = chunker::chunk_bytes(&[]);
-            return self.put_manifest(
-                logical_path,
-                &manifest,
-                &[],
-                mtime_ns,
-                Placement::local().in_vault(Some(recipient)),
-            );
-        }
-
         // SAFETY: the same mapping the ordinary write path uses, for the same
         // reason — chunking and storing from one map rather than reading every
-        // byte twice.
-        let mapped = unsafe { memmap2::Mmap::map(&file) }.map_err(|e| Error::io(source, e))?;
-        let manifest = chunker::chunk_bytes(&mapped);
+        // byte twice. An empty file cannot be mapped, and has nothing to map.
+        let mapped = match meta.len() {
+            0 => None,
+            _ => Some(unsafe { memmap2::Mmap::map(&file) }.map_err(|e| Error::io(source, e))?),
+        };
+        let data: &[u8] = mapped.as_deref().unwrap_or(&[]);
+        let manifest = chunker::chunk_bytes(data);
         let stats = self.put_manifest(
             logical_path,
             &manifest,
-            &mapped,
+            data,
             mtime_ns,
             Placement::local().in_vault(Some(recipient)),
         )?;

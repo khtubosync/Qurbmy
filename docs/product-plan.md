@@ -206,7 +206,6 @@ requests by itself:
 - Vault operations the owner performs — new folder, rename, move, delete.
   Today only a delivery creates a vault row.
 - A query that lists conflicts.
-- Several files, or a folder, in one send.
 
 ---
 
@@ -394,9 +393,9 @@ anywhere on the disk, and a deleted delivery could arrive again once its
 tombstone expired. See [phase 4](phases/phase-4-product.md), "Files sent to a
 desktop go to Downloads". **Progress** is built in both directions — a
 Transfers screen with a rate and time left, seen working in a real window.
-Still owed: **cancel and retry**; **several files or a folder** in one send; **"Open
-folder"** for a received file; and which path a transfer took, **direct or
-relay**.
+**Several files or a folder** in one send is built. Still owed: **cancel and
+retry**; **"Open folder"** for a received file; and which path a transfer took,
+**direct or relay**.
 
 **6. Android product UI.** Built on
 [0036](decisions/0036-a-phone-keeps-its-own-files.md), whose engine changes

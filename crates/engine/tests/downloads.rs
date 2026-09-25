@@ -49,7 +49,8 @@ impl Device {
 
     /// Send `contents` to `to`, the way `qurb send` does.
     fn send(&mut self, name: &str, contents: &[u8], to: &Device) {
-        let loose = self.root.parent().unwrap().join(format!("outgoing-{name}"));
+        let flat = name.replace('/', "_");
+        let loose = self.root.parent().unwrap().join(format!("outgoing-{flat}"));
         fs::write(&loose, contents).unwrap();
         self.engine.store_mut().send_to_vault(name, &loose, &to.id()).unwrap();
     }
@@ -186,4 +187,29 @@ fn a_phone_still_files_it_in_the_folder() {
     assert_eq!(phone.indexed(), vec!["project.zip".to_string()]);
     assert!(phone.engine.tree().unwrap().is_empty(), "it is being advertised");
     assert!(!phone.downloads.exists());
+}
+
+/// A folder sent is a folder received, on a desktop and on a phone alike.
+#[test]
+fn a_folder_arrives_as_a_folder() {
+    let mut sender = Device::new();
+    let mut desktop = Device::desktop();
+    let mut phone = Device::new();
+    for (name, bytes) in [
+        ("Photos/cover.jpg", &b"cover"[..]),
+        ("Photos/2026/summer/beach.jpg", &b"beach"[..]),
+    ] {
+        sender.send(name, bytes, &desktop);
+        sender.send(name, bytes, &phone);
+    }
+
+    for receiver in [&mut desktop, &mut phone] {
+        let stats = receiver.sync_from(&sender);
+        assert!(stats.failures.is_empty(), "{:?}", stats.failures);
+    }
+
+    let base = desktop.downloads.clone();
+    assert_eq!(fs::read(base.join("Photos/cover.jpg")).unwrap(), b"cover");
+    assert_eq!(fs::read(base.join("Photos/2026/summer/beach.jpg")).unwrap(), b"beach");
+    assert_eq!(fs::read(phone.root.join("Photos/2026/summer/beach.jpg")).unwrap(), b"beach");
 }

@@ -387,30 +387,38 @@ pub struct PairingState {
     message: Option<String>,
 }
 
-/// Send a file to one device, and to nobody else.
+/// What a send did.
+#[derive(Serialize)]
+pub struct SendReport {
+    /// How many files are now waiting for the device.
+    sent: usize,
+    /// Their total size.
+    bytes: String,
+    /// The name the recipient will see, when exactly one file was sent.
+    only: Option<String>,
+    /// What was picked and not sent, and why.
+    skipped: Vec<Skipped>,
+}
+
+#[derive(Serialize)]
+pub struct Skipped {
+    path: String,
+    why: String,
+}
+
+/// Send files and folders to one device, and to nobody else.
 ///
-/// The bytes are read and chunked here, on the calling thread, which is a Tauri
-/// worker rather than the daemon's. That is the right place for it: the daemon
-/// is serving peers while this runs, and a large file must not stop it.
+/// A folder is sent whole, under its own name. Each file is stored separately
+/// and the session let go of in between, so a folder of a thousand files does
+/// not stop the window answering while it is chunked. The chunking happens on
+/// this thread, a Tauri worker rather than the daemon's: the daemon is serving
+/// peers while this runs, and a large file must not stop it.
 ///
 /// The recipient is named by its short fingerprint, which is what the devices
 /// screen shows — a device id would be the right key and the wrong thing to put
 /// in front of somebody.
 #[tauri::command]
-pub fn send_file(hosted: Host<'_>, path: String, to: String) -> Answer<String> {
-    let source = std::path::PathBuf::from(&path);
-    if !source.is_file() {
-        return Err(format!("{path} is not a file"));
-    }
-
-    // The name the recipient will see. Theirs to organise afterwards; ours only
-    // to choose sensibly now.
-    let name = source
-        .file_name()
-        .ok_or_else(|| "that has no filename".to_string())?
-        .to_string_lossy()
-        .into_owned();
-
+pub fn send_files(hosted: Host<'_>, paths: Vec<String>, to: String) -> Answer<SendReport> {
     // The same lookup `qurb send` uses, so the two cannot disagree about which
     // device a name refers to.
     let device = match hosted
@@ -424,11 +432,34 @@ pub fn send_file(hosted: Host<'_>, path: String, to: String) -> Answer<String> {
         }
     };
 
-    hosted
-        .with_store_mut(|store| Ok(store.send_to_vault(&name, &source, &device.id)?))
-        .map_err(failed)?;
+    let picked: Vec<std::path::PathBuf> = paths.iter().map(std::path::PathBuf::from).collect();
+    let plan = qurb_cli::send::plan(&picked);
 
-    Ok(name)
+    let mut skipped: Vec<Skipped> = plan
+        .skipped
+        .into_iter()
+        .map(|(path, why)| Skipped { path: path.display().to_string(), why })
+        .collect();
+    let (mut sent, mut bytes) = (Vec::new(), 0u64);
+    for (name, source) in plan.files {
+        let size = std::fs::metadata(&source).map(|m| m.len()).unwrap_or(0);
+        match hosted.with_store_mut(|store| Ok(store.send_to_vault(&name, &source, &device.id)?)) {
+            Ok(_) => {
+                sent.push(name);
+                bytes += size;
+            }
+            Err(e) => {
+                skipped.push(Skipped { path: source.display().to_string(), why: e.to_string() })
+            }
+        }
+    }
+
+    Ok(SendReport {
+        only: (sent.len() == 1).then(|| sent[0].clone()),
+        sent: sent.len(),
+        bytes: big(bytes),
+        skipped,
+    })
 }
 
 /// Show a code, and start answering it.
