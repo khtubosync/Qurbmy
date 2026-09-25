@@ -16,6 +16,18 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+/// Told about each chunk served, and to whom.
+///
+/// The server's half of a transfer: what it has handed a peer is the only
+/// sign on this side that a file is on its way, since a peer asks for content
+/// by hash and the sender never knows which file it is part of until the
+/// caller looks. Called after the bytes are read and before they are written
+/// out, so it counts what was served rather than what was received -- the
+/// receiver's `Got` is the evidence of that.
+pub trait Served: Send + Sync {
+    fn served(&self, to: &Fingerprint, chunk: &blake3::Hash, bytes: u64);
+}
+
 pub struct PeerServer {
     endpoint: quinn::Endpoint,
     stats: Arc<ServerStats>,
@@ -164,7 +176,8 @@ impl PeerServer {
                 match incoming.await {
                     Ok(connection) => {
                         tracing::debug!(peer = %connection.remote_address(), "peer connected");
-                        serve_connection_inner(connection, store, stats, generation).await;
+                        serve_connection_inner(connection, store, stats, generation, None)
+                            .await;
                     }
                     // A failed handshake is the normal outcome for an
                     // unrecognised peer, and is not worth more than a debug line.
@@ -194,8 +207,14 @@ pub fn trusted_fingerprints(store: &Store) -> Result<Vec<Fingerprint>> {
 /// Exists because hole punching requires the endpoint to be constructed from an
 /// existing socket, which [`PeerServer::bind`] cannot do.
 pub async fn serve_connection_for_test(connection: quinn::Connection, store: Arc<Mutex<Store>>) {
-    serve_connection_inner(connection, store, Arc::new(ServerStats::default()), Generation::new())
-        .await
+    serve_connection_inner(
+        connection,
+        store,
+        Arc::new(ServerStats::default()),
+        Generation::new(),
+        None,
+    )
+    .await
 }
 
 /// Serve one connection, telling peers about changes to `generation`.
@@ -204,7 +223,25 @@ pub async fn serve_connection(
     store: Arc<Mutex<Store>>,
     generation: Arc<Generation>,
 ) {
-    serve_connection_inner(connection, store, Arc::new(ServerStats::default()), generation).await
+    serve_connection_inner(connection, store, Arc::new(ServerStats::default()), generation, None)
+        .await
+}
+
+/// The same, telling `watcher` about every chunk served.
+pub async fn serve_connection_watched(
+    connection: quinn::Connection,
+    store: Arc<Mutex<Store>>,
+    generation: Arc<Generation>,
+    watcher: Arc<dyn Served>,
+) {
+    serve_connection_inner(
+        connection,
+        store,
+        Arc::new(ServerStats::default()),
+        generation,
+        Some(watcher),
+    )
+    .await
 }
 
 async fn serve_connection_inner(
@@ -212,6 +249,7 @@ async fn serve_connection_inner(
     store: Arc<Mutex<Store>>,
     stats: Arc<ServerStats>,
     generation: Arc<Generation>,
+    watcher: Option<Arc<dyn Served>>,
 ) {
     // One request per bidirectional stream, served concurrently. This is the
     // property QUIC was chosen for: a large chunk in flight does not hold up
@@ -226,8 +264,10 @@ async fn serve_connection_inner(
         let store = Arc::clone(&store);
         let stats = Arc::clone(&stats);
         let generation = Arc::clone(&generation);
+        let watcher = watcher.clone();
         tokio::spawn(async move {
-            if let Err(e) = serve_request(send, recv, store, stats, generation, asker).await {
+            let outcome = serve_request(send, recv, store, stats, generation, asker, watcher).await;
+            if let Err(e) = outcome {
                 tracing::debug!(error = %e, "request failed");
             }
         });
@@ -241,6 +281,7 @@ async fn serve_request(
     stats: Arc<ServerStats>,
     generation: Arc<Generation>,
     asker: Option<Fingerprint>,
+    watcher: Option<Arc<dyn Served>>,
 ) -> Result<()> {
     let raw = recv.read_to_end(MAX_MESSAGE).await?;
     let request = Request::decode(&raw)?;
@@ -261,6 +302,9 @@ async fn serve_request(
         Response::Tree(_) => stats.trees_served.fetch_add(1, Ordering::Relaxed),
         Response::Manifest(_) => stats.manifests_served.fetch_add(1, Ordering::Relaxed),
         Response::Chunk(bytes) => {
+            if let (Some(watcher), Some(to), Request::Chunk { hash }) = (&watcher, &asker, &request) {
+                watcher.served(to, &blake3::Hash::from(*hash), bytes.len() as u64);
+            }
             stats.bytes_served.fetch_add(bytes.len() as u64, Ordering::Relaxed);
             stats.chunks_served.fetch_add(1, Ordering::Relaxed)
         }

@@ -578,6 +578,40 @@ function duration(seconds) {
   return `${(seconds / 3600).toFixed(1)} h`;
 }
 
+/** How far a transfer has got, how fast, and a bar, appended to `row`. */
+function showMoving(row, t, label) {
+  const done = Number(t.done), total = Number(t.size);
+  // A rate from the whole transfer so far rather than the last moment:
+  // steadier to read, and the first seconds of a connection are not typical
+  // of the rest.
+  const elapsed = Math.max(1, Date.now() / 1000 - t.started);
+  const rate = done / elapsed;
+  let said = `${size(t.done)} of ${size(t.size)}`;
+  if (done > 0 && total > done) {
+    said += ` · ${size(String(Math.round(rate)))}/s · about ${duration((total - done) / rate)} left`;
+  }
+  row.append(el("span", "size", said));
+
+  const percent = total > 0 ? Math.min(100, (100 * done) / total) : 0;
+  const bar = el("span", "bar");
+  const fill = el("span");
+  fill.style.width = `${percent}%`;
+  bar.append(fill);
+  bar.setAttribute("role", "progressbar");
+  bar.setAttribute("aria-label", label);
+  bar.setAttribute("aria-valuemin", "0");
+  bar.setAttribute("aria-valuemax", "100");
+  bar.setAttribute("aria-valuenow", String(Math.round(percent)));
+  row.append(bar);
+}
+
+/**
+ * How long a send may go without the other device asking for more and still
+ * be shown moving. A sender never hears that a transfer ended -- the other end
+ * just stops asking -- so this is how it stops drawing a bar.
+ */
+const SEND_QUIET = 10;
+
 /** Which transfers were on screen last time, to notice one stopping. */
 let arrivingBefore = "";
 
@@ -591,7 +625,7 @@ async function drawArriving() {
     // it belongs in the lists below, which are otherwise drawn only when the
     // screen is opened. Redrawn now, so a finished file does not vanish from
     // "arriving" without appearing anywhere else.
-    const arriving = s.incoming.map((t) => `${t.from}\u0000${t.path}`).join("\n");
+    const arriving = s.incoming.map((t) => `${t.device}\u0000${t.path}`).join("\n");
     const stopped = arrivingBefore !== "" &&
       arrivingBefore.split("\n").some((k) => !arriving.split("\n").includes(k));
     arrivingBefore = arriving;
@@ -602,34 +636,11 @@ async function drawArriving() {
       list.append(el("li", "quiet", "nothing is arriving"));
       return;
     }
-    const now = Date.now() / 1000;
     for (const t of s.incoming) {
-      const done = Number(t.done), total = Number(t.size);
       const row = el("li");
       row.append(el("span", "name", t.path));
-      row.append(el("span", "when", `from ${t.from}`));
-
-      // A rate from the whole transfer so far rather than the last moment:
-      // steadier to read, and the first seconds of a connection are not
-      // typical of the rest.
-      const elapsed = Math.max(1, now - t.started);
-      const rate = done / elapsed;
-      let said = `${size(t.done)} of ${size(t.size)}`;
-      if (done > 0 && total > done) {
-        said += ` · ${size(String(Math.round(rate)))}/s · about ${duration((total - done) / rate)} left`;
-      }
-      row.append(el("span", "size", said));
-
-      const bar = el("span", "bar");
-      const fill = el("span");
-      fill.style.width = `${total > 0 ? Math.min(100, (100 * done) / total) : 0}%`;
-      bar.append(fill);
-      bar.setAttribute("role", "progressbar");
-      bar.setAttribute("aria-label", `${t.path} from ${t.from}`);
-      bar.setAttribute("aria-valuemin", "0");
-      bar.setAttribute("aria-valuemax", "100");
-      bar.setAttribute("aria-valuenow", String(total > 0 ? Math.round((100 * done) / total) : 0));
-      row.append(bar);
+      row.append(el("span", "when", `from ${t.device}`));
+      showMoving(row, t, `${t.path} from ${t.device}`);
       list.append(row);
     }
   } catch (e) {
@@ -643,10 +654,10 @@ function finishedLine(r) {
   switch (r.kind) {
     case "received":
       return (r.detail ?? "").startsWith("sent to this device") ? `from ${who}` : null;
-    case "sent":
-      return `sent to ${who}`;
+    // Not "sent": that is written when a send is queued, and a queued send is
+    // under "Waiting to be collected" until it is finished.
     case "collected":
-      return `${who} has it`;
+      return `delivered to ${who}`;
     case "failed":
       return "did not finish";
     default:
@@ -660,18 +671,39 @@ async function drawTransfers() {
   await drawFinished();
 }
 
-/** What this device sent that has not been collected yet. */
+/** Which sends were waiting last time, to notice one being collected. */
+let waitingBefore = [];
+
+/**
+ * What this device sent that has not been collected yet, and a bar for any
+ * the other device is collecting right now.
+ */
 async function drawWaiting() {
   const waiting = $("waiting");
   try {
-    const out = await invoke("outgoing");
+    const [out, s] = await Promise.all([invoke("outgoing"), invoke("summary")]);
+    const now = Date.now() / 1000;
+
+    // A send that has left this list was collected, and belongs under
+    // "Finished" -- which is otherwise drawn only when the screen opens.
+    const keys = out.map((o) => `${o.to}\u0000${o.path}`);
+    if (waitingBefore.some((k) => !keys.includes(k))) drawFinished();
+    waitingBefore = keys;
+
     waiting.replaceChildren();
     if (out.length === 0) waiting.append(el("li", "quiet", "nothing you sent is waiting"));
     for (const o of out) {
       const row = el("li");
       row.append(el("span", "name", o.path));
-      row.append(el("span", "size", size(o.size)));
-      row.append(el("span", "when", `waiting for ${o.to}`));
+      const moving = s.outgoing.find((t) =>
+        t.device === o.to && t.path === o.path && now - t.updated < SEND_QUIET);
+      if (moving) {
+        row.append(el("span", "when", `${o.to} is collecting it`));
+        showMoving(row, moving, `${o.path} to ${o.to}`);
+      } else {
+        row.append(el("span", "size", size(o.size)));
+        row.append(el("span", "when", `waiting for ${o.to}`));
+      }
       waiting.append(row);
     }
   } catch (e) {
@@ -697,7 +729,7 @@ async function drawFinished() {
       row.append(el("span", "when", when(r.at)));
       // Where a received file went, or why something failed. Said in full: it
       // is the answer to "where is it" and "what went wrong".
-      if (r.detail && r.kind !== "sent") row.append(el("span", "detail", r.detail));
+      if (r.detail) row.append(el("span", "detail", r.detail));
       finished.append(row);
       if (++shown === 30) break;
     }
@@ -1069,7 +1101,7 @@ $("show-phrase").addEventListener("click", async () => {
 // publishes it: the cost of asking is a channel read.
 setInterval(() => {
   if (screen === "home") drawHome();
-  if (screen === "transfers") drawArriving();
+  if (screen === "transfers") { drawArriving(); drawWaiting(); }
 }, 1500);
 
 // Lists, rarely, and only the one being looked at. Redrawing a list somebody is

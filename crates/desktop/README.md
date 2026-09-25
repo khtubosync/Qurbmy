@@ -127,10 +127,10 @@ useful exactly when nobody is looking at the window.
 
 ## What it does not do yet
 
-- **No progress for what is being sent.** A file arriving shows its bytes as
-  they come, from the daemon's status channel. A file this device is sending is
-  "waiting to be collected" until the other device says it has it, with nothing
-  in between. Nor is there cancel, pause or retry.
+- **No cancel, pause or retry.** A transfer can be watched in both directions
+  but not stopped. A send's progress is what this device has served, traced
+  back from the chunks the other device asked for; the other device's `Got` is
+  what says it arrived.
 - **One file at a time.** Dropping several takes the first and says so. A queue
   is a different interaction, with something to say about partial failure.
 - **No passphrase prompt.** A passphrase-protected key is asked for on the

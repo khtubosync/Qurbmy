@@ -194,8 +194,8 @@ requests by itself:
 
 ### 2.8 Needs engine or protocol work first
 
-- Transfer progress for a file being *sent*, and cancel and retry. A file
-  arriving is published since 2026-09-25.
+- Cancel and retry for a transfer. Progress, in both directions, is published
+  since 2026-09-25.
 - Direct or relay, per device, in the daemon's status.
 - ~~A file sent to the desktop landing outside the store~~ — built,
   [0037](decisions/0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md).
@@ -392,9 +392,9 @@ and building it found and closed two defects that were not about Downloads: a
 peer's path was never checked, so a paired device could write or delete
 anywhere on the disk, and a deleted delivery could arrive again once its
 tombstone expired. See [phase 4](phases/phase-4-product.md), "Files sent to a
-desktop go to Downloads". **Progress for a file arriving** is built — a
-Transfers screen with a rate and time left, seen working on a real window.
-Still owed: **progress for a file being sent**, and cancel and retry; **several files or a folder** in one send; **"Open
+desktop go to Downloads". **Progress** is built in both directions — a
+Transfers screen with a rate and time left, seen working in a real window.
+Still owed: **cancel and retry**; **several files or a folder** in one send; **"Open
 folder"** for a received file; and which path a transfer took, **direct or
 relay**.
 

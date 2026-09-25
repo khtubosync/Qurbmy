@@ -1334,6 +1334,31 @@ impl Db {
         Ok(known)
     }
 
+    /// The file sent to `device` that this chunk is part of, if any: its path
+    /// and size.
+    ///
+    /// How a sender turns "that device asked for this chunk" into "that device
+    /// is collecting report.pdf". A chunk can be part of several files; any
+    /// live one sent to that device will do, since the question is only which
+    /// send to show moving.
+    pub fn sent_file_holding(
+        &self,
+        chunk: &blake3::Hash,
+        device: &DeviceId,
+    ) -> Result<Option<(String, u64)>> {
+        self.conn
+            .query_row(
+                "SELECT f.path, f.size FROM file_chunks fc
+                   JOIN files f ON f.id = fc.file_id
+                  WHERE fc.chunk_hash = ?1 AND f.scope = ?2 AND f.deleted_at IS NULL
+                  LIMIT 1",
+                params![chunk.as_bytes().as_slice(), device.as_bytes().as_slice()],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u64)),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
     /// Remember, for good, that this device took a delivery of these bytes.
     ///
     /// The first record stands: a delivery is taken once, so a second call for

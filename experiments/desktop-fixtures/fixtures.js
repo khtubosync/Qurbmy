@@ -101,12 +101,14 @@ const ANSWERS = {
     incoming: [
       {
         path: "videos/holiday.mp4",
-        from: "phone",
+        device: "phone",
         size: "4000000000",
         done: String(Math.min(4000000000, (Math.floor(Date.now() / 1000) - now) * 45000000 + 1200000000)),
         started: now - 30,
+        updated: Math.floor(Date.now() / 1000),
       },
     ],
+    outgoing: [],
   }),
 
   storage: () => ({

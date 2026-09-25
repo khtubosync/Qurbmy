@@ -25,7 +25,7 @@ warns is not the fun part and is a full quarter.
 | pairing | ✅ scan a QR code, once, and it stays paired |
 | a folder that needs no path | ✅ `~/qurb`, with a registry (it was `~/Downloads/qurb` until [0037](../decisions/0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md)) |
 | files sent to this desktop | ✅ saved to `Downloads/qurb` as ordinary files |
-| transfer progress | ◐ a file arriving: live, with rate and time left; a file being sent: not yet |
+| transfer progress | ✅ both directions, live, with rate and time left; ⬜ cancel and retry |
 | storing each file once | ✅ the folder *is* the payload store |
 | a storage cap | ✅ limit, eviction, fetch-back — and a slider |
 | a replica anybody can run | ✅ `qurb replica` |
@@ -34,7 +34,7 @@ warns is not the fun part and is a full quarter.
 | the services deployable | ✅ systemd units, TLS, ports written down |
 | garbage collection running | ✅ every 5 minutes, 7-day retention |
 
-631 tests pass in 75 test binaries on Linux (2026-09-25, debug build, the
+633 tests pass in 75 test binaries on Linux (2026-09-25, debug build, the
 development laptop); clippy is clean.
 
 ## The interface
@@ -500,8 +500,9 @@ happen on the very next sync.
 
 ## A transfer you can watch
 
-**2026-09-25.** A file arriving from another device now shows on a Transfers
-screen as it moves: how much of it, how fast, and about how long is left.
+**2026-09-25.** A file moving between this device and another now shows on a
+Transfers screen: how much of it, how fast, and about how long is left — in
+both directions.
 
 The engine reports bytes as they are written, but only for content that
 actually crosses from the other device. A rename or a copy of something
@@ -523,9 +524,24 @@ Watching it found one thing no test did: *Finished* was drawn only when the
 screen opened, so a file that had arrived vanished from *Arriving now* and
 appeared nowhere. It is redrawn now whenever something stops arriving.
 
-Not built: progress for a file this device is *sending*, which has to be
-worked out from the chunk requests the other device makes; and cancel, pause
-and retry.
+**Sending is the harder direction**, because a sender never sees a file move.
+The other device asks for chunks by hash and never says which file they belong
+to, and it never says it has finished — it just stops asking. So the peer
+server reports each chunk it serves, and to whom, and the daemon traces the
+chunk back to the send it is part of with one indexed query. Chunks of shared
+files are not traced: they are synced, not sent, and the receiving device is
+the one with something to say about them. A send that has not moved for ten
+seconds stops being drawn as moving; the other device's `Got` is what moves it
+to *Finished*.
+
+Seen working the same way: the window on the sending device, a second device
+collecting a 500 MiB send, the bar reading "phone is collecting it" at
+138 MiB/s and the file moving to *Finished — delivered to phone* once it was
+collected. Watching it found two more things the tests did not: *Finished*
+listed a send as done the moment it was queued, and did not update when the
+send was collected. Both fixed.
+
+Not built: cancel, pause and retry.
 
 ## Still to do
 

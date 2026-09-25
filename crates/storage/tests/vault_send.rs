@@ -244,3 +244,29 @@ fn upgrading_remembers_every_delivery_already_taken() {
         .unwrap();
     assert_eq!(remembered, 1, "the migration did not carry over what had been received");
 }
+
+/// A sender sees chunks being asked for, not files. This is how it knows which
+/// send they belong to -- and that a chunk of its own shared file is not one.
+#[test]
+fn a_served_chunk_is_traced_to_the_send_it_belongs_to() {
+    let mut fixture = Fixture::new();
+    let payload = noisy(700_000);
+    let source = fixture.loose_file("video.mp4", &payload);
+    fixture.store.send_to_vault("video.mp4", &source, &recipient()).unwrap();
+
+    let chunks = fixture.store.chunk_hashes_for_content(&blake3::hash(&payload)).unwrap().unwrap();
+    assert_eq!(
+        fixture.store.db().sent_file_holding(&chunks[0], &recipient()).unwrap(),
+        Some(("video.mp4".to_string(), 700_000))
+    );
+
+    // Not for another device, and not for a shared file nobody sent.
+    let someone_else = DeviceId::from_bytes([3; 32]);
+    assert_eq!(fixture.store.db().sent_file_holding(&chunks[0], &someone_else).unwrap(), None);
+    let mine: Vec<u8> = noisy(90_000).into_iter().rev().collect();
+    std::fs::write(fixture.root.join("mine.bin"), mine).unwrap();
+    fixture.store.put_file("mine.bin", &fixture.root.join("mine.bin")).unwrap();
+    let theirs = fixture.store.db().file_by_path("mine.bin").unwrap().unwrap();
+    let shared_chunk = fixture.store.db().chunk_hashes_for(theirs.id).unwrap()[0];
+    assert_eq!(fixture.store.db().sent_file_holding(&shared_chunk, &recipient()).unwrap(), None);
+}

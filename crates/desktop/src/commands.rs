@@ -59,16 +59,34 @@ pub struct Summary {
     /// Files arriving right now. Live, like the rest of this struct: each
     /// exists while its bytes are moving and is gone the moment they stop.
     incoming: Vec<InFlight>,
+    /// Files this device is serving to a device that asked for them. Not
+    /// removed when they finish -- see `updated`.
+    outgoing: Vec<InFlight>,
 }
 
 #[derive(Serialize)]
 pub struct InFlight {
     path: String,
-    from: String,
+    /// The device at the other end.
+    device: String,
     size: String,
     done: String,
     /// Unix seconds, for the page to work out a rate and a time left.
     started: i64,
+    /// Unix seconds when it last moved. A send that has not moved for a few
+    /// seconds is not being collected right now.
+    updated: i64,
+}
+
+fn in_flight(t: qurb_cli::status::Transfer) -> InFlight {
+    InFlight {
+        path: t.path,
+        device: t.device,
+        size: big(t.size),
+        done: big(t.done),
+        started: unix(t.started).unwrap_or(0),
+        updated: unix(t.updated).unwrap_or(0),
+    }
 }
 
 #[derive(Serialize)]
@@ -563,17 +581,8 @@ pub fn summary(hosted: Host<'_>) -> Answer<Summary> {
                 Some(RecentFile { path: r.path, at: unix(r.at)?, from_peer: r.from_peer })
             })
             .collect(),
-        incoming: status
-            .incoming
-            .into_iter()
-            .map(|t| InFlight {
-                path: t.path,
-                from: t.from,
-                size: big(t.size),
-                done: big(t.done),
-                started: unix(t.started).unwrap_or(0),
-            })
-            .collect(),
+        incoming: status.incoming.into_iter().map(in_flight).collect(),
+        outgoing: status.outgoing.into_iter().map(in_flight).collect(),
     })
 }
 

@@ -693,7 +693,7 @@ for the workspace as it stands.
 | Recovery, end to end | the phrase turns back into the user's files |
 | Key hygiene | redacted in `Debug`, wiped on drop, owner-only on disk |
 
-631 tests pass in 75 test binaries on Linux (2026-09-25, debug build, the
+633 tests pass in 75 test binaries on Linux (2026-09-25, debug build, the
 development laptop); clippy is clean. The last run on
 a Galaxy S23 was 426 of them, before this week's work — see
 [phases/phase-5-mobile.md](phases/phase-5-mobile.md).
@@ -927,7 +927,7 @@ network. iOS needs Xcode, which needs a Mac. See
 | Pairing | show a code — QR, typed or spoken — or enter one, with a countdown |
 | Sending | drop a file on the window or choose one, then pick a device |
 | Notifications | three things only: a file sent to you, one collected, one that failed |
-| Transfer progress | a file arriving: live, with a rate and time left. A file being sent: **not built** |
+| Transfer progress | both directions, live, with a rate and time left; no cancel or retry |
 
 ### Designed but not built
 

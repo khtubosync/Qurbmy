@@ -56,20 +56,21 @@ pub struct Recent {
     pub from_peer: bool,
 }
 
-/// A file on its way to this device, right now.
+/// A file moving between this device and another, right now.
 ///
-/// Live state rather than history: it exists while the bytes are moving and
-/// is gone the moment they stop, whether they arrived or not. What arrived is
-/// the activity record, written once the file is in place.
+/// Live state rather than history: what arrived, or was collected, is the
+/// activity record, written once it is true.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Transfer {
     pub path: String,
-    /// The device it is coming from, by the name it was paired under.
-    pub from: String,
+    /// The device at the other end, by the name it was paired under.
+    pub device: String,
     pub size: u64,
-    /// How much has arrived so far.
+    /// How much has moved so far.
     pub done: u64,
     pub started: SystemTime,
+    /// When `done` last moved.
+    pub updated: SystemTime,
 }
 
 /// Everything an interface needs, in one value.
@@ -94,8 +95,16 @@ pub struct Status {
     /// The last thing that went wrong, if anything has.
     pub problem: Option<String>,
     pub last_sync: Option<SystemTime>,
-    /// Files arriving right now, oldest first.
+    /// Files arriving right now, oldest first. Each is removed the moment its
+    /// bytes stop, whether they arrived or not.
     pub incoming: Vec<Transfer>,
+    /// Files this device is serving to another that asked for them.
+    ///
+    /// The sender cannot know a transfer is over -- the other device simply
+    /// stops asking -- so these are not removed when they finish. An entry
+    /// whose `updated` is more than a few seconds old is no longer moving, and
+    /// the device's `Got` is what says it arrived.
+    pub outgoing: Vec<Transfer>,
 }
 
 impl Status {
@@ -121,6 +130,7 @@ impl Status {
             problem: None,
             last_sync: None,
             incoming: Vec::new(),
+            outgoing: Vec::new(),
         }
     }
 

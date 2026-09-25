@@ -419,20 +419,37 @@ impl Daemon {
         // Serve peers on every path we have. A device unreachable by relay is
         // unreachable by anyone whose direct attempt failed.
         let served = Arc::new(Mutex::new(self.open_store()?));
+        // What is being sent, for anybody displaying it. Nothing to watch for
+        // when nobody is.
+        let sending: Option<Arc<dyn qurb_peer::Served>> = self.status.as_ref().map(|status| {
+            Arc::new(Sending { store: Arc::clone(&served), status: status.clone() })
+                as Arc<dyn qurb_peer::Served>
+        });
         for endpoint in [Some(connector.endpoint().clone()), connector.relay_endpoint().cloned()]
             .into_iter()
             .flatten()
         {
             let store = Arc::clone(&served);
             let generation = Arc::clone(&generation);
+            let sending = sending.clone();
             tokio::spawn(async move {
                 while let Some(incoming) = endpoint.accept().await {
                     let store = Arc::clone(&store);
                     let generation = Arc::clone(&generation);
+                    let sending = sending.clone();
                     tokio::spawn(async move {
-                        if let Ok(connection) = incoming.await {
-                            qurb_peer::server::serve_connection(connection, store, generation)
-                                .await;
+                        let Ok(connection) = incoming.await else { return };
+                        match sending {
+                            Some(watcher) => {
+                                qurb_peer::server::serve_connection_watched(
+                                    connection, store, generation, watcher,
+                                )
+                                .await
+                            }
+                            None => {
+                                qurb_peer::server::serve_connection(connection, store, generation)
+                                    .await
+                            }
                         }
                     });
                 }
@@ -819,12 +836,14 @@ impl qurb_engine::Progress for Reporting<'_> {
     fn started(&mut self, path: &str, size: u64) {
         self.unpublished = 0;
         self.published_at = std::time::Instant::now();
+        let now = std::time::SystemTime::now();
         let transfer = crate::status::Transfer {
             path: path.to_string(),
-            from: self.from.clone(),
+            device: self.from.clone(),
             size,
             done: 0,
-            started: std::time::SystemTime::now(),
+            started: now,
+            updated: now,
         };
         self.publish(|incoming| incoming.push(transfer));
     }
@@ -836,8 +855,9 @@ impl qurb_engine::Progress for Reporting<'_> {
         }
         let (from, arrived) = (self.from.clone(), self.unpublished);
         self.publish(|incoming| {
-            if let Some(current) = incoming.iter_mut().rev().find(|t| t.from == from) {
+            if let Some(current) = incoming.iter_mut().rev().find(|t| t.device == from) {
                 current.done = (current.done + arrived).min(current.size);
+                current.updated = std::time::SystemTime::now();
             }
         });
         self.unpublished = 0;
@@ -847,7 +867,61 @@ impl qurb_engine::Progress for Reporting<'_> {
     fn finished(&mut self, path: &str) {
         self.unpublished = 0;
         let from = self.from.clone();
-        self.publish(|incoming| incoming.retain(|t| !(t.path == path && t.from == from)));
+        self.publish(|incoming| incoming.retain(|t| !(t.path == path && t.device == from)));
+    }
+}
+
+/// How long a send may sit without the other device asking for more before
+/// it stops being shown. Long enough to cover a pause between chunks on a slow
+/// link; short enough that a device that went away does not leave a bar frozen
+/// on screen.
+const SEND_STALE: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Shows files this device is sending, from the chunks peers ask it for.
+///
+/// A peer asks by hash and never says which file, so each chunk served is
+/// traced back to the send it belongs to. Content in the shared area is not
+/// shown: it is synced rather than sent, and the receiving device is the one
+/// with something to say about it.
+struct Sending {
+    store: Arc<Mutex<qurb_storage::Store>>,
+    status: crate::status::Publisher,
+}
+
+impl qurb_peer::Served for Sending {
+    fn served(&self, to: &Fingerprint, chunk: &blake3::Hash, bytes: u64) {
+        // Asked of the index, which needs the lock the request that served
+        // this chunk has already given up.
+        let traced = tokio::task::block_in_place(|| {
+            let store = self.store.lock().ok()?;
+            let peer = store.db().peer_by_fingerprint(to.as_bytes()).ok()??;
+            let (path, size) = store.db().sent_file_holding(chunk, &peer.device_id).ok()??;
+            Some((peer.name, path, size))
+        });
+        let Some((device, path, size)) = traced else { return };
+
+        let now = std::time::SystemTime::now();
+        self.status.send_modify(|status| {
+            // Whatever has not moved in a while is not moving: the other end
+            // finished, or went away. Either way it is not worth a bar.
+            status.outgoing.retain(|t| {
+                now.duration_since(t.updated).unwrap_or_default() < SEND_STALE
+            });
+            match status.outgoing.iter_mut().find(|t| t.path == path && t.device == device) {
+                Some(sending) => {
+                    sending.done = (sending.done + bytes).min(sending.size);
+                    sending.updated = now;
+                }
+                None => status.outgoing.push(crate::status::Transfer {
+                    path,
+                    device,
+                    size,
+                    done: bytes.min(size),
+                    started: now,
+                    updated: now,
+                }),
+            }
+        });
     }
 }
 
@@ -1052,8 +1126,10 @@ mod tests {
         progress.started("video.mp4", 1000);
         let shown = watcher.borrow().incoming.clone();
         assert_eq!(shown.len(), 1);
-        assert_eq!((shown[0].path.as_str(), shown[0].from.as_str(), shown[0].size, shown[0].done),
-                   ("video.mp4", "phone", 1000, 0));
+        assert_eq!(
+            (shown[0].path.as_str(), shown[0].device.as_str(), shown[0].size, shown[0].done),
+            ("video.mp4", "phone", 1000, 0)
+        );
 
         // Held back while inside the publishing interval...
         progress.advanced(300);
@@ -1082,7 +1158,56 @@ mod tests {
 
         let shown = watcher.borrow().incoming.clone();
         assert_eq!(shown.len(), 1);
-        assert_eq!(shown[0].from, "tablet");
+        assert_eq!(shown[0].device, "tablet");
+    }
+
+    /// A peer asks for chunks, never files. Each one served is traced to the
+    /// send it belongs to and added up; a chunk of a shared file is not a send
+    /// and shows nothing.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_send_is_traced_from_the_chunks_served() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("sync");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut store = qurb_storage::Store::open(
+            &root.join(".qurb"),
+            qurb_storage::ChunkKey::from_bytes([4; 32]),
+        )
+        .unwrap()
+        .in_tree(&root);
+
+        let phone = qurb_sync::DeviceId::from_bytes([8; 32]);
+        let phone_cert = Fingerprint::from_bytes([9; 32]);
+        store.db().trust_peer(&phone, phone_cert.as_bytes(), "phone").unwrap();
+
+        let video: Vec<u8> =
+            (0..600_000u32).map(|i| (i.wrapping_mul(2_654_435_761) >> 24) as u8).collect();
+        let loose = dir.path().join("video.mp4");
+        std::fs::write(&loose, &video).unwrap();
+        store.send_to_vault("video.mp4", &loose, &phone).unwrap();
+        let chunks = store.chunk_hashes_for_content(&blake3::hash(&video)).unwrap().unwrap();
+
+        std::fs::write(root.join("shared.txt"), b"everybody's").unwrap();
+        store.put_file("shared.txt", &root.join("shared.txt")).unwrap();
+        let shared = store.db().file_by_path("shared.txt").unwrap().unwrap();
+        let shared_chunk = store.db().chunk_hashes_for(shared.id).unwrap()[0];
+
+        let (publisher, watcher) = channel();
+        let sending = Sending { store: Arc::new(Mutex::new(store)), status: publisher };
+
+        qurb_peer::Served::served(&sending, &phone_cert, &shared_chunk, 11);
+        assert!(watcher.borrow().outgoing.is_empty(), "a shared file was shown as a send");
+
+        let mut total = 0;
+        for chunk in &chunks {
+            let bytes = 600_000 / chunks.len() as u64;
+            qurb_peer::Served::served(&sending, &phone_cert, chunk, bytes);
+            total += bytes;
+        }
+        let shown = watcher.borrow().outgoing.clone();
+        assert_eq!(shown.len(), 1);
+        assert_eq!((shown[0].path.as_str(), shown[0].device.as_str()), ("video.mp4", "phone"));
+        assert_eq!((shown[0].size, shown[0].done), (600_000, total));
     }
 
     /// With nobody displaying anything there is nothing to publish to, and
