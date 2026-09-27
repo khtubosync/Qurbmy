@@ -32,3 +32,16 @@ license = "MIT OR Apache-2.0"
 [profile.release]
 opt-level = 3
 debug = true
+
+# The engine as a phone gets it. Link-time optimisation across every crate and
+# a single codegen unit let the linker drop what the app never calls and inline
+# across crate boundaries, for a smaller library. Slow to build, so it is only
+# for what ships; `release` stays quick for trying things. Panics
+# still unwind, because UniFFI turns a panic into an error the app can show
+# rather than a crash. See decision 0039.
+[profile.mobile]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+debug = false
+strip = true

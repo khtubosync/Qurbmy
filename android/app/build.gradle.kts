@@ -32,21 +32,29 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
-
-        ndk {
-            // Only what is actually shipped here. The other two ABIs build, and
-            // adding them to the APK without ever running them would be a claim
-            // this project has not earned.
-            abiFilters += listOf("arm64-v8a", "x86_64")
-        }
     }
 
+    // Which architectures go in the APK is decided per build type. Only what is
+    // actually run: the other two ABIs build, and adding them without ever
+    // running them would be a claim this project has not earned.
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // What a phone installs: arm64 only, the code shrunk and optimised
+            // by R8, and unused resources dropped. Together, most of the
+            // difference between a heavy app and a light one -- see decision
+            // 0039 for the measurements.
+            ndk {
+                abiFilters += listOf("arm64-v8a")
+            }
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
         debug {
+            // x86_64 as well, for the emulator.
+            ndk {
+                abiFilters += listOf("arm64-v8a", "x86_64")
+            }
             isMinifyEnabled = false
         }
     }

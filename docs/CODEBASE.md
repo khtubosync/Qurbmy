@@ -897,6 +897,11 @@ core problems that a desktop merely tolerates:
   binds `127.0.0.1` explicitly and STUN normally supplies an address that works
   instead; it broke two devices on a network with no route to the internet.
 
+**The release build is the light one**: arm64 only, the code shrunk by R8, and
+the engine built with the `mobile` profile, link-time optimised. 10.7 MB
+installed on a Galaxy S23 against 46.7 MB for the debug build, with a cold start
+of about 175 ms — see [decisions/0039](decisions/0039-a-light-android-app.md).
+
 **There is an Android app** — [`android/`](../android/) — which installs, sets up
 an identity, keeps the key in the Android Keystore, lists files, pairs and
 syncs. Building it found a bug nothing else could: UniFFI keeps only the *last*

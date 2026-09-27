@@ -65,3 +65,4 @@ is worth more than a tidy directory.
 | [0036](0036-a-phone-keeps-its-own-files.md) | A phone keeps its own files, and another device holds them for it | Accepted — built on the desktop, not yet on the phone |
 | [0037](0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md) | A file sent to a desktop is an ordinary file in Downloads | Accepted — built |
 | [0038](0038-the-storage-question-during-setup.md) | The storage question is asked during setup | Accepted — not built |
+| [0039](0039-a-light-android-app.md) | A light Android app, on the platform's own views | Accepted |

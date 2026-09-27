@@ -25,6 +25,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.qurb_mobile.FileEntry
+import uniffi.qurb_mobile.Qurb
 import uniffi.qurb_mobile.QurbException
 import java.io.File
 import java.text.DateFormat
@@ -145,34 +146,47 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val engine = Engine.open(this@MainActivity)
-                val state = withContext(Dispatchers.IO) {
-                    // A scan first: nothing delivers filesystem events to a
-                    // process that was not running, so anything that changed
-                    // while the app was closed produced no event at all.
-                    engine.scan()
-                    Snapshot(
-                        engine.list(),
-                        engine.usage(),
-                        engine.peers().size,
-                        engine.outstanding().files.size,
-                    )
-                }
 
-                files.submit(state.listed)
-                views.empty.visibility = if (state.listed.isEmpty()) View.VISIBLE else View.GONE
-                views.summary.text = summary(
-                    state.listed.size,
-                    state.usage.logical,
-                    state.usage.onDisk,
-                    state.peers,
-                    state.waiting,
-                )
+                // What the index already knows, on screen at once. The scan
+                // walks every file in the folder and can take seconds on a large
+                // one; nobody should look at an empty list while it does.
+                show(withContext(Dispatchers.IO) { snapshot(engine) })
+
+                // Then the scan: nothing delivers filesystem events to a process
+                // that was not running, so anything that changed while the app
+                // was closed produced no event at all. Redrawn only if it found
+                // something.
+                val changed = withContext(Dispatchers.IO) {
+                    val found = engine.scan()
+                    if (found.stored > 0u || found.deleted > 0u) snapshot(engine) else null
+                }
+                changed?.let { show(it) }
             } catch (e: Exception) {
                 fail("Could not read the store", e)
             } finally {
                 views.refresh.isRefreshing = false
             }
         }
+    }
+
+    /** Everything a refresh draws, read in one go off the main thread. */
+    private fun snapshot(engine: Qurb) = Snapshot(
+        engine.list(),
+        engine.usage(),
+        engine.peers().size,
+        engine.outstanding().files.size,
+    )
+
+    private fun show(state: Snapshot) {
+        files.submit(state.listed)
+        views.empty.visibility = if (state.listed.isEmpty()) View.VISIBLE else View.GONE
+        views.summary.text = summary(
+            state.listed.size,
+            state.usage.logical,
+            state.usage.onDisk,
+            state.peers,
+            state.waiting,
+        )
     }
 
     /** What one refresh read, so the IO block returns one thing rather than four. */

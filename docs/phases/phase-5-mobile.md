@@ -896,8 +896,8 @@ safe.
   not count on — not "not found".
 - **Nothing on a phone collects garbage.** Only the desktop daemon runs it, so
   on a phone tombstones never expire and chunks nothing references are never
-  removed. Found 2026-09-25 while tracing a different bug; not yet measured for
-  how much it costs over time.
+  removed. Found 2026-09-25 while tracing a different bug. Measured 2026-09-27:
+  the S23 holds 100.7 MB for 30.9 MB of files.
 - **Case collisions are checked against the shared area only.** A received
   `Report.pdf` beside a shared `report.pdf` is not reported. Both of this
   project's platforms are case-sensitive, so it is latent rather than live.
@@ -925,6 +925,32 @@ private, a way to name the device that keeps them, and *Free local space* and
 *Download* on a file. Until then a phone's files go to the shared area as
 before. Every device must be rebuilt for `qurb/2`, the phone included, or they
 will not connect.
+
+## Light and snappy, measured
+
+**2026-09-27, Galaxy S23 (SM-S911B), Android 16.** Asked which interface
+toolkit the rebuilt app should use, the project owner said only that it should
+be light and snappy. So the question became what makes it so, answered with
+measurements — see
+[decision 0039](../decisions/0039-a-light-android-app.md), which has the table.
+
+The release build had never been made lean: R8 was off, and it carried an
+emulator's engine no phone uses. With R8, arm64 only and the engine built with
+link-time optimisation, the APK went from 26.6 MB to **10.7 MB** (the debug
+build people had been installing was 46.7 MB), and the code held in memory from
+16.5 MB to **8.1 MB**. Cold start was about **175 ms** either way: the gain is
+in size, not in startup, which was already fast in any release build.
+
+**How the first attempt at the numbers went wrong** is worth keeping. The
+phone's screen turned off during the runs, and launches behind the lock screen
+finish much faster or much slower than real ones, so the first batches clustered
+around 160 and 350 ms and suggested a difference that was not there. The
+measuring script now wakes the screen before every launch and aborts if the lock
+screen is showing.
+
+**Found:** the phone reports 100.7 MB on disk for 30.9 MB of files. Nothing on a
+phone runs garbage collection, so the chunks of deleted and replaced files stay
+for ever. Not fixed yet; it belongs in the background worker.
 
 ## Deliberately left undone
 

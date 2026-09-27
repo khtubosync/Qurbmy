@@ -4,10 +4,19 @@ A real app: it installs, sets up an identity, keeps the key in the Android
 Keystore, lists files, pairs with another device and syncs.
 
 ```bash
-./scripts/android-app.sh            # debug APK, about 21 MB
+./scripts/android-app.sh            # debug APK, about 45 MB: two architectures, unshrunk
 ./scripts/android-app.sh install    # and install it on a connected device
-./scripts/android-app.sh release    # unsigned release APK
+./scripts/android-app.sh release    # unsigned release APK, about 11 MB
 ```
+
+**The app is meant to be light and snappy**, and the release build is where
+that is decided: arm64 only, the code shrunk by R8, and the engine built with
+the `mobile` profile — link-time optimisation across every crate. Measured on a
+Galaxy S23: 10.7 MB installed against 46.7 MB for the debug build, the code it
+keeps in memory down from 26.4 MB to 8.1 MB, and a cold start of about 175 ms.
+The measurements and what they do and do not show are in
+[decision 0039](../docs/decisions/0039-a-light-android-app.md). A release build
+takes longer, because link-time optimisation does; the debug build stays quick.
 
 ## What it does
 

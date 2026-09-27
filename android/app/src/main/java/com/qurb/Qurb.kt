@@ -55,6 +55,12 @@ object Engine {
      * one store would contend on the database lock.
      */
     suspend fun open(context: Context): Qurb = withContext(Dispatchers.IO) {
+        // Already open: the ordinary case, and it has to cost nothing, because
+        // every screen asks. Before this returned early, every refresh fetched
+        // the push token first -- a network round trip on a build with
+        // Firebase -- and nothing appeared until it came back.
+        handle?.let { return@withContext it }
+
         // Fetched before the lock, because it is a network round trip and the
         // lock is held while the store opens. Null whenever push is not set
         // up, which is the ordinary case for a build with no Firebase project:

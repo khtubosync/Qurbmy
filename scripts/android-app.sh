@@ -2,7 +2,9 @@
 # Build the Android app.
 #
 #   ./scripts/android-app.sh            # debug APK
-#   ./scripts/android-app.sh release    # unsigned release APK
+#   ./scripts/android-app.sh release    # unsigned release APK: arm64 only,
+#                                       # the engine built with the `mobile`
+#                                       # profile, the code shrunk by R8
 #   ./scripts/android-app.sh install    # debug APK, installed on a connected device
 #
 # Three steps, kept separate on purpose. Cargo is not wired into Gradle: a Rust
@@ -27,23 +29,33 @@ find_ndk() {
 NDK=$(find_ndk) || { echo "No Android NDK. See scripts/android-build.sh." >&2; exit 1; }
 
 echo "== 1/3  native libraries"
-./scripts/android-build.sh --release
+# A release is what a phone installs: arm64, which every phone sold in a decade
+# is, and the engine built for size and speed rather than for build time. A
+# debug build carries x86_64 as well, for the emulator, and builds quicker.
+# See decision 0039.
+if [[ $MODE == release ]]; then
+    PROFILE=mobile
+    declare -A ABI=( [arm64-v8a]=aarch64-linux-android )
+    ANDROID_TARGETS=aarch64-linux-android ./scripts/android-build.sh --profile mobile
+else
+    PROFILE=release
+    # Only the two ABIs the app ships. The others build and have never been run
+    # on hardware, and shipping an untested binary is a claim this project has
+    # not earned -- see app/build.gradle.kts.
+    declare -A ABI=( [arm64-v8a]=aarch64-linux-android [x86_64]=x86_64-linux-android )
+    ANDROID_TARGETS="aarch64-linux-android x86_64-linux-android" ./scripts/android-build.sh --release
+fi
 
-# Only the two ABIs the app ships. The others build and have never been run on
-# hardware, and shipping an untested binary is a claim this project has not
-# earned -- see app/build.gradle.kts.
-declare -A ABI=( [arm64-v8a]=aarch64-linux-android [x86_64]=x86_64-linux-android )
-
-# Stripped here rather than by Gradle. A release build carries debug
-# information -- 61 MB per architecture against 3.7 MB without -- and an APK
-# holding both unstripped is 271 MB for an app whose whole engine is 4 MB.
+# Stripped here rather than by Gradle. The `release` profile carries debug
+# information, and an APK holding it unstripped would be hundreds of megabytes
+# for an engine that is a few.
 # Gradle can strip, but only with an NDK on the build machine, and this script
 # has already found one.
 STRIP=$(find_ndk >/dev/null 2>&1 && true)
 NDK_BIN=$(ls -d "$NDK/toolchains/llvm/prebuilt"/*/bin 2>/dev/null | head -1)
 
 for abi in "${!ABI[@]}"; do
-    src="target/${ABI[$abi]}/release/libqurb_mobile.so"
+    src="target/${ABI[$abi]}/$PROFILE/libqurb_mobile.so"
     [[ -f $src ]] || { echo "missing $src" >&2; exit 1; }
     mkdir -p "android/app/src/main/jniLibs/$abi"
     dest="android/app/src/main/jniLibs/$abi/libqurb_mobile.so"

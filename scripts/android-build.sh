@@ -7,6 +7,8 @@
 #
 #   ./scripts/android-build.sh              # all four architectures, debug
 #   ./scripts/android-build.sh --release    # all four, release
+#   ANDROID_TARGETS=aarch64-linux-android ./scripts/android-build.sh --profile mobile
+#                                           # only what a phone runs, as it ships
 #   ANDROID_NDK_HOME=/path ./scripts/android-build.sh
 #
 # The four exist because Android has shipped all of them: arm64 is every phone
@@ -63,7 +65,12 @@ declare -A CLANG=(
 CRATES=(qurb-storage qurb-watcher qurb-sync qurb-engine qurb-keys qurb-peer qurb-mobile)
 
 failed=()
-for target in "${!CLANG[@]}"; do
+# Every architecture unless told otherwise. Building the two nothing runs is
+# most of the time a release build takes.
+TARGETS=${ANDROID_TARGETS:-${!CLANG[*]}}
+
+for target in $TARGETS; do
+    [[ -n ${CLANG[$target]:-} ]] || { echo "unknown target $target" >&2; exit 1; }
     prefix="${CLANG[$target]}$API"
     upper=$(echo "$target" | tr 'a-z-' 'A-Z_')
 
