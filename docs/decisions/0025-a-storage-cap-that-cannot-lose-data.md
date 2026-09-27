@@ -131,3 +131,23 @@ It is now on a five-minute timer in the daemon, ahead of the limit check, with
 a seven-day retention window. The order is deliberate: collecting frees
 superseded and deleted content, which costs the user nothing, and only then is
 it fair to drop copies of files they still have.
+
+## Fetched back, and still marked as dropped
+
+**Found 2026-09-27**, while working out how a phone would fetch back its own
+freed files. A file dropped for the cap and then fetched back — `qurb fetch`,
+or the window's button — came back with exactly the bytes the index already
+recorded, so the store took the shortcut for an unchanged file, which updated
+the modification time and nothing else. The file stayed marked as dropped with
+its bytes sitting in the folder. Three consequences, the last of them the rule
+this decision exists to protect:
+
+- it was never a candidate for dropping again;
+- the request for it was never cleared, so every sync fetched it again;
+- and if the person later deleted it, the scan took the missing file for the
+  cap's own doing and did not pass the deletion on.
+
+The shortcut now records whether the folder holds the file, and clears the
+request when it does. `a_file_fetched_back_is_held_again` in
+`crates/storage/tests/storage_cap.rs` failed before the fix. No test had
+fetched a dropped file back before.

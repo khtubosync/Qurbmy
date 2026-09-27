@@ -431,9 +431,24 @@ impl Store {
         if payloads == Payloads::TrustIndex {
             if let Some(existing) = self.db.live_row_in(logical_path, vault)? {
                 if existing.content_hash == manifest.file_hash {
+                    // Unchanged content can still be a change in whether this
+                    // device holds it: a file dropped for the storage cap and
+                    // fetched back arrives exactly like this. Without saying so
+                    // here it stayed marked as dropped with its bytes sitting in
+                    // the folder -- fetched again on every sync, and a later
+                    // deletion of it taken for the cap's own doing and never
+                    // passed on.
+                    let backed = match vault {
+                        None => true,
+                        Some(owner) => *owner == self.db.local_device()?,
+                    };
+                    let holding = (backed && self.supplies(logical_path)) || self.tree.is_none();
                     self.db.conn().execute(
-                        "UPDATE files SET mtime_ns = ?1, updated_at = unixepoch() WHERE id = ?2",
-                        rusqlite::params![mtime_ns, existing.id],
+                        "UPDATE files SET mtime_ns = ?1, updated_at = unixepoch(),
+                                          materialised = ?3,
+                                          wanted = CASE WHEN ?3 = 1 THEN 0 ELSE wanted END
+                          WHERE id = ?2",
+                        rusqlite::params![mtime_ns, existing.id, holding as i64],
                     )?;
                     // A local write of identical bytes is not a change and must
                     // not advance the clock. A version adopted from a peer still

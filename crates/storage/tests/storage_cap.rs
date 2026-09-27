@@ -197,3 +197,35 @@ fn a_replica_counts_its_bytes_once() {
         data.len()
     );
 }
+
+/// A dropped file fetched back is held again.
+///
+/// The fetch writes the same bytes the index already records, so it looks
+/// like an unchanged file. Unless that still marks the file as held, it stays
+/// "not here" with its bytes sitting in the folder: never a candidate for
+/// eviction again, counted as missing, and -- worst -- a later deletion of it
+/// is taken for the cap's own doing and never reaches the other devices.
+#[test]
+fn a_file_fetched_back_is_held_again() {
+    let mut f = fixture();
+    let data = f.write("notes.txt", 256 * 1024, 0x5555_5555);
+    f.store.note_replica(&blake3::hash(&data), &DeviceId::from_bytes([9; 32])).unwrap();
+    f.store.evict("notes.txt").unwrap();
+    assert_eq!(f.store.is_materialised("notes.txt").unwrap(), Some(false));
+
+    // Fetched back the way the engine does it: written into the folder, then
+    // adopted with the version it already had.
+    let path = f.tree.path().join("notes.txt");
+    std::fs::write(&path, &data).unwrap();
+    let version = f.store.db().version("notes.txt").unwrap().unwrap();
+    f.store.db().want("notes.txt").unwrap();
+    f.store.adopt_file(&version, &path, 0).unwrap();
+
+    assert_eq!(
+        f.store.is_materialised("notes.txt").unwrap(),
+        Some(true),
+        "fetched back but still marked as dropped"
+    );
+    assert!(f.store.evicted().unwrap().is_empty());
+    assert!(f.store.db().wanted_paths().unwrap().is_empty(), "still asking for it after it arrived");
+}
