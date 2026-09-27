@@ -3897,6 +3897,7 @@ dependencies = [
  "qurb-engine",
  "qurb-keys",
  "qurb-peer",
+ "qurb-relay",
  "qurb-signal",
  "qurb-storage",
  "qurb-sync",
@@ -4816,6 +4817,20 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "service-capacity"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "quinn",
+ "qurb-keys",
+ "qurb-relay",
+ "qurb-signal",
+ "rcgen",
+ "rustls",
+ "tokio",
 ]
 
 [[package]]

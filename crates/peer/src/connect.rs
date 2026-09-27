@@ -160,6 +160,66 @@ fn hex_short(bytes: &[u8; 32]) -> String {
     bytes[..4].iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// Whether `text` has the shape of a relay's address: a host and a port.
+///
+/// The host may be a name or an address -- `relay.example.com:9001`,
+/// `203.0.113.5:9001`, `[2001:db8::1]:9001` -- because a relay on a server of
+/// one's own is usually known by name, and names outlive addresses. Checked
+/// without the network, so a setting can be refused as it is typed; whether
+/// the name resolves is a question for [`resolve_relay`], asked each time a
+/// device starts syncing.
+pub fn relay_address_ok(text: &str) -> std::result::Result<(), String> {
+    let text = text.trim();
+    let Some((host, port)) = text.rsplit_once(':') else {
+        return Err(format!("{text} has no port — a relay is host:port, like relay.example.com:9001"));
+    };
+    if port.parse::<u16>().map_or(true, |p| p == 0) {
+        return Err(format!("{port} is not a port"));
+    }
+    let host = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(host);
+    if host.is_empty() || host.contains(char::is_whitespace) {
+        return Err(format!("{text} has no host before the port"));
+    }
+    Ok(())
+}
+
+/// Where a relay is, now: a name looked up, or an address taken as it is.
+///
+/// Looked up on each start rather than once, because a phone that moves from
+/// Wi-Fi to a mobile network may get a different answer -- on an IPv6-only
+/// network with NAT64, a synthesised address for an IPv4-only server -- and
+/// because a server's address changes more often than its name.
+///
+/// Of the answers, the first that accepts a connection, tried in the order
+/// the system's resolver prefers. Not simply the first answer: a name with an
+/// IPv6 and an IPv4 address, served only on one of them, is an ordinary
+/// server, and was found as `localhost` resolving to `::1` for a relay
+/// listening on `127.0.0.1`. The probe is a TCP handshake that registers
+/// nothing, which the relay closes. Bounded throughout, since a resolver or
+/// an address that does not answer must not hold up a sync that may not need
+/// the relay at all.
+pub async fn resolve_relay(text: &str) -> Result<SocketAddr> {
+    relay_address_ok(text).map_err(|detail| Error::Signalling { detail: format!("relay: {detail}") })?;
+    let answers: Vec<SocketAddr> =
+        tokio::time::timeout(Duration::from_secs(5), tokio::net::lookup_host(text.trim()))
+            .await
+            .map_err(|_| Error::Signalling { detail: format!("relay: looking up {text} took too long") })?
+            .map_err(|e| Error::Signalling { detail: format!("relay: {text}: {e}") })?
+            .collect();
+    for address in &answers {
+        let probe = tokio::time::timeout(Duration::from_secs(3), tokio::net::TcpStream::connect(address));
+        if let Ok(Ok(_)) = probe.await {
+            return Ok(*address);
+        }
+    }
+    Err(Error::Signalling {
+        detail: match answers.is_empty() {
+            true => format!("relay: {text} has no address"),
+            false => format!("relay: nothing answers at {text}"),
+        },
+    })
+}
+
 /// What the signalling task is asked to do.
 enum Command {
     Introduce { to: MemberId, reply: oneshot::Sender<Result<Endpoints>> },
@@ -220,17 +280,27 @@ impl Connector {
         // The relay path registers under the same identifier the rendezvous
         // service uses, so a peer that knows where to look for us there knows it
         // already.
+        //
+        // Best effort, like the rendezvous below. A relay that cannot be
+        // reached costs the fallback, not the device: it used to stop a device
+        // starting at all, so a server of one's own being down meant a phone
+        // could not sync with the laptop beside it on the same Wi-Fi.
         let relay = match relay {
             Some(address) => {
                 let me = *MemberId::derive(&master, identity.fingerprint().as_bytes()).as_bytes();
-                let socket = qurb_relay::RelaySocket::connect(address, me)
-                    .await
-                    .map_err(|e| Error::Signalling { detail: format!("relay: {e}") })?;
-
-                let server_config = tls::server_config(&identity, allowed)?;
-                let endpoint = qurb_relay::endpoint_over(Arc::clone(&socket), Some(server_config))
-                    .map_err(|e| Error::Signalling { detail: format!("relay: {e}") })?;
-                Some(RelayPath { socket, endpoint })
+                match qurb_relay::RelaySocket::connect(address, me).await {
+                    Ok(socket) => {
+                        let server_config = tls::server_config(&identity, allowed)?;
+                        let endpoint =
+                            qurb_relay::endpoint_over(Arc::clone(&socket), Some(server_config))
+                                .map_err(|e| Error::Signalling { detail: format!("relay: {e}") })?;
+                        Some(RelayPath { socket, endpoint })
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, %address, "the relay cannot be reached; direct paths only");
+                        None
+                    }
+                }
             }
             None => None,
         };
@@ -904,6 +974,35 @@ async fn futures_select<T>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_relay_address_is_a_host_and_a_port() {
+        for good in ["relay.example.com:9001", "203.0.113.5:9001", "[2001:db8::1]:9001", " r.example:443 "] {
+            assert!(relay_address_ok(good).is_ok(), "{good} refused");
+        }
+        for bad in ["relay.example.com", "203.0.113.5", ":9001", "relay.example.com:0", "relay.example.com:99999", "a b:9001", ""] {
+            assert!(relay_address_ok(bad).is_err(), "{bad} accepted");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_relay_name_is_looked_up_to_an_address_that_answers() {
+        // Listening on IPv4 only: `localhost` also resolves to `::1`, which
+        // here answers nothing, and the lookup has to get past it.
+        let listening = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listening.local_addr().unwrap().port();
+
+        let by_address = resolve_relay(&format!("127.0.0.1:{port}")).await.unwrap();
+        assert_eq!(by_address, format!("127.0.0.1:{port}").parse().unwrap());
+        let by_name = resolve_relay(&format!("localhost:{port}")).await.unwrap();
+        assert_eq!(by_name, by_address, "took an address that does not answer");
+
+        drop(listening);
+        assert!(resolve_relay(&format!("127.0.0.1:{port}")).await.is_err(), "nothing answers now");
+        // `.invalid` is reserved never to resolve.
+        assert!(resolve_relay("nowhere.invalid:9001").await.is_err());
+        assert!(resolve_relay("no-port.example.com").await.is_err());
+    }
 
     /// Binding every interface must not announce "every interface".
     ///

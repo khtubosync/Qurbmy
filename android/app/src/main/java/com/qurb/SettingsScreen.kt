@@ -75,6 +75,10 @@ class SettingsScreen(app: MainActivity) : Screen(app) {
         page.heading("Syncing")
         page.setting("Background sync", background) { explainBackground() }
         page.setting("Rendezvous service", Engine.signalUrl(app)) { editSignal() }
+        page.setting(
+            "Relay",
+            Engine.relayAddress(app) ?: "None — devices must reach each other directly",
+        ) { editRelay() }
 
         page.heading("About")
         val version = runCatching {
@@ -174,9 +178,47 @@ class SettingsScreen(app: MainActivity) : Screen(app) {
     }
 
     /**
-     * Where the rendezvous service is. Editable because there is no hosted one
-     * yet: to try this, run `qurb signal` on a computer and point the phone at
-     * it.
+     * The relay, for when two devices cannot reach each other directly --
+     * which on mobile data is often. Checked by the engine's own rule as it is
+     * saved, so a mistyped address is refused here rather than found out by
+     * every sync after.
+     */
+    private fun editRelay() {
+        val input = EditText(app).apply {
+            setText(Engine.relayAddress(app).orEmpty())
+            hint = "relay.example.com:9001"
+            setPadding(48, 32, 48, 8)
+        }
+        val dialog = MaterialAlertDialogBuilder(app)
+            .setTitle("Relay")
+            .setMessage(
+                "When this phone and another device cannot reach each other directly — " +
+                    "common on mobile data — their encrypted traffic goes through a relay " +
+                    "instead. It cannot read it.\n\nRun `qurb relay` on a server of your own " +
+                    "and enter its address and port. Leave it empty for none."
+            )
+            .setView(input)
+            .setPositiveButton("Save", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.show()
+        dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE).setOnClickListener {
+            val text = input.text.toString().trim()
+            val problem = if (text.isEmpty()) null else uniffi.qurb_mobile.relayAddressProblem(text)
+            if (problem != null) {
+                input.error = problem
+                return@setOnClickListener
+            }
+            Engine.setRelayAddress(app, text.ifEmpty { null })
+            dialog.dismiss()
+            app.say(if (text.isEmpty()) "No relay" else "Saved")
+            refresh()
+        }
+    }
+
+    /**
+     * Where the rendezvous service is: on a server of your own, run
+     * `qurb signal` and point the phone at it.
      */
     private fun editSignal() {
         val input = EditText(app).apply {
@@ -187,7 +229,8 @@ class SettingsScreen(app: MainActivity) : Screen(app) {
             .setTitle("Rendezvous service")
             .setMessage(
                 "Two devices find each other through this when they are not on the same " +
-                    "network. Run `qurb signal` on a computer and use ws://<that machine>:9000."
+                    "network. Run `qurb signal` on a server of your own and enter the address " +
+                    "it prints — wss://… for one reachable from anywhere."
             )
             .setView(input)
             .setPositiveButton("Save") { _, _ ->

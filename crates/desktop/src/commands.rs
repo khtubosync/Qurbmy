@@ -354,7 +354,7 @@ pub fn settings(hosted: Host<'_>) -> Answer<Settings> {
     Ok(Settings {
         name: config.name,
         signal: config.signal,
-        relay: config.relay.map(|r| r.to_string()),
+        relay: config.relay.clone(),
         port: config.port,
         protection,
         downloads: config.downloads.as_setting(),
@@ -402,10 +402,10 @@ pub fn save_settings(
     config.port = port;
     config.relay = match relay.as_deref().map(str::trim).filter(|r| !r.is_empty()) {
         None => None,
-        Some(text) => Some(
-            text.parse()
-                .map_err(|_| format!("{text} is not an address and port, like 1.2.3.4:9001"))?,
-        ),
+        Some(text) => {
+            qurb_peer::relay_address_ok(text)?;
+            Some(text.to_string())
+        }
     };
     config.save(&dir).map_err(failed)
 }

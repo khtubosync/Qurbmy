@@ -370,13 +370,25 @@ impl Daemon {
         }
         report_collisions(&engine);
 
+        // Looked up now, and a failure costs only the fallback: devices that
+        // can reach each other directly still do.
+        let relay = match &self.config.relay {
+            Some(text) => match qurb_peer::resolve_relay(text).await {
+                Ok(address) => Some(address),
+                Err(e) => {
+                    tracing::warn!(error = %e, "no relay this time; direct paths only");
+                    None
+                }
+            },
+            None => None,
+        };
         let connector = match Connector::start(
             format!("0.0.0.0:{}", self.config.port).parse()?,
             self.identity.clone(),
             self.master.clone(),
             &trust,
             &self.config.signal,
-            qurb_peer::Finding::everything(self.config.relay),
+            qurb_peer::Finding::everything(relay),
         )
         .await
         {
@@ -401,7 +413,7 @@ impl Daemon {
             // question is what it was given to try.
             reachable = ?connector.endpoints().local,
             public = ?connector.endpoints().public,
-            relay = ?self.config.relay,
+            relay = ?relay,
             "listening"
         );
 

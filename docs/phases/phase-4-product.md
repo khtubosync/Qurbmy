@@ -35,7 +35,7 @@ warns is not the fun part and is a full quarter.
 | the services deployable | ✅ systemd units, TLS, ports written down |
 | garbage collection running | ✅ every 5 minutes, 7-day retention |
 
-686 tests pass in 80 test binaries on Linux (2026-09-27, debug build, the
+692 tests pass in 81 test binaries on Linux (2026-09-27, debug build, the
 development laptop); clippy is clean.
 
 ## The interface
@@ -669,6 +669,37 @@ synthetic input cannot reach under Wayland.
 The last setting-up screen also stopped saying devices are introduced "on the
 command line for now". The window's Devices screen has done that since pairing
 by code was built.
+
+## Through a server of your own
+
+**2026-09-27.** The project owner means to run the rendezvous service and the
+relay on a server of his own, so that his phone and laptop sync whenever both
+are on, wherever they are, without Tailscale. Getting ready for that found:
+
+- **The phone never used a relay** — the app passed none — so on mobile data,
+  behind carrier address translation that a direct connection often cannot
+  cross, it reached nothing. Settings now has a Relay row, checked as it is
+  saved by the engine's own rule.
+- **A relay could only be given as an address**, while the server guide's
+  example used a name. Names now work, looked up at each start, trying each
+  address until one answers.
+- **A relay that was down stopped a device syncing at all**, even with the
+  other device on the same network. It is best effort now.
+- **The guide said the relay was UDP**; it is TCP. And its examples, and the
+  CLI's own help, named `~/Downloads/qurb` as the folder, which is now where
+  received files go. Both corrected, with the firewall rules spelled out.
+- **The rendezvous service held about 150 KiB per connected device**, in the
+  WebSocket library's default buffers. Now about 22 KiB, 30 KiB with its own
+  TLS. Measured with a load generator in
+  [experiments/service-capacity](../../experiments/service-capacity/README.md),
+  which also measured the relay: 241 MiB/s for one transfer, 726 MiB/s for
+  eight, at 4–5 CPU-seconds per GiB — over loopback on the laptop.
+
+The answer to "is it scalable": for one person's devices a small server is
+nowhere near any limit; by memory, it would hold tens of thousands of devices,
+and the relay's limit is the server's bandwidth and its bill. **Not yet done**:
+any of it on a real server across the internet, a phone on mobile data actually
+syncing through the relay, and the churn of many phones connecting and leaving.
 
 ## Still to do
 

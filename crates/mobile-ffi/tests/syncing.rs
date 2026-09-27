@@ -354,6 +354,64 @@ fn an_unreachable_peer_is_counted_not_raised() {
     assert!(!outcome.timed_out, "a device that never answered was reported as time running out");
 }
 
+/// A relay given by name, as one on a server of your own would be.
+///
+/// The phone's engine took the relay only as an address and failed the whole
+/// pass on a name, with "bad relay address"; the app passed no relay at all,
+/// so a phone on a mobile network whose carrier defeats hole punching reached
+/// nothing. The name is now looked up on each pass.
+#[test]
+fn a_relay_can_be_given_by_name() {
+    let _sharing = ALONE.read().unwrap_or_else(|e| e.into_inner());
+    logging();
+    let (runtime, signal) = signalling();
+    let relay_port = runtime.block_on(async {
+        let relay = Arc::new(
+            qurb_relay::RelayServer::bind("127.0.0.1:0".parse().unwrap()).await.unwrap(),
+        );
+        let port = relay.local_addr().unwrap().port();
+        tokio::spawn(async move { relay.serve().await });
+        port
+    });
+    let with_relay = |name: &str| Settings {
+        relay: Some(format!("localhost:{relay_port}")),
+        ..settings(name, &signal)
+    };
+
+    let desktop_dir = tempfile::tempdir().unwrap();
+    let phone_dir = tempfile::tempdir().unwrap();
+    let setup = create(desktop_dir.path().display().to_string()).unwrap();
+    restore(phone_dir.path().display().to_string(), setup.recovery_phrase).unwrap();
+    let desktop =
+        Qurb::open_with(desktop_dir.path().display().to_string(), None, with_relay("desktop")).unwrap();
+    let phone =
+        Qurb::open_with(phone_dir.path().display().to_string(), None, with_relay("phone")).unwrap();
+    let offer = desktop.offer_pairing().unwrap();
+    let code = offer.code();
+    let waiting = std::thread::spawn(move || offer.wait());
+    phone.join_pairing(code).unwrap();
+    waiting.join().unwrap().unwrap();
+
+    std::fs::write(desktop_dir.path().join("notes.txt"), b"via a relay with a name").unwrap();
+    desktop.scan().unwrap();
+    let desktop = Arc::new(desktop);
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let serving = Arc::clone(&desktop);
+    let stopping = Arc::clone(&stop);
+    let server = std::thread::spawn(move || {
+        while !stopping.load(std::sync::atomic::Ordering::Relaxed) {
+            let _ = serving.sync_within(5);
+        }
+    });
+
+    let outcome = until_reached(&phone, std::time::Duration::from_secs(60));
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    server.join().unwrap();
+
+    assert_eq!(outcome.reached, 1, "{outcome:?}");
+    assert_eq!(outcome.adopted, 1, "{outcome:?}");
+}
+
 /// A shared file freed from the phone comes back when asked for.
 ///
 /// The phone's sync planned with everything but the one step that turns "I

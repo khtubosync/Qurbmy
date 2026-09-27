@@ -38,6 +38,7 @@ uniffi = { version = "0.32", features = ["build"] }
 blake3.workspace = true
 tempfile = "3"
 qurb-signal = { path = "../signal" }
+qurb-relay = { path = "../relay" }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 [[bin]]

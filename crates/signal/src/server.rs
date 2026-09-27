@@ -393,6 +393,10 @@ impl SignalServer {
 /// just finished a TLS handshake are served by the same code. Everything above
 /// the transport is identical, and having two copies of it would be two places
 /// for the protocol to drift.
+/// How much a connection reads at a time. Enough for a typical message in one
+/// read; a larger one is assembled over several, up to `max_message`.
+const READ_BUFFER: usize = 4 * 1024;
+
 async fn serve_one<S>(
     stream: S,
     directory: Arc<Mutex<Directory>>,
@@ -403,9 +407,20 @@ where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
     // Bounded by the library, before a frame is ever assembled in memory.
+    //
+    // And small buffers, because a connection is held per device for as long
+    // as it is on. The library's defaults are 128 KiB to read and 128 KiB to
+    // write, per connection, for messages this service caps at 16 KiB and
+    // which are usually a few hundred bytes: measured at about 150 KiB of
+    // memory per connected device, so a 1 GB server held some six thousand.
+    // Writes go out as they are made, and what may wait unsent for a client
+    // that is not reading is bounded, where the default was unbounded.
     let config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
         .max_message_size(Some(limits.max_message))
-        .max_frame_size(Some(limits.max_message));
+        .max_frame_size(Some(limits.max_message))
+        .read_buffer_size(READ_BUFFER)
+        .write_buffer_size(0)
+        .max_write_buffer_size(4 * limits.max_message);
     let websocket =
         tokio_tungstenite::accept_async_with_config(stream, Some(config)).await?;
     let (mut sink, mut source) = websocket.split();

@@ -362,8 +362,10 @@ pub struct Settings {
     /// The rendezvous service that introduces two devices.
     #[uniffi(default = "ws://localhost:9000")]
     pub signal_url: String,
-    /// A relay to fall back to when no direct path exists. `None` means direct
-    /// connections only, which on a cellular network often means none at all.
+    /// A relay to fall back to when no direct path exists, as `host:port` --
+    /// a name or an address; a name is looked up on every pass. `None` means
+    /// direct connections only, which on a cellular network often means none
+    /// at all.
     #[uniffi(default = None)]
     pub relay: Option<String>,
     /// The port to listen on. Zero means any, which is right on a phone: it is
@@ -604,6 +606,15 @@ fn vault_at(store_dir: &Path, keystore: Option<&Arc<dyn KeyStore>>) -> Vault {
         Some(store) => vault.using(Arc::new(PlatformStore(Arc::clone(store)))),
         None => vault,
     }
+}
+
+/// Why `text` is not a relay's address, or nothing if it has the shape of
+/// one: `host:port`, a name or an address. For a settings screen to refuse a
+/// mistyped setting as it is saved, by the rule the engine itself applies,
+/// rather than have every sync find out later.
+#[uniffi::export]
+pub fn relay_address_problem(text: String) -> Option<String> {
+    qurb_peer::relay_address_ok(&text).err()
 }
 
 /// Whether this directory has been set up.
@@ -1250,11 +1261,18 @@ impl Qurb {
 
         let identity = self.identity()?;
         let runtime = self.runtime()?;
+        // Looked up on every pass: a phone moves between networks, and a
+        // relay on a server of one's own is known by its name. A lookup that
+        // fails costs this pass its fallback, not the pass -- a device on the
+        // same network, or with a path that punches, is still reached.
         let relay = match &self.relay {
-            Some(text) => Some(
-                text.parse::<std::net::SocketAddr>()
-                    .map_err(|e| QurbError::Other { detail: format!("bad relay address: {e}") })?,
-            ),
+            Some(text) => match runtime.block_on(qurb_peer::resolve_relay(text)) {
+                Ok(address) => Some(address),
+                Err(e) => {
+                    tracing::warn!(error = %e, "no relay this pass");
+                    None
+                }
+            },
             None => None,
         };
 

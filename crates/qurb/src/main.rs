@@ -17,7 +17,7 @@ const USAGE: &str = "\
 qurb — private cloud storage
 
   qurb init [dir]                     set up a device and create a key
-                                    (defaults to ~/Downloads/qurb)
+                                    (defaults to ~/qurb)
   qurb enrol <dir> \"<24 words>\"       set up a device with an existing key
   qurb pair [dir]                     show a code and wait for a device to join
   qurb join <dir> <code>              join a device that is showing a code
@@ -432,7 +432,7 @@ async fn start(root: PathBuf) -> Result<()> {
     println!("qurb: syncing {}", root.display());
     println!("  identity  {}", identity.fingerprint().short());
     println!("  signal    {}", config.signal);
-    match config.relay {
+    match &config.relay {
         Some(relay) => println!("  relay     {relay}"),
         None => println!("  relay     none — devices must reach each other directly"),
     }
@@ -1091,7 +1091,7 @@ fn configure(root: &Path, settings: &[String]) -> Result<()> {
 
     if settings.is_empty() {
         println!("signal = {}", config.signal);
-        println!("relay  = {}", config.relay.map(|r| r.to_string()).unwrap_or_default());
+        println!("relay  = {}", config.relay.clone().unwrap_or_default());
         println!("name   = {}", config.name);
         println!("port   = {}", config.port);
         println!(
@@ -1125,7 +1125,8 @@ fn configure(root: &Path, settings: &[String]) -> Result<()> {
                 config.relay = if value.trim().is_empty() {
                     None
                 } else {
-                    Some(value.trim().parse().context("relay should be address:port")?)
+                    qurb_peer::relay_address_ok(value).map_err(|e| anyhow::anyhow!(e))?;
+                    Some(value.trim().to_string())
                 }
             }
             "name" => config.name = value.trim().to_string(),

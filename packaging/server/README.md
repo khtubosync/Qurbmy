@@ -11,8 +11,15 @@ Files go **directly between devices**, encrypted end to end. That is the point
 of the design rather than a property of this deployment — see
 [decision 0006](../../docs/decisions/0006-availability-gap.md).
 
-A machine with 1 GB of memory is ample. The rendezvous service holds a socket
-per connected device; the relay's cost is bandwidth, and bandwidth is the bill.
+A machine with 1 GB of memory is ample, and that is now measured rather than
+assumed ([experiments/service-capacity](../../experiments/service-capacity/README.md),
+on a laptop over loopback): the rendezvous service holds about 22 KiB per
+connected device, 30 KiB presenting its own certificate, and answers an
+introduction in about 0.1 ms with 9,000 devices connected; the relay holds
+about 19 KiB per device that is on, and carried 241 MiB/s for one transfer at
+about 5 CPU-seconds per GiB. For one person's devices none of that is close to
+a limit. The relay's real cost is bandwidth — every byte through it crosses
+the server twice — and bandwidth is the bill.
 
 ## Setting it up
 
@@ -42,9 +49,14 @@ sudo systemctl restart caddy
 ```
 
 ```bash
-qurb config ~/Downloads/qurb signal=wss://rendezvous.example.com
-qurb config ~/Downloads/qurb relay=rendezvous.example.com:9001
+qurb config ~/qurb signal=wss://rendezvous.example.com
+qurb config ~/qurb relay=rendezvous.example.com:9001
 ```
+
+The relay can be given by name, as here, or by address. A name is looked up
+each time a device starts syncing — on a phone, every pass — and the first of
+its addresses that answers is used, so a name with an IPv6 address the relay
+does not listen on still works. Names were refused until 2026-09-27.
 
 ### TLS, with no domain name
 
@@ -79,8 +91,8 @@ Devices reach it as:
 Copy that line, in full, onto each device:
 
 ```bash
-qurb config ~/Downloads/qurb 'signal=wss://203.0.113.5:9000#4047…2e41'
-qurb config ~/Downloads/qurb relay=203.0.113.5:9001
+qurb config ~/qurb 'signal=wss://203.0.113.5:9000#4047…2e41'
+qurb config ~/qurb relay=203.0.113.5:9001
 ```
 
 Quote it in a shell: `#` starts a comment otherwise, and a setting silently
@@ -93,7 +105,10 @@ told to expect, so a service that made a new one each time it started would
 lock out every device it had. If you do replace it, every device needs the new
 line.
 
-On the phone, for either arrangement: **⋮ → Rendezvous service**.
+On the phone, for either arrangement: **Settings → Rendezvous service**, and
+**Settings → Relay** with the same `host:9001` the computers use. The relay is
+what lets a phone on mobile data reach a computer at home: carriers commonly
+put phones behind address translation a direct connection cannot get through.
 
 ## Ports
 
@@ -101,12 +116,25 @@ On the phone, for either arrangement: **⋮ → Rendezvous service**.
 |---|---|---|
 | 443 | TCP | everyone — Caddy, if you are using a domain and a real certificate |
 | 9000 | TCP | loopback only behind Caddy; **everyone** when the service presents its own certificate |
-| 9001 | UDP | everyone — the relay |
+| 9001 | TCP | everyone — the relay |
+
+**The relay is TCP.** This table said UDP until 2026-09-27, and a firewall opened
+as it said would have blocked the relay entirely. It carries QUIC between two
+devices, but over TCP on purpose: it exists for networks where UDP does not get
+through, and a fallback that needs the thing being fallen back from is no
+fallback (see [its README](../../crates/relay/README.md)). With `ufw`, for the
+setup without a domain:
+
+```bash
+sudo ufw allow 9000/tcp     # the rendezvous service, presenting its own certificate
+sudo ufw allow 9001/tcp     # the relay
+```
 
 The relay is the one thing that faces the internet directly, and it has to:
-it carries QUIC between two devices, and there is nothing for a reverse proxy
-to terminate. It needs no TLS of its own because what it carries is already an
-encrypted session it holds no key for.
+there is nothing for a reverse proxy to terminate. It needs no TLS of its own
+because what it carries is already an encrypted session it holds no key for.
+On a network that lets nothing out but 443, even a TCP relay on 9001 is out of
+reach; moving it to 443 means giving it a port Caddy is not using.
 
 ## Waking sleeping phones
 
@@ -181,7 +209,7 @@ Then pair it with one of your devices, as you would any other:
 
 ```bash
 sudo -u qurb qurb pair /var/lib/qurb-replica     # shows a code
-qurb join ~/Downloads/qurb <that code>            # on your laptop
+qurb join ~/qurb <that code>                    # on your laptop
 ```
 
 A replica has no folder and shows nobody any files. It stores chunks it cannot

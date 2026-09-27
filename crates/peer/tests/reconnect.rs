@@ -76,3 +76,30 @@ async fn a_device_reconnects_after_the_service_restarts() {
     .await;
     assert!(reached.is_ok(), "asking for an introduction hung after the restart");
 }
+
+/// A relay that cannot be reached costs the fallback, not the device.
+///
+/// It used to stop a device starting at all -- so with a server of one's own
+/// down, a phone could not sync with the laptop beside it on the same Wi-Fi,
+/// which needs neither the relay nor the server.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_relay_that_does_not_answer_does_not_stop_a_device() {
+    let dir = tempfile::tempdir().unwrap();
+    let identity = Identity::load_or_create(dir.path()).unwrap();
+    let nobody = {
+        let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        probe.local_addr().unwrap()
+    };
+
+    let connector = Connector::start(
+        "127.0.0.1:0".parse().unwrap(),
+        identity,
+        MasterKey::generate(),
+        &qurb_peer::tls::TrustList::default(),
+        "ws://127.0.0.1:1",
+        qurb_peer::Finding { stun: false, beacons: None, relay: Some(nobody) },
+    )
+    .await
+    .expect("a relay that does not answer stopped the device starting");
+    assert!(connector.relay_endpoint().is_none(), "claims a relay path it does not have");
+}

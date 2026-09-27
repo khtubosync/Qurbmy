@@ -593,13 +593,15 @@ qurb/
 ├── experiments/
 │   ├── desktop-fixtures/  Throwaway. The window's screens against made-up
 │   │                      data, so layout can be worked on with no daemon.
-│   └── phase0-spike/      Throwaway. Proved the core ideas work.
-│       └── src/
-│           ├── lib.rs            chunker + content-addressable store
-│           └── bin/
-│               ├── chunkbench.rs measures the five Phase 0 kill criteria
-│               ├── sweep.rs      compares chunk size configurations
-│               └── quictest.rs   NAT classification + QUIC throughput
+│   ├── phase0-spike/      Throwaway. Proved the core ideas work.
+│   │   └── src/
+│   │       ├── lib.rs            chunker + content-addressable store
+│   │       └── bin/
+│   │           ├── chunkbench.rs measures the five Phase 0 kill criteria
+│   │           ├── sweep.rs      compares chunk size configurations
+│   │           └── quictest.rs   NAT classification + QUIC throughput
+│   └── service-capacity/  Throwaway. Load for the rendezvous service and the
+│                          relay: what a small server carries, measured.
 │
 └── website/               The landing page. Next.js, and entirely separate —
                            it shares a repository with the engine and nothing
@@ -714,7 +716,7 @@ for the workspace as it stands.
 | Recovery, end to end | the phrase turns back into the user's files |
 | Key hygiene | redacted in `Debug`, wiped on drop, owner-only on disk |
 
-686 tests pass in 80 test binaries on Linux (2026-09-27, debug build, the
+692 tests pass in 81 test binaries on Linux (2026-09-27, debug build, the
 development laptop); clippy is clean. The last run on
 a Galaxy S23 was 426 of them, before this week's work — see
 [phases/phase-5-mobile.md](phases/phase-5-mobile.md).
@@ -931,7 +933,10 @@ window closes counts as *unreachable*, not as time running out: the second is
 a retry with exponential backoff, and confusing them once pushed a phone's next
 sync further away each time its computer was off
 ([decisions/0020](decisions/0020-sync-takes-a-deadline.md#found-on-a-phone)).
-A pass reaches every paired device at once and syncs each as it answers, so a
+The phone can fall back to a relay, set in Settings by `host:port` — a name is
+looked up each pass — which is what lets it reach a laptop at home from mobile
+data; a relay that cannot be reached costs only the fallback. A pass reaches
+every paired device at once and syncs each as it answers, so a
 switched-off device cannot use up the window a working one needs. A pass with
 something waiting for a device it reached stays open up to ten seconds for
 that device to collect it, because every device pulls and the

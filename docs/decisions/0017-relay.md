@@ -1,6 +1,6 @@
 # 0017 — The relay carries datagrams, not messages
 
-**Status:** Accepted
+**Status:** Accepted. Amended 2026-09-27: given by name, and best effort — see [A server of your own](#a-server-of-your-own)
 **Date:** 2026-09-16
 
 ## Decision
@@ -91,3 +91,23 @@ would be both redundant and wrong.
 
 **Low cost.** The relay is a separate service and a socket implementation.
 Nothing above the transport refers to it.
+
+## A server of your own
+
+2026-09-27, with the relay about to run on the project owner's own server so a
+phone can reach a laptop from anywhere. Three changes, each found by trying it:
+
+- **A relay can be given by name**, on the desktop and the phone, as
+  `host:port`. A name is looked up each time a device starts syncing — on a
+  phone, every pass — and the first of its addresses that answers is used; a
+  name with an IPv6 address the relay does not listen on works. Names were
+  refused, while the server guide's example used one.
+- **A relay that cannot be reached costs the fallback, not the device.** It
+  used to stop a device starting: with the server down, a phone could not sync
+  with the laptop beside it on the same Wi-Fi.
+- **The phone uses one.** The app passed none, so a phone on mobile data behind
+  carrier address translation reached nothing. It is set in Settings.
+
+The guide also said the relay was UDP. It is TCP, as this record says; a
+firewall opened as the guide said would have blocked it.
+

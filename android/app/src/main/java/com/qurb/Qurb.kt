@@ -97,7 +97,7 @@ object Engine {
                 Settings(
                     deviceName = android.os.Build.MODEL ?: "phone",
                     signalUrl = signalUrl(context),
-                    relay = null,
+                    relay = relayAddress(context),
                     port = 0u,
                     discover = true,
                     wakeToken = wake,
@@ -250,6 +250,26 @@ object Engine {
     }
 
     const val DEFAULT_SIGNAL = "ws://10.0.2.2:9000"
+
+    /**
+     * The relay, as `host:port`, or nothing for direct connections only.
+     *
+     * The thing that lets a phone on a mobile network reach a laptop at home:
+     * carriers commonly put phones behind address translation that a direct
+     * connection cannot get through, and then both devices' encrypted traffic
+     * goes through this instead. It sees ciphertext it has no key for.
+     */
+    fun relayAddress(context: Context): String? =
+        context.getSharedPreferences("qurb", Context.MODE_PRIVATE)
+            .getString("relay", null)?.trim()?.ifEmpty { null }
+
+    fun setRelayAddress(context: Context, address: String?) {
+        context.getSharedPreferences("qurb", Context.MODE_PRIVATE)
+            .edit().putString("relay", address?.trim().orEmpty()).commit()
+        // Dropped, as for the rendezvous service: the engine holds the setting
+        // it was opened with.
+        handle = null
+    }
 
     /**
      * Whether a file added on this phone stays private to it rather than going

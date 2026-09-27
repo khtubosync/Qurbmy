@@ -7,7 +7,6 @@
 
 use anyhow::{Context, Result};
 use std::collections::BTreeMap;
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 /// Where the rendezvous service is, when nothing says otherwise.
@@ -17,8 +16,9 @@ pub const DEFAULT_SIGNAL: &str = "ws://localhost:9000";
 pub struct Config {
     /// The rendezvous service.
     pub signal: String,
-    /// The relay to fall back to, if any.
-    pub relay: Option<SocketAddr>,
+    /// The relay to fall back to, if any: `host:port`, as it was typed. A
+    /// name is looked up each time the daemon starts, not here.
+    pub relay: Option<String>,
     /// What this device calls itself when pairing. Display only.
     pub name: String,
     /// The port to listen on. Zero means any, which is fine behind a router
@@ -199,11 +199,9 @@ impl Config {
         }
         if let Some(relay) = settings.remove("relay") {
             if !relay.is_empty() {
-                config.relay = Some(
-                    relay
-                        .parse()
-                        .with_context(|| format!("{}: relay is not an address", path.display()))?,
-                );
+                qurb_peer::relay_address_ok(&relay)
+                    .map_err(|e| anyhow::anyhow!("{}: relay: {e}", path.display()))?;
+                config.relay = Some(relay);
             }
         }
         if let Some(name) = settings.remove("name") {
@@ -243,7 +241,7 @@ impl Config {
     }
 
     pub fn save(&self, store_dir: &Path) -> Result<()> {
-        let relay = self.relay.map(|r| r.to_string()).unwrap_or_default();
+        let relay = self.relay.clone().unwrap_or_default();
         let text = format!(
             "# qurb device settings\n\
              \n\
@@ -475,6 +473,19 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(Config::path(dir.path()), "relay = not-an-address\n").unwrap();
         assert!(Config::load(dir.path()).is_err());
+    }
+
+    /// A relay on a server of one's own is known by its name, and the name
+    /// is what is kept: it is looked up when the daemon starts.
+    #[test]
+    fn a_relay_can_be_a_name() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(Config::path(dir.path()), "relay = relay.example.com:9001\n").unwrap();
+        let config = Config::load(dir.path()).unwrap();
+        assert_eq!(config.relay.as_deref(), Some("relay.example.com:9001"));
+
+        config.save(dir.path()).unwrap();
+        assert_eq!(Config::load(dir.path()).unwrap().relay.as_deref(), Some("relay.example.com:9001"));
     }
 
     #[test]

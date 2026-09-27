@@ -1,0 +1,19 @@
+[package]
+name = "service-capacity"
+version = "0.0.0"
+edition.workspace = true
+publish = false
+
+# Throwaway. A load generator for the rendezvous service and the relay, to
+# answer "how many devices does a small server carry" with a measurement. See
+# ./README.md for what it measures and what it cuts.
+
+[dependencies]
+anyhow.workspace = true
+tokio.workspace = true
+qurb-signal = { path = "../../crates/signal" }
+qurb-relay = { path = "../../crates/relay" }
+qurb-keys = { path = "../../crates/keys" }
+quinn = "0.11"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rcgen = "0.13"

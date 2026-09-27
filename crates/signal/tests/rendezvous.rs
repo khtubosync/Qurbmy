@@ -482,3 +482,38 @@ async fn a_device_is_not_told_about_its_own_arrival() {
     let extra = tokio::time::timeout(Duration::from_millis(500), a.next()).await;
     assert!(extra.is_err(), "it was told about itself: {extra:?}");
 }
+
+/// A message larger than the service reads at a time still arrives whole.
+///
+/// The service reads 4 KiB at a time, down from the library's 128 KiB, to hold
+/// a connection per device in a fraction of the memory. A device with many
+/// addresses -- a laptop on a VPN, Docker and two networks -- announces more
+/// than 4 KiB, and its partner must still be told all of it.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_announcement_bigger_than_a_read_arrives_whole() {
+    let (_server, url) = server().await;
+    let master = MasterKey::generate();
+    let many = Endpoints {
+        public: Some("203.0.113.5:40000".parse().unwrap()),
+        local: (0..400u16).map(|n| format!("10.{}.{}.1:{}", n / 250, n % 250, 40_000 + n).parse().unwrap()).collect(),
+    };
+    let size = serde_json::to_vec(&many).unwrap().len();
+    assert!(size > 4096 && size < 16 * 1024, "{size} bytes does not test what it says");
+
+    let mut laptop = SignalClient::connect_insecure(
+        &url,
+        GroupId::derive(&master),
+        MemberId::derive(&master, &[1; 32]),
+        many.clone(),
+    )
+    .await
+    .unwrap();
+    // The server answers an announcement with who else is there; waiting for
+    // that answer is what makes the laptop's announcement the earlier one.
+    laptop.peers().await.unwrap();
+    let mut phone = join(&url, &master, [2; 32], 7005).await;
+
+    let peers = tokio::time::timeout(Duration::from_secs(5), phone.peers()).await.unwrap().unwrap();
+    assert_eq!(peers.len(), 1);
+    assert_eq!(peers[0].endpoints, many, "the announcement was cut short");
+}

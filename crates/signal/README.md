@@ -46,6 +46,12 @@ outbound packet at roughly the same time, and a device that polls to discover it
 should punch will always be late. The server tells both sides at the same
 moment, which is the feature the transport was chosen for.
 
+**A connection is held in a few KiB.** The WebSocket library's default buffers
+are 128 KiB to read and 128 KiB to write, per connection; measured, that was
+about 150 KiB per connected device. They are now 4 KiB and unbuffered, with the
+unsent backlog bounded: about 22 KiB per device, 30 KiB with the service's own
+TLS. See [experiments/service-capacity](../../experiments/service-capacity/README.md).
+
 **Connecting gives up after five seconds** (`client::HANDSHAKE_TIMEOUT`). A
 refused or unroutable address fails by itself; a service that accepts the
 connection and never answers used to be waited on for ever, and with it a
