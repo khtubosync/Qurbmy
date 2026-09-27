@@ -62,6 +62,6 @@ is worth more than a tidy directory.
 | [0033](0033-the-phrase-on-a-screen.md) | The recovery phrase on a screen | Accepted, storage clause amended by 0038 |
 | [0034](0034-finding-each-other-with-no-server.md) | Finding each other with no server | Accepted |
 | [0035](0035-a-rendezvous-on-a-bare-address.md) | A rendezvous on a bare address | Accepted |
-| [0036](0036-a-phone-keeps-its-own-files.md) | A phone keeps its own files, and another device holds them for it | Accepted — not built |
+| [0036](0036-a-phone-keeps-its-own-files.md) | A phone keeps its own files, and another device holds them for it | Accepted — built on the desktop, not yet on the phone |
 | [0037](0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md) | A file sent to a desktop is an ordinary file in Downloads | Accepted — built |
 | [0038](0038-the-storage-question-during-setup.md) | The storage question is asked during setup | Accepted — not built |

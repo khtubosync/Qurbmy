@@ -1056,7 +1056,14 @@ impl Qurb {
         };
 
         let mut engine = self.engine()?;
-        let plan = engine.plan_against(&tree)?;
+        let peer_device = engine
+            .store()
+            .db()
+            .peer_by_fingerprint(peer.as_bytes())
+            .ok()
+            .flatten()
+            .map(|p| p.device_id);
+        let plan = engine.plan_with(&tree, peer_device.as_ref())?;
 
         // Before the early return, not after: two devices that agree about
         // everything produce an empty plan every time, and those are exactly

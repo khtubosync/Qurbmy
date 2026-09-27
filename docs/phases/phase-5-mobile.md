@@ -902,6 +902,30 @@ safe.
   `Report.pdf` beside a shared `report.pdf` is not reported. Both of this
   project's platforms are case-sensitive, so it is latent rather than live.
 
+## A phone's own files, and somebody to keep them
+
+**2026-09-27. Built in the engine and verified between two desktops; not on a
+phone yet.**
+
+[Decision 0036](../decisions/0036-a-phone-keeps-its-own-files.md) makes a
+phone's own files private to it, with a device it chooses keeping a copy it
+never shows. That is what lets the phone free space and have a file back —
+the brief's acceptance steps 20 to 23 — without its photographs appearing on
+the desktop. The engine half is built: four areas on the wire (`qurb/2`), the
+holder keeping and dropping, and the phone freeing and fetching back. The
+decision records how it was verified and what tracing it found.
+
+Found on the way, and fixed separately because it was live in the shared area
+already: a file freed for the storage cap and fetched back stayed marked as
+freed — fetched again on every sync, and a later deletion of it never passed
+on. See decision 0025.
+
+**What the phone still needs**, all of it step 6: the app setting its files
+private, a way to name the device that keeps them, and *Free local space* and
+*Download* on a file. Until then a phone's files go to the shared area as
+before. Every device must be rebuilt for `qurb/2`, the phone included, or they
+will not connect.
+
 ## Deliberately left undone
 
 - **Keychain, on iOS.** The Android half is done and verified on a device —

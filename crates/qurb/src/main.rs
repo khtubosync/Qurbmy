@@ -31,6 +31,10 @@ qurb — private cloud storage
                                       send files to one device, privately
   qurb cancel [dir] <name> to <device>
                                       take back a send not yet collected
+  qurb free [dir] <path>              free the local copy of a file another
+                                        device keeps; `fetch` brings it back
+  qurb holders [dir] [add|remove <device>]
+                                      the devices that keep this one's own files
   qurb activity [dir] [path]          what happened, newest first
   qurb ls [dir] [path]                what this folder holds, and where
   qurb find [dir] <text>              files whose name contains something
@@ -153,6 +157,21 @@ fn run() -> Result<()> {
             }
             let picked: Vec<PathBuf> = picked.iter().map(PathBuf::from).collect();
             send(&root, &picked, recipient)
+        }
+        "free" => {
+            let (root, path) = split_path(&args)?;
+            free(&root, &path.context("give a file to free: qurb free <path>")?)
+        }
+        "holders" => {
+            // `qurb holders`, `qurb holders add phone`, or with the folder first.
+            let rest = &args[1..];
+            let (root, rest) = match rest.first() {
+                Some(first) if PathBuf::from(first).join(".qurb").is_dir() => {
+                    (PathBuf::from(first), &rest[1..])
+                }
+                _ => (qurb_cli::profiles::current().context("no folder is set up yet")?, rest),
+            };
+            holders(&root, rest)
         }
         "cancel" => {
             // `qurb cancel report.pdf to laptop`: the name as `qurb send`
@@ -671,6 +690,69 @@ fn send(root: &Path, picked: &[PathBuf], recipient: &str) -> Result<()> {
     Ok(())
 }
 
+/// Free a file's local copy: the file stays known, and `qurb fetch` brings it
+/// back. Refused when no other device is known to hold these bytes -- the same
+/// rule the storage cap follows, and the difference between freeing space and
+/// deleting the only copy.
+fn free(root: &Path, logical: &str) -> Result<()> {
+    let (_, _, mut store, _) = open(root)?;
+    let logical = logical.trim_start_matches("./");
+    match store.free_local(logical) {
+        Ok(freed) => {
+            println!("freed {logical} ({})", human(freed));
+            println!("  it is still yours; `qurb fetch {logical}` brings it back");
+            Ok(())
+        }
+        Err(qurb_storage::Error::CannotEvict { .. }) => bail!(
+            "not freeing {logical}: no other device is known to have it, so this is the \
+             only copy. Add a holder with `qurb holders add <device>`, or send it somewhere."
+        ),
+        Err(qurb_storage::Error::NotFound { .. }) => bail!("{logical} is not a file here"),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// The devices that keep this device's own files for it (decision 0036).
+fn holders(root: &Path, rest: &[String]) -> Result<()> {
+    let (_, _, store, _) = open(root)?;
+    let view = qurb_cli::View::new(&store, 0);
+    let named = |text: &str| -> Result<qurb_cli::Device> {
+        match view.device_named(text)? {
+            qurb_cli::Recipient::One(device) => Ok(device),
+            _ => bail!("no single paired device called {text} — see `qurb status`"),
+        }
+    };
+    match rest {
+        [] => {
+            let devices = view.devices()?;
+            let holders = store.db().holders()?;
+            if holders.is_empty() {
+                println!("no device keeps this one's files");
+            }
+            for id in holders {
+                let name = devices.iter().find(|d| d.id == id).map(|d| d.name.clone());
+                println!("{}  {}", id.short(), name.unwrap_or_else(|| "(no longer paired)".into()));
+            }
+            Ok(())
+        }
+        [verb, device] if verb == "add" => {
+            let device = named(device)?;
+            store.db().add_holder(&device.id)?;
+            println!("{} now keeps this device's own files for it", device.name);
+            println!("  it never shows them; they come back here with `qurb fetch`");
+            Ok(())
+        }
+        [verb, device] if verb == "remove" => {
+            let device = named(device)?;
+            store.db().remove_holder(&device.id)?;
+            println!("{} is no longer shown this device's files", device.name);
+            println!("  what it already keeps, it keeps: nothing here reaches into it");
+            Ok(())
+        }
+        _ => bail!("qurb holders [dir] [add|remove <device>]"),
+    }
+}
+
 fn cancel(root: &Path, name: &str, recipient: &str) -> Result<()> {
     let (_, _, mut store, _) = open(root)?;
     let peer = match qurb_cli::View::new(&store, 0).device_named(recipient)? {
@@ -1020,6 +1102,7 @@ fn configure(root: &Path, settings: &[String]) -> Result<()> {
                 qurb_cli::config::human_size(config.limit)
             }
         );
+        println!("own-files = {}", if config.own_files_private { "private" } else { "shared" });
         println!(
             "downloads = {}",
             match config.downloads.resolve(root) {
@@ -1048,6 +1131,13 @@ fn configure(root: &Path, settings: &[String]) -> Result<()> {
             "name" => config.name = value.trim().to_string(),
             "port" => config.port = value.trim().parse().context("port should be a number")?,
             "limit" => config.limit = qurb_cli::config::parse_size(value)?,
+            "own-files" => {
+                config.own_files_private = match value.trim() {
+                    "private" => true,
+                    "shared" => false,
+                    other => bail!("own-files is `shared` or `private`, not `{other}`"),
+                }
+            }
             "downloads" => {
                 let downloads = qurb_cli::config::Downloads::parse(value);
                 // Refused here, where the person can fix it, rather than at the

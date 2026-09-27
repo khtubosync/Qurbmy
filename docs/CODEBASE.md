@@ -280,10 +280,17 @@ changes nothing. A phone has no downloads directory and files deliveries in its
 folder, privately, as described above. See
 [decisions/0037](decisions/0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md).
 
-**Decided and not yet built:** a phone's own files are to go into its vault
-rather than the shared area, with another device holding a copy for it that it
-does not show ([decisions/0036](decisions/0036-a-phone-keeps-its-own-files.md)).
-Until that is built, a file added on a phone goes into the shared area.
+**A device can keep its own files private, and another holds them for it.**
+With `own-files = private` a file added on a device goes into its own vault,
+and the devices it names with `qurb holders` keep a copy — in the chunk store,
+never in the folder, never shown — which lets it free its local copy with
+`qurb free` and have it back with `qurb fetch`. A holder drops a file only on
+the owner's deletion, never because it is missing from a list, so a wiped
+phone cannot delete its own backup. On the wire each tree entry says which of
+four areas it belongs to — shared, sent, held, hold — which is what moved the
+protocol to `qurb/2`. Built and verified between two desktops; the Android app
+does not use it yet, so a phone's files still go to the shared area. See
+[decisions/0036](decisions/0036-a-phone-keeps-its-own-files.md).
 
 ### 2.7 The index remembers what happened, not just what is
 
@@ -518,8 +525,8 @@ qurb/
 │   │   ├── src/lib.rs       the daemon, as a library, so an interface can
 │   │   │                    run the same one the terminal does
 │   │   ├── src/main.rs      init, enrol, pair, join, run, replica, status,
-│   │   │                    verify, reclaim, fetch, send, cancel, activity, ls,
-│   │   │                    find, config, protect
+│   │   │                    verify, reclaim, fetch, free, send, cancel,
+│   │   │                    holders, activity, ls, find, config, protect
 │   │   ├── src/daemon.rs    watch, apply, sync, collect, stay under the limit
 │   │   ├── src/lock.rs      one daemon per folder, enforced not assumed
 │   │   ├── src/profiles.rs  which folders exist, so commands need no path
@@ -617,6 +624,7 @@ product around it largely is not.
 | Reclaiming duplicates | `qurb reclaim`, for stores written before single-copy |
 | A storage limit | drops local copies, keeps the index, never the only copy |
 | Per-device private vaults | `files.scope`: `NULL` is shared, a device id is that device's vault |
+| Holding another device's vault | `files.held`, a `holders` list, and four areas on the wire; never released, dropped only on a tombstone |
 | A history of what happened | one table, pruned by age and count; `qurb activity` reads it |
 | Sending to one device | `qurb send <files and folders> to <device>`; held until collected, released first afterwards |
 | Receiving on a desktop | saved to `Downloads/qurb` as an ordinary file; overlap with the folder refused |
@@ -694,7 +702,7 @@ for the workspace as it stands.
 | Recovery, end to end | the phrase turns back into the user's files |
 | Key hygiene | redacted in `Debug`, wiped on drop, owner-only on disk |
 
-659 tests pass in 76 test binaries on Linux (2026-09-25, debug build, the
+667 tests pass in 78 test binaries on Linux (2026-09-27, debug build, the
 development laptop); clippy is clean. The last run on
 a Galaxy S23 was 426 of them, before this week's work — see
 [phases/phase-5-mobile.md](phases/phase-5-mobile.md).

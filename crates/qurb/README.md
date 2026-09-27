@@ -18,6 +18,9 @@ qurb send [dir] <file|folder>... to <dev>
                                  send files and folders to one device, privately
 qurb cancel [dir] <name> to <dev>
                                  take back a send not yet collected
+qurb free [dir] <path>           free a file's local copy another device keeps
+qurb holders [dir] [add|remove <dev>]
+                                 the devices that keep this one's own files
 qurb activity <dir> [path]       what happened, newest first
 qurb ls <dir> [path]             what this folder holds, and where
 qurb find <dir> <text>           files whose name contains something
@@ -201,6 +204,16 @@ Two refusals are built in and will not be talked out of:
 On Linux a dropped file is simply absent from the folder — there is no
 placeholder API to keep its name visible, so `qurb status` is where you find
 out it still exists.
+
+### `own-files`
+
+`shared`, the default on a desktop: a file added here goes to every device.
+`private`: it goes into this device's own vault instead, and only the devices
+named with `qurb holders add <device>` see it — each keeps a copy it never
+shows. That is what lets `qurb free <path>` drop the local copy and `qurb fetch
+<path>` bring it back. A holder lets go of a file only when this device deletes
+it. What a phone does; see
+[decision 0036](../../docs/decisions/0036-a-phone-keeps-its-own-files.md).
 
 ### `downloads`
 

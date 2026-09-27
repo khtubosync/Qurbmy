@@ -397,7 +397,14 @@ fn answer(store: &Store, request: &Request, asker: Option<Fingerprint>) -> Resul
                     // whose only other copy is unreachable.
                     let vault_only =
                         store.db().delivery_is_vault_only(&content, device).unwrap_or(false);
-                    let recorded = if vault_only {
+                    // The owner fetching back a file this device keeps for it.
+                    // Recorded, and nothing more: the file is the owner's, and
+                    // its name has no business in this device's history or
+                    // notifications (decision 0036).
+                    let held = store.db().holds_for(&content, device).unwrap_or(false);
+                    let recorded = if held {
+                        store.note_replica_in_vault(&content, device)
+                    } else if vault_only {
                         // The sender's side of a completed delivery, and the
                         // only moment it can be observed: after this the copy
                         // here is releasable and may simply vanish.

@@ -1053,11 +1053,32 @@ impl Db {
                 for row in shared.query_map([], file_row)? {
                     out.push(row_to_version(&row?));
                 }
+                // Its vault: what was sent to it, and what this device keeps
+                // for it, told apart so that it neither collects its own files
+                // as deliveries nor mistakes a send for a backup.
                 let mut theirs = self.conn.prepare(&format!(
-                    "SELECT {FILE_COLUMNS} FROM files WHERE scope = ?1 ORDER BY path"
+                    "SELECT {FILE_COLUMNS}, held FROM files WHERE scope = ?1 ORDER BY path"
                 ))?;
-                for row in theirs.query_map(params![asker.as_bytes().as_slice()], file_row)? {
-                    out.push(row_to_version(&row?).in_area(qurb_sync::Area::Sent));
+                let rows = theirs.query_map(params![asker.as_bytes().as_slice()], |r| {
+                    Ok((file_row(r)?, r.get::<_, i64>(FILE_COLUMN_COUNT)? != 0))
+                })?;
+                for row in rows {
+                    let (row, held) = row?;
+                    let area = if held { qurb_sync::Area::Held } else { qurb_sync::Area::Sent };
+                    out.push(row_to_version(&row).in_area(area));
+                }
+
+                // And this device's own vault, for a device allowed to hold it
+                // (decision 0036). Tombstones included: deleting is the one
+                // instruction a holder acts on.
+                if self.is_holder(asker)? {
+                    let me = self.local_device()?;
+                    let mut mine = self.conn.prepare(&format!(
+                        "SELECT {FILE_COLUMNS} FROM files WHERE scope = ?1 ORDER BY path"
+                    ))?;
+                    for row in mine.query_map(params![me.as_bytes().as_slice()], file_row)? {
+                        out.push(row_to_version(&row?).in_area(qurb_sync::Area::Hold));
+                    }
                 }
                 Ok(out)
             }
@@ -1400,6 +1421,7 @@ impl Db {
                 "SELECT f.path, f.size FROM file_chunks fc
                    JOIN files f ON f.id = fc.file_id
                   WHERE fc.chunk_hash = ?1 AND f.scope = ?2 AND f.deleted_at IS NULL
+                    AND f.held = 0
                   LIMIT 1",
                 params![chunk.as_bytes().as_slice(), device.as_bytes().as_slice()],
                 |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u64)),
@@ -1443,6 +1465,31 @@ impl Db {
         Ok(self.conn.query_row(
             "SELECT EXISTS (SELECT 1 FROM holders WHERE device_id = ?1)",
             params![device.as_bytes().as_slice()],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Whether this device keeps these bytes for `device`, as opposed to having
+    /// sent them to it.
+    pub fn holds_for(&self, content: &blake3::Hash, device: &DeviceId) -> Result<bool> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS (
+                 SELECT 1 FROM files
+                  WHERE content_hash = ?1 AND scope = ?2 AND held = 1 AND deleted_at IS NULL
+             )",
+            params![content.as_bytes().as_slice(), device.as_bytes().as_slice()],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Whether the live row at `path` in `owner`'s vault is kept for it.
+    pub fn is_held(&self, path: &str, owner: &DeviceId) -> Result<bool> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS (
+                 SELECT 1 FROM files
+                  WHERE path = ?1 AND scope = ?2 AND held = 1 AND deleted_at IS NULL
+             )",
+            params![path, owner.as_bytes().as_slice()],
             |r| r.get(0),
         )?)
     }
@@ -1503,7 +1550,10 @@ impl Db {
                    FROM file_chunks fc
                    JOIN files f ON f.id = fc.file_id
                   WHERE fc.chunk_hash = ?1
-                    AND (f.scope IS NULL OR f.scope = ?2)
+                    AND (f.scope IS NULL
+                         OR f.scope = ?2
+                         OR (f.scope = (SELECT device_id FROM local WHERE id = 1)
+                             AND EXISTS (SELECT 1 FROM holders h WHERE h.device_id = ?2)))
                   LIMIT 1",
                 params![hash.as_bytes().as_slice(), owner],
                 |r| r.get(0),
@@ -1526,7 +1576,11 @@ impl Db {
             .conn
             .query_row(
                 "SELECT 1 FROM files
-                  WHERE content_hash = ?1 AND (scope IS NULL OR scope = ?2)
+                  WHERE content_hash = ?1
+                    AND (scope IS NULL
+                         OR scope = ?2
+                         OR (scope = (SELECT device_id FROM local WHERE id = 1)
+                             AND EXISTS (SELECT 1 FROM holders h WHERE h.device_id = ?2)))
                   LIMIT 1",
                 params![content.as_bytes().as_slice(), owner],
                 |r| r.get(0),
@@ -1996,6 +2050,10 @@ fn to_device(raw: Vec<u8>) -> Option<DeviceId> {
 
 const FILE_COLUMNS: &str =
     "id, path, size, content_hash, mtime_ns, deleted_at, vector, modified_by, updated_at";
+
+/// How many columns [`FILE_COLUMNS`] names, so a query can select one more after
+/// them and read it by position.
+const FILE_COLUMN_COUNT: usize = 9;
 
 fn row_to_version(row: &FileRow) -> FileVersion {
     let content = if row.deleted_at.is_some() {

@@ -4,6 +4,7 @@
 //! of them, and about paths only one side has heard of.
 
 use crate::resolve::{resolve, Outcome, Side};
+use crate::device::DeviceId;
 use crate::version::FileVersion;
 use std::collections::BTreeMap;
 
@@ -44,6 +45,11 @@ pub enum Action {
     /// two versions stay concurrent forever, and the next edit on either side
     /// raises a conflict over content that never disagreed.
     Merge { resolved: FileVersion },
+
+    /// Keep `owner`'s own file for it, or drop it on the owner's tombstone
+    /// (decision 0036). Not reconciliation: the owner is the only device that
+    /// writes its vault, so its version is simply taken.
+    Hold { owner: DeviceId, remote: FileVersion },
 }
 
 impl Action {
@@ -54,6 +60,7 @@ impl Action {
             Action::Conflict { keeps_path, .. } => &keeps_path.path,
             Action::Resurrect { resolved } => &resolved.path,
             Action::Merge { resolved } => &resolved.path,
+            Action::Hold { remote, .. } => &remote.path,
         }
     }
 }
@@ -266,6 +273,8 @@ mod tests {
                     Action::Conflict { .. } => "conflict",
                     Action::Resurrect { .. } => "resurrect",
                     Action::Merge { .. } => "merge",
+                    // Never produced by reconciliation; see the engine.
+                    Action::Hold { .. } => "hold",
                 };
                 format!("{kind} {}", a.path())
             })

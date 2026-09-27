@@ -400,7 +400,9 @@ next sync, and a send can be cancelled until it is collected.
 
 **6. Android product UI.** Built on
 [0036](decisions/0036-a-phone-keeps-its-own-files.md), whose engine changes
-come first. The FFI gains send, fetch, free-local-space, activity, devices and the phone's own vault, over queries
+are done (2026-09-27): four areas on the wire and `qurb/2`, holding, freeing a
+chosen file, and fetching it back, verified between two desktops. What is left
+of step 6 is the phone itself. The FFI gains send, fetch, free-local-space, activity, devices and the phone's own vault, over queries
 moved down from `qurb-cli` rather than copied. The phrase is confirmed on the
 phone as it is on the desktop. The system picker asks the engine instead of
 walking the directory.

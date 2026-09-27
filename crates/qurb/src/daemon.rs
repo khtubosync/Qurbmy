@@ -288,11 +288,12 @@ impl Daemon {
     fn engine(&self) -> Result<Engine> {
         Ok(match &self.pins {
             Some(pins) => Engine::replica(self.root.clone(), self.open_store()?, pins.clone()),
-            None => Engine::new(
-                self.root.clone(),
-                self.open_store()?,
-                IgnoreRules::new().with_store_dir(&self.store_dir),
-            ),
+            None => {
+                let mut store = self.open_store()?;
+                store.set_new_files_private(self.config.own_files_private);
+                let ignore = IgnoreRules::new().with_store_dir(&self.store_dir);
+                Engine::new(self.root.clone(), store, ignore)
+            }
         })
     }
 
@@ -782,7 +783,16 @@ impl Daemon {
             }
         };
 
-        let mut plan = engine.plan_against(&tree)?;
+        // Which device this is, so that files it asks this one to keep for it
+        // are filed in its vault (decision 0036).
+        let peer_device = engine
+            .store()
+            .db()
+            .peer_by_fingerprint(peer.as_bytes())
+            .ok()
+            .flatten()
+            .map(|p| p.device_id);
+        let mut plan = engine.plan_with(&tree, peer_device.as_ref())?;
 
         // Files somebody asked to have back. The peer and this device agree
         // about them, so reconciliation finds nothing to do -- the difference
@@ -813,8 +823,14 @@ impl Daemon {
         // are what a "recently synced" list is made of -- files arriving from
         // another device, which is the part a person did not do themselves and
         // therefore the part worth telling them about.
-        let arriving: Vec<String> =
-            plan.iter().map(|action| action.path().to_string()).collect();
+        //
+        // Never what is kept for another device: those are its files, and
+        // their names have no business on this device's screen.
+        let arriving: Vec<String> = plan
+            .iter()
+            .filter(|action| !matches!(action, qurb_sync::Action::Hold { .. }))
+            .map(|action| action.path().to_string())
+            .collect();
 
         let outcome = tokio::task::block_in_place(|| {
             let mut source = qurb_peer::NetworkSource::new(&client, &reader);

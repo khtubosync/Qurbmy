@@ -17,7 +17,7 @@
 use crate::{Engine, Error, Result};
 use qurb_storage::db;
 use qurb_storage::Store;
-use qurb_sync::{Action, Area, Content, FileVersion};
+use qurb_sync::{Action, Area, Content, DeviceId, FileVersion};
 use std::io::Write;
 use std::path::Path;
 
@@ -163,6 +163,10 @@ pub struct PlanStats {
     pub conflicts: usize,
     /// Files brought back after a concurrent delete lost to an edit.
     pub resurrected: usize,
+    /// Another device's own files taken or dropped here on its behalf
+    /// (decision 0036). Kept apart from `adopted`: nothing about them is this
+    /// device's own, or anybody else's news.
+    pub held: usize,
     /// Actions that are the peer's to perform. Counted, not done.
     pub offered: usize,
     /// Content that had to come from the source rather than from disk.
@@ -215,6 +219,71 @@ impl Engine {
         let mut actions = qurb_sync::reconcile(&self.tree()?, &shared);
         actions.extend(self.deliveries(&offered)?);
         Ok(actions)
+    }
+
+    /// The same, knowing which device `remote` came from.
+    ///
+    /// Holding needs to know: an entry marked *hold* is that device's own file,
+    /// kept here in its vault, and nothing in the entry says whose vault that
+    /// is -- the file's author need not be its owner. And this device's own
+    /// freed files are fetched back from the device holding them, which only
+    /// its entries marked *held* say. See decision 0036.
+    pub fn plan_with(&self, remote: &[FileVersion], peer: Option<&DeviceId>) -> Result<Vec<Action>> {
+        let mut actions = self.plan_against(remote)?;
+        if let Some(owner) = peer {
+            actions.extend(self.holding(remote, owner)?);
+        }
+        actions.extend(self.own_wanted(remote)?);
+        Ok(actions)
+    }
+
+    /// What to keep, or drop, for `owner`.
+    ///
+    /// Only on instruction. A file missing from the owner's list is left
+    /// alone: a phone that was wiped, or lost its index, must not delete its
+    /// own backup here at the first sync. Only a tombstone drops a file.
+    fn holding(&self, remote: &[FileVersion], owner: &DeviceId) -> Result<Vec<Action>> {
+        let db = self.store().db();
+        let mut out = Vec::new();
+        for version in remote.iter().filter(|v| v.area == Area::Hold) {
+            let existing = db.live_row_in(&version.path, Some(owner))?;
+            let needed = match (&version.content, &existing) {
+                (Content::Deleted, None) => false,
+                (Content::Deleted, Some(_)) => true,
+                (Content::File { hash, .. }, Some(row)) => {
+                    row.content_hash != blake3::Hash::from(*hash)
+                        || !db.is_held(&version.path, owner)?
+                }
+                (Content::File { .. }, None) => true,
+            };
+            if needed {
+                out.push(Action::Hold { owner: *owner, remote: version.clone() });
+            }
+        }
+        Ok(out)
+    }
+
+    /// This device's own files it asked to have back, from a device that
+    /// holds them.
+    ///
+    /// Only what that device's entries say it has, byte for byte: asking a
+    /// device that does not hold a file would fail, and a failure is reported
+    /// to the person.
+    fn own_wanted(&self, remote: &[FileVersion]) -> Result<Vec<Action>> {
+        let wanted: std::collections::HashSet<String> =
+            self.store().db().wanted_paths()?.into_iter().collect();
+        if wanted.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut out = Vec::new();
+        for version in remote.iter().filter(|v| v.area == Area::Held && wanted.contains(&v.path)) {
+            let Some(hash) = version.content.hash() else { continue };
+            let Some(mine) = self.store().db().own_vault_row(&version.path)? else { continue };
+            if mine.content_hash == blake3::Hash::from(*hash) {
+                out.push(Action::Adopt { remote: version.clone() });
+            }
+        }
+        Ok(out)
     }
 
     /// Content waiting in this device's vault that it has not taken yet.
@@ -299,7 +368,7 @@ impl Engine {
         let mut ordered: Vec<&Action> =
             actions.iter().filter(|a| self.role().wants(a.path())).collect();
         ordered.sort_by_key(|action| match action {
-            Action::Adopt { remote } if remote.is_deleted() => 1,
+            Action::Adopt { remote } | Action::Hold { remote, .. } if remote.is_deleted() => 1,
             _ => 0,
         });
 
@@ -320,6 +389,13 @@ impl Engine {
                 Action::Resurrect { resolved } => {
                     stats.resurrected += 1;
                     self.take(resolved, source, &mut stats, progress)
+                }
+                // No progress reported, and nothing recorded in history: the
+                // files are the owner's, and their names have no business on
+                // this device's screen.
+                Action::Hold { owner, remote } => {
+                    stats.held += 1;
+                    self.take_hold(owner, remote, source, &mut stats)
                 }
                 Action::Conflict { keeps_path, renamed } => {
                     stats.conflicts += 1;
@@ -561,7 +637,9 @@ impl Engine {
                 // so the engine's size-and-mtime fast path recognises it and
                 // does not immediately re-read what it just wrote.
                 let mtime = std::fs::metadata(&path).ok().map(|m| mtime_ns(&m)).unwrap_or(0);
-                if version.area == Area::Sent {
+                // Into this device's own vault: something sent here, or its
+                // own file fetched back from a device holding it.
+                if matches!(version.area, Area::Sent | Area::Held) {
                     self.store_mut().adopt_file_privately(version, &path, mtime)?;
                 } else {
                     self.store_mut().adopt_file(version, &path, mtime)?;
@@ -575,12 +653,16 @@ impl Engine {
                     true => db::Event::Restored,
                     false => db::Event::Received,
                 };
+                // Who from: the author of the version -- except for this
+                // device's own file fetched back, whose author is this device.
+                // History naming it as the sender reads as a stranger.
+                let from = (version.area != Area::Held).then_some(&version.modified_by);
                 crate::note(
                     self.store(),
                     kind,
                     Some(&version.path),
                     Some(*size),
-                    Some(&version.modified_by),
+                    from,
                     (version.area == Area::Sent).then_some("sent to this device"),
                 );
 
@@ -596,6 +678,51 @@ impl Engine {
 }
 
 impl Engine {
+    /// Keep `owner`'s file for it, or drop it on the owner's tombstone.
+    ///
+    /// The bytes are staged inside the store, never the folder: nothing a
+    /// person using this device looks at ever shows another device's files.
+    fn take_hold(
+        &mut self,
+        owner: &DeviceId,
+        version: &FileVersion,
+        source: &mut dyn ContentSource,
+        stats: &mut PlanStats,
+    ) -> Result<()> {
+        if !qurb_sync::is_safe_path(&version.path) {
+            return Err(Error::UnsafePath { path: version.path.clone() });
+        }
+        let Content::File { hash, size } = &version.content else {
+            self.store_mut().unhold(version, owner)?;
+            return Ok(());
+        };
+        let content = blake3::Hash::from(*hash);
+
+        let staging = self.store().root().join(format!("holding-{}.incoming", content.to_hex()));
+        let written = (|| -> Result<()> {
+            let mut file = std::fs::File::create(&staging)
+                .map_err(|e| Error::Io { path: staging.clone(), source: e })?;
+            // Already here -- a send the owner collected, or the same bytes
+            // under another name -- costs a copy, not a transfer.
+            if self.store().read_content_into(&content, &mut file)?.is_none() {
+                stats.fetched += 1;
+                source.fetch_into(hash, *size, &mut file)?;
+            }
+            Ok(())
+        })();
+        let held = written.and_then(|()| {
+            self.store_mut().hold_file(version, owner, &staging).map_err(Error::from)
+        });
+        let _ = std::fs::remove_file(&staging);
+        held?;
+
+        // Told once it is stored, as a delivery is: the owner records this
+        // device as holding it, and may free its own copy on the strength of
+        // that.
+        source.received(hash);
+        Ok(())
+    }
+
     /// Take a delivery as an ordinary file in `dir`, outside the folder.
     ///
     /// Nothing about it enters the index as content: it is not scanned, not

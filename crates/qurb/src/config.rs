@@ -31,6 +31,10 @@ pub struct Config {
     pub limit: u64,
     /// Where a file sent to this device goes.
     pub downloads: Downloads,
+    /// Whether a file added here goes into this device's own vault rather than
+    /// the shared area (decision 0036). What a phone does; off on a desktop
+    /// unless somebody asks for it.
+    pub own_files_private: bool,
 }
 
 /// Where a file somebody sends this device is put.
@@ -153,6 +157,7 @@ impl Default for Config {
             port: 0,
             limit: 0,
             downloads: Downloads::Default,
+            own_files_private: false,
         }
     }
 }
@@ -217,6 +222,16 @@ impl Config {
         if let Some(downloads) = settings.remove("downloads") {
             config.downloads = Downloads::parse(&downloads);
         }
+        if let Some(own) = settings.remove("own-files") {
+            config.own_files_private = match own.as_str() {
+                "private" => true,
+                "shared" | "" => false,
+                other => anyhow::bail!(
+                    "{}: own-files is `shared` or `private`, not `{other}`",
+                    path.display()
+                ),
+            };
+        }
 
         // Unknown keys are reported rather than ignored. A misspelled setting
         // that silently does nothing is a bad afternoon.
@@ -255,12 +270,18 @@ impl Config {
              # qurb does not manage and does not count against the limit.\n\
              # Empty means `qurb` in Downloads. `off` files it inside this\n\
              # folder instead, privately, as qurb used to.\n\
-             downloads = {}\n",
+             downloads = {}\n\
+             \n\
+             # Where a file added on this device goes: `shared`, to every\n\
+             # device, or `private`, to this device's own vault, kept by the\n\
+             # devices named with `qurb holders`. `private` is what a phone does.\n\
+             own-files = {}\n",
             self.signal,
             self.name,
             self.port,
             human_size(self.limit),
-            self.downloads.as_setting()
+            self.downloads.as_setting(),
+            if self.own_files_private { "private" } else { "shared" },
         );
         std::fs::write(Self::path(store_dir), text)
             .with_context(|| format!("writing {}", Self::path(store_dir).display()))
@@ -339,6 +360,7 @@ mod tests {
             port: 51820,
             limit: 10 << 30,
             downloads: Downloads::At("/srv/incoming".into()),
+            own_files_private: true,
         };
         config.save(dir.path()).unwrap();
 
@@ -349,6 +371,17 @@ mod tests {
         assert_eq!(loaded.port, config.port);
         assert_eq!(loaded.limit, config.limit);
         assert_eq!(loaded.downloads, config.downloads);
+        assert_eq!(loaded.own_files_private, config.own_files_private);
+    }
+
+    #[test]
+    fn own_files_is_shared_or_private_and_nothing_else() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(Config::path(dir.path()), "own-files = private\n").unwrap();
+        assert!(Config::load(dir.path()).unwrap().own_files_private);
+        std::fs::write(Config::path(dir.path()), "own-files = secret\n").unwrap();
+        assert!(Config::load(dir.path()).is_err(), "a misspelled value became a setting");
+        assert!(!Config::default().own_files_private, "a desktop's files became private by default");
     }
 
     #[test]

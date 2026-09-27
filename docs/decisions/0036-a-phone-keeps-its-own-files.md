@@ -1,6 +1,6 @@
 # 0036 — A phone keeps its own files, and another device holds them for it
 
-**Status:** Accepted — not built
+**Status:** Accepted — built in the engine and on the desktop; not yet on the phone
 **Date:** 2026-09-25
 
 ## Decision
@@ -201,8 +201,28 @@ for one works as for the shared area, from the holder's *held* entries.
   Found on the way: the list of sends waiting to be collected included every
   row in this device's *own* vault, so a device keeping received files in its
   folder would have listed them as waiting for itself.
-- **Not yet:** the server showing a vault to its holders, the engine holding
-  and fetching back, and anything on the phone.
+- **2026-09-27 — the server and the engine.** A device's own vault is shown,
+  as *hold*, only to its holders -- tree, manifest and chunk. A holder keeps
+  what it is shown and drops it on a tombstone; the owner fetches its own freed
+  files back from the entries marked *held*. The desktop gained `own-files =
+  private`, `qurb holders` and `qurb free`.
+
+  Tracing it end to end found four places the holder would have named the
+  phone's files on the desktop, all closed: the home screen's "Recently" list,
+  the Transfers screen's progress for what is being collected, and the history
+  line and notification written when the owner takes a file back.
+
+  **Verified** with two devices on the laptop, one set to `own-files =
+  private`: a 3 MiB photo was held by the other within about 2 seconds and
+  appeared nowhere on it -- not in its folder, its listing or its history.
+  Freeing it on the phone was refused until then, and allowed after. Fetched
+  back in about 8 seconds, SHA-256 identical. Deleting it on the phone made the
+  holder let go within about 2 seconds. Also 6 engine tests and a network test;
+  the privacy checks were each removed and their tests seen to fail.
+- **Not yet:** anything on the phone. The Android app does not set its files
+  private, has no way to name a holder, and cannot free or fetch a file. That
+  is the phone half of step 6, and until it is built a phone's files still go
+  to the shared area.
 
 ## Reversing it
 

@@ -1323,6 +1323,19 @@ impl Store {
     /// the difference between eviction and data loss, and it is made here
     /// rather than in the caller so that no caller can skip it.
     pub fn evict(&mut self, logical_path: &str) -> Result<u64> {
+        self.evict_because(
+            logical_path,
+            "dropped to stay under the storage limit; `qurb fetch` brings it back",
+        )
+    }
+
+    /// The same, because the person asked: *Free local space* (brief §14).
+    /// Refused on exactly the same terms.
+    pub fn free_local(&mut self, logical_path: &str) -> Result<u64> {
+        self.evict_because(logical_path, "local copy freed; another device keeps it")
+    }
+
+    fn evict_because(&mut self, logical_path: &str, why: &str) -> Result<u64> {
         let Some(tree) = self.tree.clone() else {
             return Err(Error::CannotEvict {
                 path: logical_path.to_string(),
@@ -1367,7 +1380,7 @@ impl Store {
             Some(logical_path),
             Some(freed),
             None,
-            Some("dropped to stay under the storage limit; `qurb fetch` brings it back"),
+            Some(why),
         );
         Ok(freed)
     }
