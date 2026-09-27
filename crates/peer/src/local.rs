@@ -456,9 +456,11 @@ impl Neighbours {
 /// Say who we are, and hear who else is here.
 ///
 /// Two loops on one socket: a sender on a timer, and a receiver that never
-/// stops. Both are cheap enough to run for the life of the device, which is
-/// what they do — discovery that only ran at startup would miss every device
-/// that joined the network afterwards, which is most of them.
+/// stops on its own. Both are cheap enough to run for the life of the device,
+/// which is what they do — discovery that only ran at startup would miss every
+/// device that joined the network afterwards, which is most of them. What ends
+/// them is [`stop`](Self::stop): each loop holds the beacons it runs, so
+/// nothing else can.
 ///
 /// Failures are logged and shrugged off. A network that blocks multicast, an
 /// interface that disappears when a laptop is undocked, a router that drops the
@@ -470,6 +472,8 @@ pub struct Beacons {
     member: MemberId,
     endpoints: std::sync::Arc<std::sync::Mutex<Endpoints>>,
     port: u16,
+    /// The two loops, so that [`stop`](Self::stop) can end them.
+    loops: std::sync::Mutex<Vec<tokio::task::AbortHandle>>,
 }
 
 impl Beacons {
@@ -497,13 +501,32 @@ impl Beacons {
             member,
             endpoints: std::sync::Arc::new(std::sync::Mutex::new(endpoints)),
             port,
+            loops: std::sync::Mutex::new(Vec::new()),
         });
 
         let (sightings, inbox) = tokio::sync::mpsc::unbounded_channel();
-        tokio::spawn(listen(std::sync::Arc::clone(&beacons), sightings));
-        tokio::spawn(announce(std::sync::Arc::clone(&beacons)));
+        let listening = tokio::spawn(listen(std::sync::Arc::clone(&beacons), sightings));
+        let announcing = tokio::spawn(announce(std::sync::Arc::clone(&beacons)));
+        beacons
+            .loops
+            .lock()
+            .expect("loops")
+            .extend([listening.abort_handle(), announcing.abort_handle()]);
 
         Ok((beacons, inbox))
+    }
+
+    /// Stop announcing and listening, and close the socket once both loops
+    /// have let go of it.
+    ///
+    /// For a device that discovers for a while rather than for its whole life:
+    /// a phone, which starts discovery for each sync pass. Without this every
+    /// pass left two loops behind, announcing an address nothing was accepting
+    /// on any more.
+    pub fn stop(&self) {
+        for running in self.loops.lock().expect("loops").drain(..) {
+            running.abort();
+        }
     }
 
     /// Say we are here. The routine beacon, on a timer.

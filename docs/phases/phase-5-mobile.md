@@ -1021,10 +1021,37 @@ bound at all. Both fixed and recorded in
 [decision 0020](../decisions/0020-sync-takes-a-deadline.md#found-on-a-phone),
 with what was observed and what was only reproduced.
 
+**The phone and the laptop keeping each other's files**, the same afternoon,
+through the phone's screens: chosen, kept, freed, fetched back byte-identical
+and let go on deletion, with nothing named on the desktop. The details are in
+[decision 0036's progress](../decisions/0036-a-phone-keeps-its-own-files.md#progress).
+To do it the laptop ran the current build against `~/qurb`, whose index moved
+from schema version 10 to 12; a copy of the version-10 index was kept, and the
+`qurb` and `qurb-tray` installed on 22 September predate `qurb/2` and should not
+open that folder again.
+
+It found three more things, all fixed or recorded:
+
+- **Each pass left its discovery running** — six sockets and three beacon
+  listeners a minute after the third pass — and announcing addresses that no
+  longer answered. Fixed in the connector.
+- **A pass ended before the desktop could collect from it.** A pass with
+  something waiting now stays open up to ten seconds. Both are in
+  [decision 0020](../decisions/0020-sync-takes-a-deadline.md#a-pass-that-waits-to-be-collected-from),
+  with what was and was not measured.
+- **`big-from-laptop.bin` shows as only on this phone** while the laptop has
+  it: the phone received it on 18 September, and recording where a received
+  file came from began on the 22nd. Nothing asks for it afterwards. Safe —
+  such a file is never offered for freeing — and recorded rather than fixed.
+
+The share sheet's confirmation, seen when a test share failed for reasons of the
+test's own, has not taken the new design: square corners, the old background, a
+misaligned title.
+
 **Not done here:** the phrase confirmation, the storage question during setup
 (decision 0038), the system picker asking the engine, sending straight to a
-device from the share sheet, a phone showing a code rather than only scanning
-one, and the phone and the desktop verified holding for each other.
+device from the share sheet, and a phone showing a code rather than only
+scanning one.
 
 ## Deliberately left undone
 

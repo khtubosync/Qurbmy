@@ -196,6 +196,12 @@ sync that works from one that silently stopped — and "silently stopped" is the
 failure mode a sync app actually dies of. Settings → **Background sync** shows
 it.
 
+A pass that reached a device and has something waiting for it stays open up
+to ten seconds, until that device has collected it: every device pulls, and a
+phone that finishes its own syncing in a second would otherwise close before
+the desktop could dial back. Found when a desktop chosen to keep the phone's
+files never received one.
+
 A device that does not answer before the window closes is *unreachable*, not
 *out of time*. The difference decides what happens next — out of time is a
 retry, with exponential backoff — and it was once got wrong, so that a phone
@@ -218,6 +224,10 @@ next sync further and further away. See
 - **The storage question during setup**
   ([decision 0038](../docs/decisions/0038-the-storage-question-during-setup.md)) is not
   built.
+- **Files received before 22 September show as only on this phone** even when
+  the device that sent them still has them. Builds before then did not record
+  where a received file came from, and a phone cannot learn it afterwards
+  without asking; it errs the safe way, never offering to free such a file.
 - **Nothing for conflicts.** They arrive as extra files with long names and no
   explanation.
 - **Sharing into qurb only adds.** The share sheet puts a file in the Vault; it

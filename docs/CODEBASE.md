@@ -290,8 +290,8 @@ phone cannot delete its own backup. On the wire each tree entry says which of
 four areas it belongs to — shared, sent, held, hold — which is what moved the
 protocol to `qurb/2`. Built and verified between two desktops, and used by the
 Android app, where files added on the phone are private by default and a device
-is chosen on the Devices screen to keep them; a phone and a desktop holding for
-each other has not yet been verified on hardware. See
+is chosen on the Devices screen to keep them — verified between a Galaxy S23 and
+a laptop: kept, freed, fetched back byte-identical, and let go on deletion. See
 [decisions/0036](decisions/0036-a-phone-keeps-its-own-files.md).
 
 ### 2.7 The index remembers what happened, not just what is
@@ -712,7 +712,7 @@ for the workspace as it stands.
 | Recovery, end to end | the phrase turns back into the user's files |
 | Key hygiene | redacted in `Debug`, wiped on drop, owner-only on disk |
 
-672 tests pass in 78 test binaries on Linux (2026-09-27, debug build, the
+674 tests pass in 79 test binaries on Linux (2026-09-27, debug build, the
 development laptop); clippy is clean. The last run on
 a Galaxy S23 was 426 of them, before this week's work — see
 [phases/phase-5-mobile.md](phases/phase-5-mobile.md).
@@ -928,6 +928,11 @@ window closes counts as *unreachable*, not as time running out: the second is
 a retry with exponential backoff, and confusing them once pushed a phone's next
 sync further away each time its computer was off
 ([decisions/0020](decisions/0020-sync-takes-a-deadline.md#found-on-a-phone)).
+A pass with something waiting for a device it reached stays open up to ten
+seconds for that device to collect it, because every device pulls and the
+phone's own syncing can finish before the other side dials back; and dropping
+the pass's connector stops everything it started
+([same record](decisions/0020-sync-takes-a-deadline.md#a-pass-that-waits-to-be-collected-from)).
 
 **A real phone and a real laptop sync both ways**, verified on hardware: a
 4.7 MB photo crossed from a Galaxy S23 to a laptop, byte-identical by SHA-256.

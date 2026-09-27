@@ -112,6 +112,25 @@ pub struct Connector {
     neighbours: Neighbours,
     /// Saying we are here, when there is a network that will carry it.
     beacons: Option<std::sync::Arc<Beacons>>,
+    /// Everything started in the background, stopped when this is dropped.
+    ///
+    /// A daemon keeps one connector for hours; a phone builds one per sync
+    /// pass and drops it at the end. Before this was kept, the phone's passes
+    /// each left a reconnect loop, a beacon sender and a beacon listener
+    /// running for the life of the process -- and the reconnect loop held the
+    /// QUIC endpoint, so its socket stayed open too.
+    background: Vec<tokio::task::AbortHandle>,
+}
+
+impl Drop for Connector {
+    fn drop(&mut self) {
+        for running in &self.background {
+            running.abort();
+        }
+        if let Some(beacons) = &self.beacons {
+            beacons.stop();
+        }
+    }
 }
 
 /// Turn beacons into sightings the rest of the device can act on.
@@ -308,7 +327,7 @@ impl Connector {
             group: GroupId::derive(&master),
             member: MemberId::derive(&master, identity.fingerprint().as_bytes()),
         };
-        tokio::spawn(stay_signalled(
+        let mut background = vec![tokio::spawn(stay_signalled(
             client,
             reconnect,
             commands,
@@ -316,7 +335,8 @@ impl Connector {
             endpoint.clone(),
             identity.clone(),
             arrivals_tx,
-        ));
+        ))
+        .abort_handle()];
 
         // Beacons on the local network, so that two devices on one Wi-Fi need
         // nothing else at all. Best effort for the same reason as the
@@ -329,11 +349,14 @@ impl Connector {
                 let me = MemberId::derive(&master, identity.fingerprint().as_bytes());
                 match Beacons::start(master.clone(), me, endpoints.clone(), port) {
                     Ok((beacons, sightings)) => {
-                        tokio::spawn(follow_beacons(
-                            sightings,
-                            neighbours.clone(),
-                            arrivals.clone(),
-                        ));
+                        background.push(
+                            tokio::spawn(follow_beacons(
+                                sightings,
+                                neighbours.clone(),
+                                arrivals.clone(),
+                            ))
+                            .abort_handle(),
+                        );
                         Some(beacons)
                     }
                     Err(e) => {
@@ -354,6 +377,7 @@ impl Connector {
             arrivals,
             neighbours,
             beacons,
+            background,
         })
     }
 

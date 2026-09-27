@@ -354,6 +354,85 @@ fn an_unreachable_peer_is_counted_not_raised() {
     assert!(!outcome.timed_out, "a device that never answered was reported as time running out");
 }
 
+/// One pass that reaches the desktop is enough for the desktop to take what
+/// the phone made.
+///
+/// Every device pulls, so a photo moves only when the desktop dials the phone
+/// back and asks -- and a phone that reached the desktop in a second used to
+/// end its pass before the desktop could. The test above waits for it over as
+/// many passes as it takes; this one allows exactly one, which is what a phone
+/// in a background window gets.
+///
+/// What this does not show: that the phone *waiting* for the desktop is what
+/// makes it pass. It passes with the wait switched off too, because the
+/// stand-in desktop here runs pass after pass and is always dialling; a real
+/// daemon dials when it hears the phone, and can be busy. The case for the
+/// wait is a Galaxy S23 whose desktop, busy for ten seconds, collected inside
+/// the wait -- see decision 0020.
+#[test]
+fn one_pass_is_enough_for_the_desktop_to_collect() {
+    let _sharing = ALONE.read().unwrap_or_else(|e| e.into_inner());
+    logging();
+    let (_runtime, signal) = signalling();
+
+    let desktop_dir = tempfile::tempdir().unwrap();
+    let phone_dir = tempfile::tempdir().unwrap();
+    let setup = create(desktop_dir.path().display().to_string()).unwrap();
+    restore(phone_dir.path().display().to_string(), setup.recovery_phrase).unwrap();
+    let desktop = Qurb::open_with(
+        desktop_dir.path().display().to_string(),
+        None,
+        settings("desktop", &signal),
+    )
+    .unwrap();
+    let phone =
+        Qurb::open_with(phone_dir.path().display().to_string(), None, settings("phone", &signal))
+            .unwrap();
+
+    let offer = desktop.offer_pairing().unwrap();
+    let code = offer.code();
+    let waiting = std::thread::spawn(move || offer.wait());
+    phone.join_pairing(code).unwrap();
+    waiting.join().unwrap().unwrap();
+
+    let source = phone_dir.path().join("outside.jpg");
+    std::fs::write(&source, b"taken on the phone this morning").unwrap();
+    phone.import_file(source.display().to_string(), "morning.jpg".into()).unwrap();
+
+    // The desktop, always on.
+    let desktop = Arc::new(desktop);
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let serving = Arc::clone(&desktop);
+    let stopping = Arc::clone(&stop);
+    let server = std::thread::spawn(move || {
+        while !stopping.load(std::sync::atomic::Ordering::Relaxed) {
+            let _ = serving.sync_within(5);
+        }
+    });
+
+    // Passes until one reaches the desktop -- finding each other is not what
+    // this tests -- and then no more.
+    let outcome = until_reached(&phone, std::time::Duration::from_secs(60));
+    assert_eq!(outcome.reached, 1, "the phone never reached the desktop");
+
+    // The desktop acknowledges a file when it has the bytes, a moment before
+    // the file is in its folder.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while !desktop.contains("morning.jpg".into()).unwrap_or(false)
+        && std::time::Instant::now() < deadline
+    {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    server.join().unwrap();
+
+    assert!(
+        desktop.contains("morning.jpg".into()).unwrap(),
+        "the pass that reached the desktop ended before the desktop could take the file"
+    );
+    assert!(phone.outstanding().unwrap().files.is_empty(), "the phone does not know it arrived");
+}
+
 /// The phone's ordinary morning: its computer is switched off, so the
 /// rendezvous service that runs on it is too. A background window closes while
 /// the phone is still waiting to be introduced.

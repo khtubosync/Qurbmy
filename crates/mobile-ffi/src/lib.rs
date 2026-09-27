@@ -1289,10 +1289,56 @@ impl Qurb {
             }
         }
 
+        // Stay a moment for the others.
+        //
+        // Every device pulls what it wants, so what this phone has for another
+        // device moves only when that device dials back and asks -- which it
+        // does the moment it hears the phone, but not before the phone has
+        // finished its own pulling. On a fast local network that finish comes
+        // in under a second, and the pass used to end there: the phone had
+        // closed its door by the time the desktop came for the photo. Found on
+        // a Galaxy S23 whose desktop was chosen to keep its files and never
+        // received one.
+        //
+        // So a pass that reached somebody and has something waiting for them
+        // says so and keeps answering, until it has been collected or
+        // `LINGER` has passed, and never beyond the window.
+        if outcome.reached > 0 && !outcome.timed_out && self.waiting_for_others().unwrap_or(false) {
+            let until = std::cmp::min(started + budget, std::time::Instant::now() + LINGER);
+            runtime.block_on(connector.announce_news());
+            while std::time::Instant::now() < until && self.waiting_for_others().unwrap_or(false) {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+        }
+
         for task in accepting {
             task.abort();
         }
         Ok(outcome)
+    }
+
+    /// Whether a device reached this pass would come and take something:
+    /// a send it has not collected, a shared file only this device has, or --
+    /// when a device keeps this phone's files -- one of those not yet kept.
+    ///
+    /// A private file with nobody chosen to keep it is waiting for no one, and
+    /// staying open for it would spend every pass's spare seconds for nothing.
+    fn waiting_for_others(&self) -> Result<bool, QurbError> {
+        let engine = self.engine()?;
+        let store = engine.store();
+        if !store.pending_deliveries()?.is_empty() {
+            return Ok(true);
+        }
+        let only_here = store.undelivered()?;
+        if only_here.is_empty() {
+            return Ok(false);
+        }
+        let kept = !store.db().holders()?.is_empty();
+        let db = store.db();
+        Ok(only_here.iter().any(|(path, _)| {
+            let private = matches!(db.folder_row(path), Ok(Some((_, Some(_)))));
+            !private || kept
+        }))
     }
 
     /// Sync against one peer. `Ok(None)` means the time ran out.
@@ -1409,6 +1455,12 @@ impl Qurb {
         })
     }
 }
+
+/// The longest a pass stays open after its own syncing, for devices it
+/// reached to come back for what it has for them. Long enough for a daemon
+/// that hears the phone to dial back and pull a few photos; short enough that
+/// a device which never comes costs a background window little.
+const LINGER: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Where the store lives inside the synced root.
 ///

@@ -1,7 +1,9 @@
 # 0020 — Sync takes a deadline
 
-**Status:** Accepted. Amended 2026-09-27: what `timed_out` means, and the
-deadline now covers starting — see [Found on a phone](#found-on-a-phone).
+**Status:** Accepted. Amended 2026-09-27: what `timed_out` means, the deadline
+now covers starting, a dropped connector stops its background work, and a pass
+stays open briefly for peers to collect — see [Found on a phone](#found-on-a-phone)
+and [A pass that waits to be collected from](#a-pass-that-waits-to-be-collected-from).
 **Date:** 2026-09-17
 
 ## Decision
@@ -162,3 +164,44 @@ the first switched off, waiting for the first can use the whole window, and the
 second is never tried; the pass is then `timed_out`, retried, and the same thing
 happens next time. Trying devices concurrently is the fix, and has not been
 made.
+
+## A pass that waits to be collected from
+
+2026-09-27, the same phone, with its desktop running and chosen to keep the
+phone's files (decision 0036). The phone reached the desktop in a tenth of a
+second, and the desktop never received the file the phone had just made.
+
+**"A connector per pass" did not mean what this record said.** Dropping the
+connector at the end of a pass freed nothing it had started: the rendezvous
+reconnect loop, the beacon sender and the beacon listener ran on for the life
+of the process, and the reconnect loop held the QUIC endpoint, so its socket
+stayed open. A minute after a pass the phone had six UDP sockets, three beacon
+listeners — one per pass since the app started — and was still announcing the
+addresses of passes long finished. The desktop, hearing those, dialled them
+every eight seconds and timed out each time. A connector now stops everything
+it started when it is dropped (`crates/peer/tests/lifetime.rs`, seen to fail
+first with five tasks outliving it). After a pass the phone holds one socket.
+
+**Serving only while syncing was too short once syncing got fast.** Every
+device pulls what it wants, so a photo the phone made moves only when the
+desktop dials back and asks, which it does the moment it hears the phone. But
+on a local network the phone's own syncing now finishes in under a second, and
+the pass ended there, before the desktop could come. So a pass that reached a
+device and has something waiting for one — a send not yet collected, a shared
+file nobody else holds, or an own file when a device keeps them — announces
+that it has news and keeps answering until it has been collected or ten
+seconds have passed (`LINGER`), and never beyond the window. A private file
+with nobody chosen to keep it waits for no one, so it holds nothing open.
+
+On the phone, with both changes: the desktop, still busy with the stale
+addresses above, connected ten seconds after the phone finished its own syncing
+— inside the wait — and took the file. Without the wait the pass would have
+been closed for nine of those seconds. Whether the wait is still needed once
+the stale addresses are gone was not measured; the test written for it
+(`one_pass_is_enough_for_the_desktop_to_collect`) passes either way, because its
+stand-in desktop dials continuously, and says so.
+
+**Not covered:** a deletion. It does not hold a pass open, since nothing is
+"waiting" in the sense above. On the phone the desktop still took a deletion
+within a second of the pass starting, because hearing the phone is enough to
+make it dial; a desktop busy at that moment would miss it until the next pass.

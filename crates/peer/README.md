@@ -168,6 +168,13 @@ carries the handshake without being party to it. The relay connection is held
 open rather than dialled on demand, since being reachable is not something that
 can be arranged after someone has already failed to reach you.
 
+**Dropping a connector stops everything it started.** The rendezvous
+reconnect loop, the beacon sender and listener, and with them the socket. A
+daemon keeps one connector for hours and would not notice; a phone builds one
+per sync pass, and until this was so every pass left its background work
+running for the life of the process — announcing an address nothing accepted
+on any more. `tests/lifetime.rs` counts the runtime's tasks before and after.
+
 **Candidates are raced, not tried in turn.** An unreachable address fails by
 timing out, so three in sequence means three timeouts before discovering the
 last one worked. Local addresses come first, so two devices on one network do

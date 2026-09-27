@@ -1,6 +1,6 @@
 # 0036 — A phone keeps its own files, and another device holds them for it
 
-**Status:** Accepted — built in the engine, on the desktop and in the phone app; a phone and a desktop holding for each other not yet verified on hardware
+**Status:** Accepted — built in the engine, on the desktop and in the phone app, and verified between a Galaxy S23 and the laptop
 **Date:** 2026-09-25
 
 ## Decision
@@ -229,9 +229,25 @@ for one works as for the shared area, from the holder's *held* entries.
   keeps them; the Vault says where each file's bytes are and offers *Free phone
   space* and *Download*; Home says how many files are only on the phone and
   what to do about it. Installed on a Galaxy S23 and its screens checked
-  against the phone's real data. **Not yet verified:** the S23 and the desktop
-  actually holding for each other, freeing and fetching back between them —
-  the desktop was switched off.
+  against the phone's real data.
+- **2026-09-27 — verified on hardware.** The Galaxy S23 and the laptop's own
+  `~/qurb`, on the same Wi-Fi, with no rendezvous service reachable from the
+  phone, driven through the phone's screens. The desktop chosen on the Devices
+  screen; a 3 MiB file of random bytes added through the system picker went in
+  private; the next sync left it held on the desktop (`held = 1`, not in the
+  folder) and the phone showing it as on both. Freeing it took qurb on the
+  phone from 115.1 to 112.1 MB; *Download* had it back within twelve seconds,
+  and a copy saved out of the app was SHA-256 identical to the original.
+  Nothing on the desktop named it: not its history, its folder, its Downloads,
+  its log or `qurb status`. Deleted on the phone, the desktop let go about a
+  second into the next sync. The desktop also took `sent-to-phone.bin`, which
+  the laptop had sent to the phone days before and so sits in the phone's own
+  vault.
+
+  It did not work the first time. The phone reached the desktop and the desktop
+  never came back for the file: each sync pass on the phone left its discovery
+  running and ended before the desktop could dial it. Both fixed; see
+  [decision 0020](0020-sync-takes-a-deadline.md#a-pass-that-waits-to-be-collected-from).
 - **Not yet:** the app using any of it. The setting stays off until the
   rebuilt screens can name a holder, so a phone's files still go to the shared
   area.

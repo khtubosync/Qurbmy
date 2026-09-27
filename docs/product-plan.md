@@ -410,9 +410,9 @@ walking the directory.
 *Progress, 2026-09-27:* the FFI calls are done and tested, and the app is
 rebuilt on platform views ([0039](decisions/0039-a-light-android-app.md)) as
 five tabs — Home, Vault, Devices, Transfers (with the history the brief calls
-Activity) and Settings — installed on the S23. Not done: the phrase
-confirmation, the system picker asking the engine, and phone↔desktop holding
-verified on hardware.
+Activity) and Settings — installed on the S23, and the phone and the laptop
+verified keeping, freeing, fetching back and deleting through those screens.
+Not done: the phrase confirmation and the system picker asking the engine.
 
 **7. Cross-device flows**, including Android↔Android, offline and relay.
 
