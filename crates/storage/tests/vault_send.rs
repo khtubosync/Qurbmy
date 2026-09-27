@@ -222,7 +222,7 @@ fn upgrading_remembers_every_delivery_already_taken() {
         vector,
         modified_by: sender,
         modified_at: 1_790_000_000,
-        private: true,
+        area: qurb_sync::Area::Sent,
     };
     let landed = fixture.root.join("tickets.pdf");
     std::fs::write(&landed, &contents).unwrap();

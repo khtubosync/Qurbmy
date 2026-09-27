@@ -261,7 +261,7 @@ async fn a_sent_file_arrives_in_the_recipients_folder() {
     let tree = client.tree().await.unwrap();
 
     let sent = tree.iter().find(|v| v.path == "holiday.jpg").expect("not offered to the recipient");
-    assert!(sent.private, "a vault entry must arrive marked private");
+    assert_eq!(sent.area, qurb_sync::Area::Sent, "a vault entry must arrive marked as sent");
 
     let plan = guest.engine.plan_against(&tree).unwrap();
     let reader = Store::open(&guest.root.join(".qurb"), ChunkKey::from_bytes([42; 32]))

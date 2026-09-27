@@ -37,4 +37,4 @@ pub use device::DeviceId;
 pub use path::is_safe_path;
 pub use reconcile::{reconcile, Action};
 pub use resolve::{conflict_path, received_path, resolve, Outcome, Resolution, Side};
-pub use version::{Content, FileVersion};
+pub use version::{Area, Content, FileVersion};

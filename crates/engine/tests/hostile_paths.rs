@@ -56,7 +56,7 @@ fn from_peer(path: &str, content: Content, private: bool) -> FileVersion {
         vector,
         modified_by: peer,
         modified_at: 1_790_000_000,
-        private,
+        area: if private { qurb_sync::Area::Sent } else { qurb_sync::Area::Shared },
     }
 }
 

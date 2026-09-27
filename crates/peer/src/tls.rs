@@ -32,7 +32,7 @@ use std::sync::Arc;
 /// device's vault as ordinary shared content and advertise it to the whole
 /// fleet. Refusing to talk to an older build is the correct outcome, and the
 /// reason this constant exists at all.
-pub const ALPN: &[u8] = b"qurb/1";
+pub const ALPN: &[u8] = b"qurb/2";
 
 fn hex(bytes: &[u8; 32]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()

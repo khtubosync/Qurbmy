@@ -102,7 +102,7 @@ fn receive(device: &mut Device, name: &str, contents: &[u8]) -> FileVersion {
         vector,
         modified_by: sender,
         modified_at: 1_790_000_000,
-        private: true,
+        area: qurb_sync::Area::Sent,
     };
 
     // Written where a delivery writes it, then adopted privately — the two
@@ -366,7 +366,7 @@ fn a_version_from_elsewhere_is_not_refiled_as_private() {
         vector,
         modified_by: peer,
         modified_at: 1_790_000_000,
-        private: false,
+        area: qurb_sync::Area::Shared,
     };
     device.engine.store_mut().adopt(&shared, Some(b"everybody's"), 0).unwrap();
 

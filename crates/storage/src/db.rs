@@ -1039,7 +1039,7 @@ impl Db {
                     "SELECT {FILE_COLUMNS} FROM files WHERE scope = ?1 ORDER BY path"
                 ))?;
                 for row in theirs.query_map(params![asker.as_bytes().as_slice()], file_row)? {
-                    out.push(row_to_version(&row?).into_private());
+                    out.push(row_to_version(&row?).in_area(qurb_sync::Area::Sent));
                 }
                 Ok(out)
             }
@@ -1939,7 +1939,7 @@ fn row_to_version(row: &FileRow) -> FileVersion {
         modified_at: row.updated_at,
         // Set by the caller that knows the audience: the same row is private
         // to one device and invisible to every other.
-        private: false,
+        area: qurb_sync::Area::Shared,
     }
 }
 

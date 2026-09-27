@@ -152,7 +152,7 @@ another document.
 | Storage cap (§28, §58) | works on a device with a folder | a replica cannot free anything — [decision 0025](decisions/0025-a-storage-cap-that-cannot-lose-data.md) |
 | Tray (§42) | `qurb-tray`: an icon, a menu, a window with a slider | it is a second front end. The applications-menu entry launches `qurb-tray`, not `qurb-desktop`, so the full window is not what a person opening qurb gets |
 | Installing (§69) | `packaging/install.sh`, per user, with `--uninstall` | not a package; no autostart |
-| Versions (§70) | schema migrations run at open; the wire protocol is versioned (`qurb/1`) and refuses a mismatch | no version shown anywhere; no update path |
+| Versions (§70) | schema migrations run at open; the wire protocol is versioned (`qurb/2`) and refuses a mismatch | no version shown anywhere; no update path |
 
 ### 2.4 Designed, not built
 
@@ -459,8 +459,9 @@ hardware where hardware is involved. Not when it compiles.
   replica cannot usefully carry one — see
   [decisions/0030](decisions/0030-sending-a-file-to-one-device.md).
 - **Every device must be rebuilt together.** The wire protocol moved to
-  `qurb/1` when tree entries gained a private flag; an older build refuses to
-  connect rather than mishandling it.
+  `qurb/1` when tree entries gained a private flag and to `qurb/2` when that
+  flag became four areas; an older build refuses to connect rather than
+  mishandling it.
 - **Your devices share one key.** A vault is private from a device that does
   not hold its bytes. It is not cryptographically private from one that does.
 - **Removing a device does not take its key away.** It stops being trusted; it

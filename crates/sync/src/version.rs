@@ -32,6 +32,58 @@ impl Content {
     }
 }
 
+/// Where a version belongs, as the device receiving it should file it.
+///
+/// Carried on the version rather than inferred, because the receiver cannot
+/// tell from the path and gets exactly one chance to file it correctly. A
+/// private version adopted as shared content would be advertised to every
+/// other device on the next sync -- silent, immediate and irreversible.
+///
+/// Four rather than two because holding a vault has a direction. Once two
+/// devices can each hold the other's, "this is a vault entry" cannot say
+/// whose. See decisions 0029, 0030 and 0036.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Area {
+    /// The shared area: everything the product had before vaults existed.
+    #[default]
+    Shared,
+    /// Sent into the receiver's vault by the device it came from (0030).
+    Sent,
+    /// The receiver's own file, which the device it came from holds for it.
+    Held,
+    /// The sending device's own file, for the receiver to hold for it.
+    Hold,
+}
+
+impl Area {
+    /// Anything but the shared area: nobody else's business.
+    pub fn is_private(self) -> bool {
+        self != Area::Shared
+    }
+
+    /// The byte this is carried as. The first two are the values the old
+    /// `private` flag had, which is not compatibility -- the protocol version
+    /// changed with this -- but does keep the common cases recognisable.
+    pub fn to_byte(self) -> u8 {
+        match self {
+            Area::Shared => 0,
+            Area::Sent => 1,
+            Area::Held => 2,
+            Area::Hold => 3,
+        }
+    }
+
+    pub fn from_byte(byte: u8) -> Option<Self> {
+        Some(match byte {
+            0 => Area::Shared,
+            1 => Area::Sent,
+            2 => Area::Held,
+            3 => Area::Hold,
+            _ => return None,
+        })
+    }
+}
+
 /// One device's view of one path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileVersion {
@@ -48,18 +100,8 @@ pub struct FileVersion {
     /// win or lose every conflict systematically. Ordering is the version
     /// vector's job. This is for display and for conflict filenames only.
     pub modified_at: i64,
-    /// This version belongs in the receiving device's private vault: it was
-    /// sent *to* that device and is nobody else's business.
-    ///
-    /// Carried on the version rather than inferred, because the receiver
-    /// cannot tell from the path alone and gets exactly one chance to file it
-    /// correctly. A private version adopted as ordinary shared content would
-    /// be advertised to every other device on the next sync — the leak would
-    /// be silent, immediate and irreversible.
-    ///
-    /// Always `false` for shared-area content, which is everything the product
-    /// had before vaults existed.
-    pub private: bool,
+    /// Where the receiving device should file it. See [`Area`].
+    pub area: Area,
 }
 
 impl FileVersion {
@@ -77,7 +119,7 @@ impl FileVersion {
             vector,
             modified_by,
             modified_at,
-            private: false,
+            area: Area::Shared,
         }
     }
 
@@ -93,7 +135,7 @@ impl FileVersion {
             vector,
             modified_by,
             modified_at,
-            private: false,
+            area: Area::Shared,
         }
     }
 
@@ -110,9 +152,9 @@ impl FileVersion {
         self.content == other.content
     }
 
-    /// The same version, marked as belonging to the recipient's vault.
-    pub fn into_private(mut self) -> Self {
-        self.private = true;
+    /// The same version, filed in `area`.
+    pub fn in_area(mut self, area: Area) -> Self {
+        self.area = area;
         self
     }
 }

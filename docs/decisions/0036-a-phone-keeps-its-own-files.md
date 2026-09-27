@@ -115,6 +115,78 @@ protocol version bump like 0030's. That is settled when it is built.
 - **What the owner sees while its holder is off.** The file stays "Available on
   Desktop"; asking for it says Desktop is offline (brief §25).
 
+## How it is built
+
+Worked out against the code on 2026-09-27, before writing it.
+
+**Four kinds of tree entry, not a flag.** A tree entry said only "private" or
+not. Holding needs direction: once two devices can hold each other's vaults, a
+bare "this is a vault" cannot say whose. Each entry now carries one of:
+
+| kind | meaning, from the side receiving it |
+|---|---|
+| shared | the shared area, as before |
+| sent | something the other device sent into your vault (decision 0030) |
+| held | your own file, which the other device holds for you |
+| hold | the other device's own file, for you to hold for it |
+
+A build that knew only the old flag would read the two new kinds as "sent" and
+file another device's private files into its own folder, so the protocol goes
+from `qurb/1` to `qurb/2` and the two refuse to talk.
+
+**On the holder, a held row is marked as such** (`files.held`, index schema
+V12). It sits in the owner's vault like a send does — scope is the owner, bytes
+in the chunk store, nothing in the folder — and differs in three ways that each
+matter:
+
+- it is **never released**. Releasing a send once the recipient has it is right;
+  releasing a held copy once the owner reports having its own file would delete
+  the backup the moment it was made;
+- it is **never offered as a delivery**, so the owner does not "receive" its own
+  files back;
+- it is **not waiting to be collected**, so it is not on the sender's list of
+  things on their way.
+
+A send the owner has collected becomes held when the owner's list names it:
+the same bytes, now kept for the owner rather than on the way to them.
+
+**The owner keeps a list of holders** (`holders`), and its server shows its own
+vault, as *hold*, only to a device on that list — tree, manifest and chunk
+alike, checked the way decision 0029's checks are.
+
+**A phone's new files go into its own vault.** A store flag, set by the phone
+app: a file this device adds that has no row yet goes into its own vault rather
+than the shared area. A desktop leaves it off.
+
+**The holder mirrors, and only on instruction.** An entry of kind *hold* is
+taken into a held row; a *hold* tombstone tombstones it. A file that is simply
+absent from the owner's list is **left alone**. The alternative, deleting what
+the owner no longer lists, would make a phone that was wiped, or whose index was
+lost, delete its own backup on the holder at the first sync — the backup
+failing in exactly the case it exists for. The cost is that a holder away for
+longer than the owner keeps tombstones — seven days — keeps a file the owner
+deleted. That is disk, not data.
+
+**The owner counts the holder's copy.** The holder confirms each file it holds
+with the same `Got` a delivery uses. On the owner the content is in its own
+vault, not the holder's, so it is recorded as an ordinary replica, which is
+what the storage cap and *Free local space* may rely on.
+
+**The owner fetches back by content.** Its freed files stay in its index; asking
+for one works as for the shared area, from the holder's *held* entries.
+
+**Known gaps, stated before building:**
+
+- **A replaced phone cannot get its vault back yet.** Setting up a phone from the
+  24 words gives it a new device identity, and the holder keeps the old phone's
+  vault under the old one. The bytes are safe; nothing yet lets the new phone
+  ask for them. That is the recovery flow, and it is a separate piece of work.
+- **The holder's allowance is not checked yet.** 0036 says a holder with no room
+  takes nothing more. The first version takes everything it is asked to hold,
+  and says so.
+- **Renames are a deletion and an addition.** The holder re-files the content
+  under the new name without moving it again, because it already has the bytes.
+
 ## Reversing it
 
 Moderate before anybody has used it and expensive after. Once phones hold

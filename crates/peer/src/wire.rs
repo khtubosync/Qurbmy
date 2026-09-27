@@ -264,11 +264,11 @@ fn encode_version(out: &mut Vec<u8>, v: &FileVersion) {
     out.extend_from_slice(v.modified_by.as_bytes());
     out.extend_from_slice(&v.modified_at.to_le_bytes());
 
-    // Whether this entry belongs in the receiver's private vault. Sent
-    // explicitly because the receiver cannot tell from the path, and gets one
-    // chance to file it correctly: a private version adopted as shared content
-    // would be advertised onward to every other device.
-    out.push(v.private as u8);
+    // Where this entry belongs. Sent explicitly because the receiver cannot
+    // tell from the path, and gets one chance to file it correctly: a private
+    // version adopted as shared content would be advertised onward to every
+    // other device. See `qurb_sync::Area`.
+    out.push(v.area.to_byte());
 }
 
 fn decode_version(r: &mut Reader<'_>) -> Result<FileVersion> {
@@ -305,7 +305,14 @@ fn decode_version(r: &mut Reader<'_>) -> Result<FileVersion> {
         vector,
         modified_by: DeviceId::from_bytes(r.hash()?),
         modified_at: r.u64()? as i64,
-        private: r.u8()? != 0,
+        area: {
+            let byte = r.u8()?;
+            // Refused rather than guessed at. A kind this build does not know
+            // could be anybody's private content, and filing it as anything
+            // would be a guess about somebody else's data.
+            qurb_sync::Area::from_byte(byte)
+                .ok_or_else(|| Error::Protocol { detail: format!("unknown area {byte}") })?
+        },
     })
 }
 
@@ -527,6 +534,28 @@ mod tests {
         }
         let bytes = Response::Tree(vec![version("photos/beach.jpg")]).encode();
         assert!(Response::decode(&bytes).is_ok(), "an ordinary path was refused");
+    }
+
+    /// Each area survives the wire as itself. Filing one as another is filing
+    /// somebody's private file in the wrong place.
+    #[test]
+    fn every_area_survives_the_wire() {
+        use qurb_sync::Area;
+        for area in [Area::Shared, Area::Sent, Area::Held, Area::Hold] {
+            let bytes = Response::Tree(vec![version("a.txt").in_area(area)]).encode();
+            match Response::decode(&bytes).unwrap() {
+                Response::Tree(got) => assert_eq!(got[0].area, area),
+                other => panic!("{other:?}"),
+            }
+        }
+    }
+
+    /// An area this build does not know is refused, not guessed at.
+    #[test]
+    fn an_unknown_area_is_refused() {
+        let mut bytes = Response::Tree(vec![version("a.txt")]).encode();
+        *bytes.last_mut().unwrap() = 9;
+        assert!(Response::decode(&bytes).is_err());
     }
 
     #[test]

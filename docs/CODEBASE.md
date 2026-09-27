@@ -694,17 +694,20 @@ for the workspace as it stands.
 | Recovery, end to end | the phrase turns back into the user's files |
 | Key hygiene | redacted in `Debug`, wiped on drop, owner-only on disk |
 
-647 tests pass in 75 test binaries on Linux (2026-09-25, debug build, the
+649 tests pass in 75 test binaries on Linux (2026-09-25, debug build, the
 development laptop); clippy is clean. The last run on
 a Galaxy S23 was 426 of them, before this week's work — see
 [phases/phase-5-mobile.md](phases/phase-5-mobile.md).
 
-**The wire protocol is `qurb/1`.** It was `qurb/0` until tree entries gained a
+**The wire protocol is `qurb/2`.** It was `qurb/0` until tree entries gained a
 flag saying "this belongs in your vault", which is not a byte an older build can
 safely ignore — it would adopt somebody else's private content as shared and
-advertise it to the whole fleet. Devices negotiate it during the TLS handshake,
-so a mismatch is a clean refusal to connect. Every device has to be rebuilt
-together.
+advertise it to the whole fleet. It became `qurb/2` on 2026-09-27 when that flag
+became one of four areas — shared, sent, held, hold — because holding another
+device's vault has a direction a flag cannot carry, and a `qurb/1` build would
+read the new two as "sent to me" and file somebody's private files in its own
+folder. Devices negotiate the version during the TLS handshake, so a mismatch
+is a clean refusal to connect. Every device has to be rebuilt together.
 
 **Two devices now sync over a real network connection**, converging through
 concurrent edits, deletions and resurrections, with both sides computing the

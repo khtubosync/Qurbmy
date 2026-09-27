@@ -189,7 +189,7 @@ fn a_file_sent_to_the_phone_can_be_listed_saved_and_deleted() {
         vector,
         modified_by: sender,
         modified_at: 1_790_000_000,
-        private: true,
+        area: qurb_sync::Area::Sent,
     };
     let landed = dir.path().join("tickets.pdf");
     std::fs::write(&landed, contents).unwrap();

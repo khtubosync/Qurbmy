@@ -17,7 +17,7 @@
 use crate::{Engine, Error, Result};
 use qurb_storage::db;
 use qurb_storage::Store;
-use qurb_sync::{Action, Content, FileVersion};
+use qurb_sync::{Action, Area, Content, FileVersion};
 use std::io::Write;
 use std::path::Path;
 
@@ -204,8 +204,13 @@ impl Engine {
         // Running it through the same machinery would have the recipient offer
         // the sender their own file back, and a deletion on either side argue
         // with the other.
-        let (offered, shared): (Vec<_>, Vec<_>) =
-            remote.iter().cloned().partition(|v| v.private);
+        let shared: Vec<FileVersion> =
+            remote.iter().filter(|v| v.area == Area::Shared).cloned().collect();
+        // Held and hold entries are for holding a vault, decision 0036, and
+        // are not acted on here: holding is a different operation from both
+        // converging and collecting.
+        let offered: Vec<FileVersion> =
+            remote.iter().filter(|v| v.area == Area::Sent).cloned().collect();
 
         let mut actions = qurb_sync::reconcile(&self.tree()?, &shared);
         actions.extend(self.deliveries(&offered)?);
@@ -371,7 +376,7 @@ impl Engine {
         }
 
         // A delivery, on a device that files them outside the folder.
-        if version.private && !version.is_deleted() {
+        if version.area == Area::Sent && !version.is_deleted() {
             if let Some(dir) = self.downloads().map(Path::to_path_buf) {
                 return self.take_into_downloads(version, &dir, source, stats, progress);
             }
@@ -382,7 +387,7 @@ impl Engine {
         // clash with something the recipient already has is ordinary rather
         // than exceptional -- two people can both have a `report.pdf` -- and
         // neither file may be overwritten.
-        let version = &if version.private && !version.is_deleted() {
+        let version = &if version.area == Area::Sent && !version.is_deleted() {
             match self.store().db().live_path_anywhere(&version.path)? {
                 true => {
                     let renamed = qurb_sync::received_path(version);
@@ -401,7 +406,7 @@ impl Engine {
         // the shared file of the same name. Shared paths and received ones sit
         // in one folder, so a name can mean either -- and a version arriving
         // for the shared area is never about the private one.
-        let private_here = !version.private
+        let private_here = version.area == Area::Shared
             && matches!(self.store().db().folder_row(&version.path)?, Some((_, Some(_))));
 
         match &version.content {
@@ -438,7 +443,7 @@ impl Engine {
                 // [decision 0025]: ../../../docs/decisions/0025-a-storage-cap-that-cannot-lose-data.md
                 if version.modified_by != self.store().device_id()? {
                     let content = blake3::Hash::from(*hash);
-                    if version.private {
+                    if version.area == Area::Sent {
                         // The sender is holding this *for us*, and will stop as
                         // soon as we confirm we have it. Recorded as the vault
                         // delivery it is, so the storage cap never treats the
@@ -556,7 +561,7 @@ impl Engine {
                 // so the engine's size-and-mtime fast path recognises it and
                 // does not immediately re-read what it just wrote.
                 let mtime = std::fs::metadata(&path).ok().map(|m| mtime_ns(&m)).unwrap_or(0);
-                if version.private {
+                if version.area == Area::Sent {
                     self.store_mut().adopt_file_privately(version, &path, mtime)?;
                 } else {
                     self.store_mut().adopt_file(version, &path, mtime)?;
@@ -576,7 +581,7 @@ impl Engine {
                     Some(&version.path),
                     Some(*size),
                     Some(&version.modified_by),
-                    version.private.then_some("sent to this device"),
+                    (version.area == Area::Sent).then_some("sent to this device"),
                 );
 
                 // Committed, so it is now true to say this device holds it.
