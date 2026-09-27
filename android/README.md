@@ -20,23 +20,44 @@ takes longer, because link-time optimisation does; the debug build stays quick.
 
 ## What it does
 
+Five places under a tab bar, plus setup, scanning and the share sheet:
+
 | screen | what it is for |
 |---|---|
+| Home | which devices this phone knows; a card, shown only while it is true, saying how many files exist on this phone and nowhere else and what to do about it; what happened lately. The big button is *Connect a device* until one is connected, and *Sync now* after |
+| Vault | every file, and where its bytes are: on this phone and another device, only on this phone, or on another device and not here. Tapping one offers what that allows — open, save a copy, send to a device, free phone space, download, delete |
+| Devices | the connected devices, which of them keep this phone's files, and a way to send one files |
+| Transfers | what this phone has sent that has not been collected, with a way to stop it, and the history |
+| Settings | this phone's name, *Keep new files private*, what qurb takes in space and a way to free what nothing needs, background sync, the rendezvous service, the version |
 | setup | create an identity and show the 24 words, or restore from them |
-| main | the files, what they cost on disk, and a Sync button |
-| menu | pair, list paired devices, background sync, rendezvous service |
+| scan | the camera, reading the code another device shows when connecting |
 | share | anything on the phone, sent into qurb from the system share sheet |
 
-The `+` button copies a file from elsewhere on the phone into the synced
-directory. Sync runs one pass with a 25-second deadline and reports what
-happened.
+**Files added on the phone are private by default** — decision
+[0036](../docs/decisions/0036-a-phone-keeps-its-own-files.md). They go to no
+other device until the person chooses one on the Devices screen to keep them,
+and that device keeps them where nobody using it sees them. *Keep new files
+private* in Settings turns that off, from the next file on; files already here
+stay where they are.
+
+**Freeing space is refused for the only copy.** *Free phone space* is offered
+only for a file another device is known to hold, and the engine refuses it
+anyway when that is not so, so no screen can get it wrong. A freed file stays in
+the list, marked as not on this phone, and tapping it asks for it back at the
+next sync.
+
+The screens are plain classes holding their views, not Fragments: built the
+first time each is shown, kept for the life of the activity, and changing tab
+swaps one child view for another. No screen reads anything on the main thread.
+Each draws what the index already knows, and the scan for changes made while the
+app was closed runs after that and redraws only if it found something.
 
 **It is a share target.** `ACTION_SEND` and `ACTION_SEND_MULTIPLE`, for any
 type, and it needs no network to work: the file is written into the folder and
 indexed there and then, with every other device switched off. There is no
 outbox — "what is waiting to be delivered" is a question asked of the index,
-not a list that could drift from it. The main screen says how many files are
-held only by this phone, which is the honest form of "it will get there".
+not a list that could drift from it. Home says how many files are held only by
+this phone, which is the honest form of "it will get there".
 
 **It can be woken.** When another device has something and this one is asleep,
 the rendezvous service pokes it and it syncs immediately — measured at seven
@@ -44,8 +65,8 @@ hundred milliseconds from the change. That needs a Firebase project; without
 one the phone learns at its next scheduled look, and the SDK is not even linked.
 See [decision 0028](../docs/decisions/0028-waking-a-sleeping-device.md).
 
-**Tapping a file offers to open it, or save a copy to the phone.** That second
-one matters more than it sounds: the synced directory is this app's private
+**Opening a file, and saving a copy to the phone, matter more than they
+sound: the synced directory is this app's private
 storage, so a file that arrives from another device and stays there is invisible
 to everything else on the phone. Without a way out, a sync product syncs into a
 hole. Both actions go through the app's own `DocumentsProvider`, so there is one
@@ -105,20 +126,21 @@ when nobody is holding the phone, and sync would simply stop happening.
 ## Window insets
 
 Android 15 draws apps edge to edge whether they ask or not. Without handling
-insets the toolbar sits *beneath* the status bar — which looks wrong, and, worse,
-makes the overflow button partly unreachable: taps in that strip go to the
-status bar instead. The bug is invisible in a screenshot until you try to press
-something, and it was found exactly that way.
+insets a screen's heading sits *beneath* the status bar — which looks wrong,
+and, worse, taps in that strip go to the status bar instead. The bug is
+invisible in a screenshot until you try to press something, and it was found
+exactly that way, on the first version of the app.
 
-The padding goes on the `AppBarLayout`, not the toolbar. Padding the toolbar
-pushes its contents down inside a box that does not grow, so the title clips and
-the overflow button is squashed — which was the first attempt at the fix.
+The shell pads the screen area for the status bar and any display cutout, once;
+the tab bar pads itself for the gesture bar.
 
 ## Permissions
 
-`INTERNET` and `ACCESS_NETWORK_STATE`. Nothing else — no storage permission,
-because the synced directory is the app's own private storage; no camera,
-because pairing codes are typed; no location, contacts, or anything else.
+`INTERNET` and `ACCESS_NETWORK_STATE`, to sync; `CHANGE_WIFI_MULTICAST_STATE`,
+to hear devices on the same Wi-Fi answer; `CAMERA`, asked for only when
+scanning a code to connect a device, and refusable — the code can be typed
+instead. Nothing else: no storage permission, because the synced directory is
+the app's own private storage, and no location, contacts or anything like them.
 
 `allowBackup` is `false` on purpose. Android's backup would copy the vault to
 Google's servers, and the Keystore key wrapping it does **not** travel — so a
@@ -133,11 +155,13 @@ There is no hosted rendezvous service yet, so run one:
 qurb signal 0.0.0.0:9000
 ```
 
-In the app: menu → **Rendezvous service** → `ws://<that machine's LAN IP>:9000`.
-From an emulator use `ws://10.0.2.2:9000`, which is how it reaches its host.
+In the app: Settings → **Rendezvous service** → `ws://<that machine's LAN
+IP>:9000`. From an emulator use `ws://10.0.2.2:9000`, which is how it reaches
+its host.
 
-Then `qurb pair <dir>` on the computer, and menu → **Pair a device** on the
-phone with the code it prints.
+Then, on the computer, Devices → **Show a code** in the desktop app, or
+`qurb pair <dir>`; on the phone, **Connect a device**, and point the camera at
+the code.
 
 ## Background sync
 
@@ -167,17 +191,34 @@ The three outcomes are mapped deliberately:
 It records what it did, because a background worker is otherwise invisible:
 nobody is watching when it runs, so without a trace there is no way to tell a
 sync that works from one that silently stopped — and "silently stopped" is the
-failure mode a sync app actually dies of. Menu → **Background sync** shows it.
+failure mode a sync app actually dies of. Settings → **Background sync** shows
+it.
+
+A device that does not answer before the window closes is *unreachable*, not
+*out of time*. The difference decides what happens next — out of time is a
+retry, with exponential backoff — and it was once got wrong, so that a phone
+whose computer was switched off reported "no paired devices" and pushed its
+next sync further and further away. See
+[decision 0020](../docs/decisions/0020-sync-takes-a-deadline.md#found-on-a-phone).
 
 ## Not built
 
 - **No bulk save.** One file at a time; there is no "save everything".
-- **No way back for a dropped file.** A file the storage cap evicted is absent
-  from the listing's point of view; `qurb fetch` exists on the desktop and has
-  no equivalent here.
-- **No reclaim or collection.** The desktop frees superseded chunks on a timer
-  and can drop duplicate payloads with `qurb reclaim`; neither is exposed on
-  the phone, so its store only grows.
+- **No folders in the Vault.** It is one list of paths, in the order the index
+  keeps them, with no grouping, search or sorting.
+- **No progress while a file moves.** A phone syncs in short windows, mostly in
+  the background; Transfers shows what is waiting and what happened, not bytes
+  in flight.
+- **This phone cannot show a code**, only scan one. Connecting two phones to
+  each other needs a computer's code, or typing.
+- **The phrase is not asked for again** after setup, to confirm it was written
+  down; the brief asks for that.
+- **The storage question during setup**
+  ([decision 0038](../docs/decisions/0038-the-storage-question-during-setup.md)) is not
+  built.
 - **Nothing for conflicts.** They arrive as extra files with long names and no
   explanation.
+- **Sharing into qurb only adds.** The share sheet puts a file in the Vault; it
+  does not offer to send it straight to one device, which the Devices screen
+  does.
 - **Not signed.** `assembleRelease` produces an unsigned APK.

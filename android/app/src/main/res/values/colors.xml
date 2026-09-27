@@ -1,5 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The palette, light.
+
+     Warm and calm rather than technical: an off-white with a little warmth in
+     it, a deep terracotta for the few things that are actions, and a sage green
+     that means "safe": a file another device also has, a device that is
+     connected. Amber is kept for the one state worth noticing: a file that is
+     only on this phone. Everything else is ink on paper.
+
+     The same names are defined for night in values-night/colors.xml, so no
+     layout ever names a colour, only a role. -->
 <resources>
-    <color name="primary">#2B5CE6</color>
+    <color name="paper">#FBF8F4</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="surface_soft">#F3EEE7</color>
+    <color name="line">#E7E0D6</color>
+    <color name="ink">#1F1B16</color>
+    <color name="ink_soft">#6A6158</color>
+
+    <color name="primary">#9A4A22</color>
     <color name="on_primary">#FFFFFF</color>
+    <color name="primary_soft">#F9DDCD</color>
+    <color name="on_primary_soft">#3A1706</color>
+
+    <color name="safe">#3D6A58</color>
+    <color name="safe_soft">#D9EBE1</color>
+    <color name="notice">#8A5A00</color>
+    <color name="notice_soft">#F8E6C2</color>
+    <color name="error">#B3261E</color>
 </resources>

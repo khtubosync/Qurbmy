@@ -46,6 +46,13 @@ outbound packet at roughly the same time, and a device that polls to discover it
 should punch will always be late. The server tells both sides at the same
 moment, which is the feature the transport was chosen for.
 
+**Connecting gives up after five seconds** (`client::HANDSHAKE_TIMEOUT`). A
+refused or unroutable address fails by itself; a service that accepts the
+connection and never answers used to be waited on for ever, and with it a
+phone's sync, whatever deadline the phone had set, and a desktop's start. Found
+on a phone, recorded in
+[decision 0020](../../docs/decisions/0020-sync-takes-a-deadline.md#found-on-a-phone).
+
 ## Cleaning up is load-bearing
 
 A device left in the directory after it disconnects means peers are handed a

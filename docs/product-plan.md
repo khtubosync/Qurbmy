@@ -407,6 +407,13 @@ moved down from `qurb-cli` rather than copied. The phrase is confirmed on the
 phone as it is on the desktop. The system picker asks the engine instead of
 walking the directory.
 
+*Progress, 2026-09-27:* the FFI calls are done and tested, and the app is
+rebuilt on platform views ([0039](decisions/0039-a-light-android-app.md)) as
+five tabs — Home, Vault, Devices, Transfers (with the history the brief calls
+Activity) and Settings — installed on the S23. Not done: the phrase
+confirmation, the system picker asking the engine, and phone↔desktop holding
+verified on hardware.
+
 **7. Cross-device flows**, including Android↔Android, offline and relay.
 
 **8. Storage**: the first-run question (§3.3), freeing a chosen file's local

@@ -1,6 +1,7 @@
 # 0020 — Sync takes a deadline
 
-**Status:** Accepted
+**Status:** Accepted. Amended 2026-09-27: what `timed_out` means, and the
+deadline now covers starting — see [Found on a phone](#found-on-a-phone).
 **Date:** 2026-09-17
 
 ## Decision
@@ -113,3 +114,51 @@ matters is that the parameter exists and has to be thought about.
 - The per-pass connector means STUN runs per pass. On a metered connection that
   is a small repeated cost, which is why `Settings::discover` can turn it off —
   at the price of only reaching peers on the same network.
+
+## Found on a phone
+
+2026-09-27, Galaxy S23. The rebuilt app's Settings screen showed the background
+worker's last record as *"no paired devices"*, on a phone paired with a desktop
+that was switched off. Two defects were behind it, both in how the deadline was
+applied rather than in the idea.
+
+**A device that never answered was reported as time running out.** Reaching a
+device through the rendezvous service waits up to twenty seconds for an
+introduction, and the background worker's window was twenty seconds. So the
+window closed while the phone was still waiting, and the pass came back as
+`timed_out` with nothing reached and nothing unreachable. The worker read that
+as "no paired devices" — wrong — and answered `timed_out` with a retry, which on
+Android is exponential backoff. That is the three-hour gap between syncs that
+the worker had already been fixed once for, arrived at by a different route: a
+switched-off computer is the ordinary state of things, and the ordinary
+schedule is the answer to it.
+
+`timed_out` now means what this record always said it meant — work left over:
+a device that answered was still being synced, or devices were left untried. A
+device that has not answered when the window closes is counted in
+`unreachable`, however long it was waited for.
+
+**Starting was outside the deadline.** Each pass starts a connector, which
+connects to the rendezvous service, and that handshake had no bound at all. A
+service that accepts the connection and never answers held the pass for ever,
+whatever deadline was asked for — found while writing the test for the first
+defect, which hung for ten minutes. The handshake is now bounded at five
+seconds (`qurb_signal::client::HANDSHAKE_TIMEOUT`), which also bounds the
+desktop daemon's start and its reconnect loop, and the phone's connector start
+now runs inside the pass's deadline; a window that closes before the phone
+could try anybody counts every device as unreachable.
+
+What was observed and what was inferred: the phone's record and the paired
+device are observed. The phone's own log of that run had rolled over before it
+was looked for, so its outcome was not read directly; the mechanism was
+reproduced instead. `a_device_that_never_answers_is_unreachable_not_out_of_time`
+in `crates/mobile-ffi/tests/syncing.rs` gives the phone a rendezvous address that
+never answers and an eight-second window, and without the fix returns exactly
+`reached: 0, unreachable: 0, timed_out: true`. The older test for an unreachable
+device accepted either answer, which is how this went unnoticed.
+
+**Not fixed:** devices are tried one after another. With two paired devices and
+the first switched off, waiting for the first can use the whole window, and the
+second is never tried; the pass is then `timed_out`, retried, and the same thing
+happens next time. Trying devices concurrently is the fix, and has not been
+made.

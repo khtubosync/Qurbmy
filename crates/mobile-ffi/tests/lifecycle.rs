@@ -484,3 +484,35 @@ fn the_app_can_see_free_hold_send_and_take_back() {
     qurb.remove_holder(laptop).unwrap();
     assert!(qurb.holders().unwrap().is_empty());
 }
+
+/// The Settings switch: files added after it is turned off go to the shared
+/// area, files already here stay where they were, and turning it back on
+/// applies from the next file, all without reopening the engine.
+#[test]
+fn keeping_new_files_private_applies_from_the_next_file() {
+    let dir = scratch();
+    let staging = scratch();
+    let root = dir.path().display().to_string();
+    create(root.clone()).unwrap();
+
+    let private = qurb_mobile::Settings { own_files_private: true, ..Default::default() };
+    let qurb = Qurb::open_with(root, None, private).unwrap();
+    let add = |name: &str| {
+        let source = staging.path().join(name);
+        std::fs::write(&source, name.as_bytes()).unwrap();
+        qurb.import_file(source.display().to_string(), name.into()).unwrap();
+    };
+    let private_of = |name: &str| {
+        qurb.page(0, 50).unwrap().into_iter().find(|f| f.path == name).unwrap().private
+    };
+
+    add("before.jpg");
+    qurb.set_own_files_private(false).unwrap();
+    add("shared.jpg");
+    qurb.set_own_files_private(true).unwrap();
+    add("after.jpg");
+
+    assert!(private_of("before.jpg"), "turning the switch off moved an existing file");
+    assert!(!private_of("shared.jpg"), "switched off, and the file stayed private");
+    assert!(private_of("after.jpg"), "switched back on, and the file went to everyone");
+}

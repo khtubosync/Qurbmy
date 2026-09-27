@@ -916,11 +916,11 @@ already: a file freed for the storage cap and fetched back stayed marked as
 freed — fetched again on every sync, and a later deletion of it never passed
 on. See decision 0025.
 
-**What the phone still needs**, all of it step 6: the app setting its files
+**What the phone still needed**, all of it step 6: the app setting its files
 private, a way to name the device that keeps them, and *Free local space* and
-*Download* on a file. Until then a phone's files go to the shared area as
-before. Every device must be rebuilt for `qurb/2`, the phone included, or they
-will not connect.
+*Download* on a file. Built the same day — see [the rebuilt app](#the-rebuilt-app).
+Every device must be rebuilt for `qurb/2`, the phone included, or they will not
+connect.
 
 ## Light and snappy, measured
 
@@ -963,6 +963,63 @@ store alone and was worded as a saving ("100.7 MB on disk, from 30.9 MB"); it
 now counts the folder's files as well, and the screen says what qurb takes on
 the phone only when that is more than the files themselves.
 
+## The rebuilt app
+
+**2026-09-27, Galaxy S23.** The app the product brief asks for, on platform
+views as [decision 0039](../decisions/0039-a-light-android-app.md) chose: five
+tabs where there was one list and an overflow menu.
+
+- **Home** — which devices the phone knows, a card shown only while some files
+  exist on this phone and nowhere else (with the next step for each of three
+  reasons that can be so), and what happened lately. *Connect a device* is the
+  big button until one is connected, *Sync now* after.
+- **Vault** — every file with where its bytes are: a green dot for here and on
+  another device, amber for only here, grey for on another device and not here.
+  Tapping offers what that allows, including *Free phone space* and
+  *Download*. Read two hundred at a time.
+- **Devices** — who the phone knows, and which of them keep its files; choosing
+  one is decision 0036's holder, with the consequences said before it is done.
+  Files picked from anywhere on the phone can be sent to one device.
+- **Transfers** — sends waiting to be collected, each of which can be stopped,
+  and the history. The brief lists Activity as a sixth place; a tab bar holds
+  five, and what happened and what is moving are one question asked at two
+  times.
+- **Settings** — the phone's name, *Keep new files private* (on by default, per
+  decision 0036), space, background sync, the rendezvous service, the version.
+
+The screens are plain classes holding their views rather than Fragments, and
+none reads anything on the main thread. Installed over the existing app with
+the same key, so its data — 21 files, one paired desktop — was the phone's
+real data, and Home, Vault, Transfers and Settings were checked against it on
+screen. Two layout faults found that way were fixed: the history rows on Home
+were indented twice, because Android ignores a negative
+`layout_marginHorizontal`, and Home's big button said *Connect another device*
+while a device was already connected. The fixed build was installed and not
+yet looked at; the Devices screen was not seen on the phone at all. The phone
+was in use, so both wait.
+
+**Measured:** the release APK is 10.8 MB, against 10.7 MB before the rebuild.
+Cold start and memory have **not** been measured again for the rebuilt app; the
+two launches timed while installing (287 and 431 ms) were a first launch after
+install and a launch while the phone was in use, and are not comparable with
+decision 0039's 175 ms.
+
+**Found by looking at the screens:** Settings showed the background worker's
+last record as *"no paired devices"* on a phone paired with a desktop. The
+desktop was switched off; waiting for it used the worker's whole twenty-second
+window, and a pass that ran out of time while waiting was reported as time
+running out, which the worker answers with a retry — exponential backoff, for a
+device that will not answer until someone switches it on. Writing the test for
+that found that connecting to a rendezvous service that never answers had no
+bound at all. Both fixed and recorded in
+[decision 0020](../decisions/0020-sync-takes-a-deadline.md#found-on-a-phone),
+with what was observed and what was only reproduced.
+
+**Not done here:** the phrase confirmation, the storage question during setup
+(decision 0038), the system picker asking the engine, sending straight to a
+device from the share sheet, a phone showing a code rather than only scanning
+one, and the phone and the desktop verified holding for each other.
+
 ## Deliberately left undone
 
 - **Keychain, on iOS.** The Android half is done and verified on a device —
@@ -996,6 +1053,10 @@ the phone only when that is more than the files themselves.
   Since a per-pass connector is built fresh each time, the next pass does get a
   fresh chance — so on mobile this is less severe than on the desktop daemon,
   which holds one connector for hours.
+- **Trying devices one at a time.** A pass tries each paired device in turn,
+  so a device that does not answer can use the whole window and leave the next
+  one untried — every time, since the order does not change. Found while fixing
+  the timeout above; trying them at once is the fix, and has not been made.
 - **Conflict resolution on a small screen.** The engine never discards an edit,
   so conflicts appear as extra files. On a desktop that is tolerable. On a phone
   it is confusing, and nothing has been designed for it.

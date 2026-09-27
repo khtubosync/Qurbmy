@@ -3,11 +3,6 @@ package com.qurb
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.view.LayoutInflater
-import android.view.Menu
-import android.view.MenuItem
-import android.view.View
-import android.view.ViewGroup
 import android.widget.EditText
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -15,37 +10,53 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.snackbar.Snackbar
 import com.qurb.databinding.ActivityMainBinding
-import com.qurb.databinding.RowFileBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.qurb_mobile.FileEntry
-import uniffi.qurb_mobile.Qurb
-import uniffi.qurb_mobile.QurbException
+import uniffi.qurb_mobile.PeerInfo
 import java.io.File
-import java.text.DateFormat
-import java.util.Date
 
 /**
- * What is here, who it syncs with, and a button to make it happen.
+ * The app: five places under a tab bar, and the actions more than one of them
+ * offers.
  *
- * Deliberately not a file manager. Until there is a FileProvider, the synced
- * directory is private to this app and nothing else on the phone can see it, so
- * this screen is the only view onto it.
+ * Home says whether this phone's files are safe and connects devices; Vault is
+ * what is on the phone; Devices is who it knows; Transfers is what is moving
+ * and what happened; Settings is the rest. The screens are in their own files.
+ * What lives here is what they share -- pairing, syncing, opening a file,
+ * saving a copy, sending -- because each needs an activity to launch a picker
+ * or a camera from, and there is one.
  */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var views: ActivityMainBinding
-    private val files = FileAdapter()
+    private val screens = mutableMapOf<Int, Screen>()
+    private var current: Screen? = null
 
-    private val picker = registerForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri -> uri?.let { addFile(it) } }
+    /** Whether a sync this screen started is still running. Home shows it. */
+    var syncing = false
+        private set
+
+    /** Whether this launch has freed what nothing needs yet. Once is enough. */
+    private var housekept = false
+
+    private val adder = registerForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris -> if (uris.isNotEmpty()) addFiles(uris) }
+
+    /** The device files are being picked for, while the picker is open. */
+    private var sendingTo: PeerInfo? = null
+
+    private val sender = registerForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        val to = sendingTo
+        sendingTo = null
+        if (to != null && uris.isNotEmpty()) sendPicked(uris, to)
+    }
 
     private val scanner = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -61,9 +72,7 @@ class MainActivity : AppCompatActivity() {
     ) { destination ->
         val entry = pendingSave
         pendingSave = null
-        if (destination != null && entry != null) {
-            writeCopy(entry, destination)
-        }
+        if (destination != null && entry != null) writeCopy(entry, destination)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -77,256 +86,194 @@ class MainActivity : AppCompatActivity() {
 
         views = ActivityMainBinding.inflate(layoutInflater)
         setContentView(views.root)
-        setSupportActionBar(views.toolbar)
         insetContent()
 
-        views.files.layoutManager = LinearLayoutManager(this)
-        views.files.adapter = files
-
-        // Registered here rather than in the setup screen: this runs on every
-        // launch, and `KEEP` makes re-registering a no-op while still
-        // re-establishing the work if the user cleared the app's data.
+        // Registered on every launch: `KEEP` makes it a no-op when the work is
+        // already scheduled, and re-establishes it if the app's data was
+        // cleared.
         SyncWorker.schedule(this)
 
-        views.sync.setOnClickListener { sync() }
-        views.add.setOnClickListener { picker.launch(arrayOf("*/*")) }
-        views.refresh.setOnRefreshListener { refresh() }
+        val tab = savedInstanceState?.getInt(TAB) ?: R.id.tab_home
+        views.tabs.selectedItemId = tab
+        views.tabs.setOnItemSelectedListener { item ->
+            show(item.itemId)
+            current?.refresh()
+            true
+        }
+        views.tabs.setOnItemReselectedListener { current?.refresh() }
+        // Not refreshed here: onResume follows, and refreshes whatever is showing.
+        show(tab)
     }
 
-    /**
-     * Keep the toolbar and the buttons out from under the system bars.
-     *
-     * Android 15 draws apps edge to edge whether they ask or not, so without
-     * this the toolbar sits beneath the status bar — which looks wrong and,
-     * worse, makes the overflow button half unreachable because taps in that
-     * strip go to the status bar instead. The bug is invisible on a screenshot
-     * until you try to press something.
-     */
-    private fun insetContent() {
-        ViewCompat.setOnApplyWindowInsetsListener(views.root) { _, windowInsets ->
-            val bars = windowInsets.getInsets(
-                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
-            )
-            // Padded on the bar rather than the toolbar. Padding the toolbar
-            // pushes its contents down inside a box that does not grow, so the
-            // title clips and the overflow button is squashed against the edge.
-            views.appbar.updatePadding(top = bars.top)
-            views.files.updatePadding(bottom = bars.bottom + FAB_CLEARANCE)
-
-            // The floating buttons sit above the gesture bar rather than under it.
-            listOf(views.add, views.sync).forEach { button ->
-                (button.layoutParams as? android.view.ViewGroup.MarginLayoutParams)?.let { lp ->
-                    lp.bottomMargin = bars.bottom + FAB_MARGIN
-                    button.layoutParams = lp
-                }
-            }
-            windowInsets
-        }
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        if (::views.isInitialized) outState.putInt(TAB, views.tabs.selectedItemId)
     }
 
     override fun onResume() {
         super.onResume()
-        if (Engine.isSetUp(this)) refresh()
+        if (!::views.isInitialized) return
+        current?.refresh()
+        catchUp()
     }
 
-    override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        menuInflater.inflate(R.menu.main, menu)
-        return true
+    private fun show(tab: Int) {
+        val screen = screens.getOrPut(tab) {
+            when (tab) {
+                R.id.tab_vault -> VaultScreen(this)
+                R.id.tab_devices -> DevicesScreen(this)
+                R.id.tab_transfers -> TransfersScreen(this)
+                R.id.tab_settings -> SettingsScreen(this)
+                else -> HomeScreen(this)
+            }
+        }
+        if (screen === current) return
+        views.screen.removeAllViews()
+        views.screen.addView(screen.view)
+        current = screen
     }
 
-    override fun onOptionsItemSelected(item: MenuItem): Boolean = when (item.itemId) {
-        R.id.pair -> { pair(); true }
-        R.id.peers -> { showPeers(); true }
-        R.id.settings -> { showSettings(); true }
-        R.id.background -> { showBackground(); true }
-        else -> super.onOptionsItemSelected(item)
+    /** Move to another tab, as a screen's action does ("Choose a device"). */
+    fun go(tab: Int) {
+        views.tabs.selectedItemId = tab
     }
 
-    private fun refresh() {
+    /**
+     * Keep the screens out from under the status bar and the tab bar out from
+     * under the gesture bar.
+     *
+     * Android 15 draws every app edge to edge, so without this a heading sits
+     * beneath the status bar and taps near the top go to the system instead.
+     * The tab bar pads itself for the navigation bar; everything else gets the
+     * top and the sides here, once.
+     */
+    private fun insetContent() {
+        ViewCompat.setOnApplyWindowInsetsListener(views.root) { _, insets ->
+            val bars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            views.screen.updatePadding(top = bars.top, left = bars.left, right = bars.right)
+            insets
+        }
+    }
+
+    /**
+     * Whatever changed while the app was away.
+     *
+     * The screen has already drawn what the index knows. Then the scan, because
+     * nothing delivers filesystem events to a process that was not running;
+     * redrawn only if it found something. Then, once per launch, freeing what
+     * nothing needs -- the routine the background worker runs after each sync,
+     * here too so a phone the worker has not reached lately does not wait.
+     */
+    private fun catchUp() {
         lifecycleScope.launch {
             try {
                 val engine = Engine.open(this@MainActivity)
+                val found = withContext(Dispatchers.IO) { engine.scan() }
+                if (found.stored > 0u || found.deleted > 0u) current?.refresh()
 
-                // What the index already knows, on screen at once. The scan
-                // walks every file in the folder and can take seconds on a large
-                // one; nobody should look at an empty list while it does.
-                show(withContext(Dispatchers.IO) { snapshot(engine) })
-
-                // Then the scan: nothing delivers filesystem events to a process
-                // that was not running, so anything that changed while the app
-                // was closed produced no event at all. Redrawn only if it found
-                // something.
-                val changed = withContext(Dispatchers.IO) {
-                    val found = engine.scan()
-                    if (found.stored > 0u || found.deleted > 0u) snapshot(engine) else null
-                }
-                changed?.let { show(it) }
-
-                // And once per launch, free what nothing needs -- the same
-                // routine the background worker runs after a sync. Here too so
-                // that a phone the worker has not run on lately, or one set up
-                // by an older build, does not wait for it. After everything is
-                // on screen, and off the main thread.
                 if (!housekept) {
                     housekept = true
                     val tidied = withContext(Dispatchers.IO) {
                         runCatching { engine.housekeep() }.getOrNull()
                     }
-                    if (tidied != null && tidied.freed > 0uL) {
-                        show(withContext(Dispatchers.IO) { snapshot(engine) })
-                    }
+                    if (tidied != null && tidied.freed > 0uL) current?.refresh()
                 }
             } catch (e: Exception) {
-                fail("Could not read the store", e)
-            } finally {
-                views.refresh.isRefreshing = false
+                Words.fail(this@MainActivity, "Could not read this phone's files", e)
             }
         }
     }
 
-    /** Whether this launch has freed what nothing needs yet. Once is enough. */
-    private var housekept = false
+    /** Something every screen might need to say. */
+    fun say(message: String) = Words.say(views.root, message)
 
-    /** Everything a refresh draws, read in one go off the main thread. */
-    private fun snapshot(engine: Qurb) = Snapshot(
-        engine.list(),
-        engine.usage(),
-        engine.peers().size,
-        engine.outstanding().files.size,
-    )
+    fun fail(title: String, e: Throwable) = Words.fail(this, title, e)
 
-    private fun show(state: Snapshot) {
-        files.submit(state.listed)
-        views.empty.visibility = if (state.listed.isEmpty()) View.VISIBLE else View.GONE
-        views.summary.text = summary(
-            state.listed.size,
-            state.usage.logical,
-            state.usage.onDisk,
-            state.peers,
-            state.waiting,
-        )
-    }
+    /** After anything that changes what the engine knows. */
+    fun changed() = current?.refresh()
 
-    /** What one refresh read, so the IO block returns one thing rather than four. */
-    private data class Snapshot(
-        val listed: List<FileEntry>,
-        val usage: uniffi.qurb_mobile.Usage,
-        val peers: Int,
-        val waiting: Int,
-    )
-
-    private fun summary(
-        count: Int,
-        logical: ULong,
-        onDisk: ULong,
-        peers: Int,
-        waiting: Int,
-    ): String {
-        // The files' size, and what qurb takes on this phone only when that is
-        // more -- content kept for another device, or a deleted file not yet
-        // collected. "On disk, from" used to read as a saving it was not.
-        val saved = when {
-            logical == 0uL -> ""
-            onDisk > logical + 1024uL * 1024uL -> " · ${size(logical)}, ${size(onDisk)} on this phone"
-            else -> " · ${size(logical)}"
-        }
-        val devices = when (peers) {
-            0 -> "no paired devices"
-            1 -> "1 paired device"
-            else -> "$peers paired devices"
-        }
-        // Said last and said plainly. While this is non-zero, losing the phone
-        // loses whatever is on it and nowhere else, and that is worth a line on
-        // the screen rather than being left to infer from a sync that reported
-        // no error.
-        val outstanding = when (waiting) {
-            0 -> ""
-            1 -> "\n1 file is only on this phone — waiting for another device"
-            else -> "\n$waiting files are only on this phone — waiting for another device"
-        }
-        return "$count file${if (count == 1) "" else "s"}$saved · $devices$outstanding"
-    }
-
-    private fun sync() {
-        views.sync.isEnabled = false
-        views.progress.visibility = View.VISIBLE
+    fun sync() {
+        if (syncing) return
+        syncing = true
+        changed()
 
         lifecycleScope.launch {
             try {
                 val engine = Engine.open(this@MainActivity)
-                // 25 seconds: generous for a screen someone is watching, and
-                // still inside what a background window would grant. The
-                // deadline is the whole point of `syncWithin` — see
-                // docs/decisions/0020-sync-takes-a-deadline.md.
+                // 25 seconds: generous for someone watching, and still inside
+                // what a background window would grant. The deadline is the
+                // point of `syncWithin` -- see decision 0020.
                 val outcome = withContext(Dispatchers.IO) {
                     engine.scan()
                     // Holding the multicast lock, or the phone cannot hear the
                     // devices on its own Wi-Fi answering.
                     Engine.hearingTheNetwork(this@MainActivity) { engine.syncWithin(25u) }
                 }
-
-                val message = when {
-                    outcome.reached == 0u && outcome.unreachable == 0u ->
-                        "No paired devices yet"
-                    outcome.reached == 0u ->
-                        "No device answered. They have to be awake and running at the same time."
-                    outcome.adopted == 0u && outcome.conflicts == 0u ->
-                        "Already up to date"
-                    else -> buildString {
-                        append("${outcome.adopted} file${if (outcome.adopted == 1u) "" else "s"}")
-                        if (outcome.conflicts > 0u) append(", ${outcome.conflicts} conflict")
-                        if (outcome.timedOut) append(" — ran out of time, sync again")
+                say(
+                    when {
+                        outcome.reached == 0u && outcome.unreachable == 0u && outcome.timedOut ->
+                            "Ran out of time before reaching a device. Sync again."
+                        outcome.reached == 0u && outcome.unreachable == 0u ->
+                            "No devices connected yet"
+                        outcome.reached == 0u ->
+                            "No device answered. It has to be switched on and running qurb."
+                        outcome.adopted == 0u && outcome.conflicts == 0u ->
+                            "Up to date"
+                        else -> buildString {
+                            append("${Words.files(outcome.adopted.toInt())} updated")
+                            if (outcome.conflicts > 0u) {
+                                append(", ${outcome.conflicts} changed on two devices at once")
+                            }
+                            if (outcome.timedOut) append(" — ran out of time, sync again")
+                        }
                     }
-                }
-                Snackbar.make(views.root, message, Snackbar.LENGTH_LONG).show()
-                refresh()
+                )
             } catch (e: Exception) {
                 fail("Sync failed", e)
             } finally {
-                views.sync.isEnabled = true
-                views.progress.visibility = View.GONE
+                syncing = false
+                changed()
             }
         }
     }
 
     /**
-     * Pairing, by typing the code the other device shows.
+     * Connect a device: scan the code it shows, or type it.
      *
-     * A QR scanner would be better and needs a camera dependency and a
-     * permission; typing works today and the code is designed to be readable
-     * aloud, which is the fallback anyway.
+     * The code carries the other device's whole identity, which is why it
+     * travels across the room by camera rather than over the network.
      */
-    private fun pair() {
+    fun pair() {
         MaterialAlertDialogBuilder(this)
-            .setTitle("Pair with a device")
+            .setTitle("Connect a device")
             .setMessage(
-                "Run `qurb pair <dir>` on the other device. It shows a QR code — " +
-                    "point the camera at it.\n\nThe code carries that device's full " +
-                    "identity, which is why it travels across the room rather than " +
-                    "over the network."
+                "On your computer, open qurb, go to Devices and choose Show a code. " +
+                    "Then point this phone's camera at it.\n\n" +
+                    "From a terminal, `qurb pair` shows the same code."
             )
             // Scanning first, because it is what anyone will actually do. A
-            // pairing code is 107 characters; typing one is possible and
-            // nobody does it twice.
-            .setPositiveButton("Scan a code") { _, _ ->
+            // pairing code is over a hundred characters; typing one is possible
+            // and nobody does it twice.
+            .setPositiveButton("Scan the code") { _, _ ->
                 scanner.launch(Intent(this, ScanActivity::class.java))
             }
-            .setNeutralButton("Type it instead") { _, _ -> typeCode() }
+            .setNeutralButton("Type it") { _, _ -> typeCode() }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
-    /** The fallback, for a device with no camera or a refused permission. */
+    /** The fallback, for a phone with no camera or a refused permission. */
     private fun typeCode() {
         val input = EditText(this).apply {
             hint = "qurb1-..."
             setPadding(48, 32, 48, 8)
         }
-
         MaterialAlertDialogBuilder(this)
-            .setTitle("Type the pairing code")
+            .setTitle("Type the code")
             .setView(input)
-            .setPositiveButton("Pair") { _, _ ->
+            .setPositiveButton("Connect") { _, _ ->
                 val code = input.text.toString().trim()
                 if (code.isNotEmpty()) joinWith(code)
             }
@@ -334,112 +281,137 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    /** Join, however the code arrived. */
     private fun joinWith(code: String) {
         lifecycleScope.launch {
             try {
                 val peer = withContext(Dispatchers.IO) {
                     Engine.open(this@MainActivity).joinPairing(code)
                 }
-                Snackbar.make(views.root, "Paired with ${peer.name}", Snackbar.LENGTH_LONG).show()
-                refresh()
+                say("Connected to ${peer.name}")
+                changed()
             } catch (e: Exception) {
-                fail("Pairing failed", e)
+                fail("Could not connect", e)
             }
         }
     }
 
-    private fun showPeers() {
+    fun pickFilesToAdd() = adder.launch(arrayOf("*/*"))
+
+    /**
+     * Copy files from elsewhere on the phone into it. Through the cache rather
+     * than memory -- see [Engine.importUri] -- so a long video never has to fit
+     * in the heap.
+     */
+    private fun addFiles(uris: List<Uri>) {
         lifecycleScope.launch {
-            val peers = withContext(Dispatchers.IO) { Engine.open(this@MainActivity).peers() }
-            val text = if (peers.isEmpty()) {
-                "No paired devices.\n\nPair from the menu, using a code from `qurb pair`."
-            } else {
-                peers.joinToString("\n\n") { "${it.name}\n${it.short}" }
+            var added = 0
+            try {
+                for (uri in uris) {
+                    Engine.importUri(this@MainActivity, uri)
+                    added++
+                }
+                say("Added ${Words.files(added)}")
+            } catch (e: Exception) {
+                fail(if (added == 0) "Could not add that file" else "Added $added, then stopped", e)
+            } finally {
+                changed()
+            }
+        }
+    }
+
+    /** Ask which device, then do something with it. */
+    fun chooseDevice(title: String, then: (PeerInfo) -> Unit) {
+        lifecycleScope.launch {
+            val peers = try {
+                withContext(Dispatchers.IO) { Engine.open(this@MainActivity).peers() }
+            } catch (e: Exception) {
+                fail("Could not read your devices", e)
+                return@launch
+            }
+            if (peers.isEmpty()) {
+                MaterialAlertDialogBuilder(this@MainActivity)
+                    .setTitle(title)
+                    .setMessage("No devices connected yet. Connect one first.")
+                    .setPositiveButton("Connect a device") { _, _ -> pair() }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+                return@launch
             }
             MaterialAlertDialogBuilder(this@MainActivity)
-                .setTitle("Paired devices")
-                .setMessage(text)
-                .setPositiveButton("OK", null)
+                .setTitle(title)
+                .setItems(peers.map { it.name }.toTypedArray()) { _, which -> then(peers[which]) }
+                .setNegativeButton("Cancel", null)
                 .show()
         }
     }
 
-    /**
-     * Where the rendezvous service is.
-     *
-     * Exposed because there is no hosted one: to try this you run
-     * `qurb signal` on a computer and point the phone at that machine.
-     */
-    private fun showSettings() {
-        val input = EditText(this).apply {
-            setText(Engine.signalUrl(this@MainActivity))
-            setPadding(48, 32, 48, 8)
-        }
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Rendezvous service")
-            .setMessage(
-                "Two devices find each other through this. Run `qurb signal` on a " +
-                    "computer and use ws://<that machine>:9000 — or ws://10.0.2.2:9000 " +
-                    "from an emulator, which is how it reaches its host."
-            )
-            .setView(input)
-            .setPositiveButton("Save") { _, _ ->
-                Engine.setSignalUrl(this, input.text.toString().trim())
-                Snackbar.make(views.root, "Saved", Snackbar.LENGTH_SHORT).show()
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
+    fun pickFilesToSend(to: PeerInfo) {
+        sendingTo = to
+        sender.launch(arrayOf("*/*"))
     }
 
-    /**
-     * What to do with a file the user tapped.
-     *
-     * Until this existed the list was inert: files synced to the phone and
-     * there was no way to open one or get it anywhere else, which makes a sync
-     * product that syncs into a hole. Both actions go through the app's own
-     * `DocumentsProvider`, so there is one path out of the store rather than
-     * two implementations of reading it.
-     */
-    private fun chooseAction(entry: FileEntry) {
-        MaterialAlertDialogBuilder(this)
-            .setTitle(entry.path.substringAfterLast('/'))
-            .setItems(arrayOf("Open", "Save a copy to this phone")) { _, which ->
-                when (which) {
-                    0 -> openFile(entry)
-                    1 -> saveCopy(entry)
+    private fun sendPicked(uris: List<Uri>, to: PeerInfo) {
+        lifecycleScope.launch {
+            var sent = 0
+            try {
+                for (uri in uris) {
+                    Engine.sendUri(this@MainActivity, uri, to.fingerprint)
+                    sent++
                 }
+                say("${Words.files(sent)} for ${to.name}. It collects them at the next sync.")
+            } catch (e: Exception) {
+                fail(if (sent == 0) "Could not send that" else "Sent $sent, then stopped", e)
+            } finally {
+                changed()
             }
-            .setNegativeButton("Cancel", null)
-            .show()
+        }
     }
 
-    /** Hand the file to whatever app handles its type. */
-    private fun openFile(entry: FileEntry) {
-        val uri = documentUri(entry.path)
+    /**
+     * Send a file already on this phone. The engine keeps its own copy until
+     * the other device collects it, so this works while that device is off.
+     */
+    fun send(entry: FileEntry, to: PeerInfo) {
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val source = File(Engine.root(this@MainActivity), entry.path)
+                    Engine.open(this@MainActivity)
+                        .sendFile(source.absolutePath, entry.path.substringAfterLast('/'), to.fingerprint)
+                }
+                say("Sending to ${to.name}. It collects it at the next sync.")
+            } catch (e: Exception) {
+                fail("Could not send that", e)
+            } finally {
+                changed()
+            }
+        }
+    }
+
+    /**
+     * Hand the file to whatever app handles its type, through the app's own
+     * DocumentsProvider, so there is one way out of the store rather than two.
+     */
+    fun open(entry: FileEntry) {
         val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, mimeType(entry.path))
-            // Without this the receiving app has no permission to read the URI
-            // and fails with something that looks like a corrupt file.
+            setDataAndType(documentUri(entry.path), mimeType(entry.path))
+            // Without this the receiving app cannot read the URI, and fails
+            // with something that looks like a corrupt file.
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         try {
             startActivity(Intent.createChooser(intent, "Open with"))
         } catch (e: Exception) {
-            fail("Nothing can open that file", e)
+            fail("Nothing on this phone can open that", e)
         }
     }
 
     /**
-     * Copy a file out to wherever the user chooses.
-     *
-     * The synced directory is this app's private storage, so a file that lives
-     * only there is invisible to everything else on the phone. This is how it
-     * gets to Downloads, or a photo to the gallery, or anywhere the user
-     * actually keeps things.
+     * Copy a file out to wherever the person chooses: Downloads, the gallery,
+     * anywhere they keep things. The folder is this app's private storage, so
+     * a file that lives only there is invisible to everything else.
      */
-    private fun saveCopy(entry: FileEntry) {
+    fun saveCopy(entry: FileEntry) {
         pendingSave = entry
         try {
             saver.launch(entry.path.substringAfterLast('/'))
@@ -450,65 +422,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * What the background scheduler is doing, in the user's own words.
-     *
-     * Worth showing because the honest answer is "roughly every fifteen minutes,
-     * when Android feels like it" — and an app that quietly does nothing for six
-     * hours while claiming to sync is worse than one that says so.
-     */
-    private fun showBackground() {
-        lifecycleScope.launch {
-            val state = withContext(Dispatchers.IO) { SyncWorker.state(this@MainActivity) }
-            MaterialAlertDialogBuilder(this@MainActivity)
-                .setTitle("Background sync")
-                .setMessage(
-                    "$state\n\n" +
-                        "Android decides when this actually runs. Fifteen minutes is the " +
-                        "shortest period it accepts, and an idle phone may go much longer " +
-                        "between attempts — it batches background work to save battery.\n\n" +
-                        "Both devices have to be awake at the same moment for a sync to " +
-                        "happen, so a computer that is switched off will be missed."
-                )
-                .setPositiveButton("OK", null)
-                .setNeutralButton("Run one now") { _, _ ->
-                    // Through the scheduler rather than directly, so this
-                    // exercises the same path the periodic schedule uses.
-                    SyncWorker.runNow(this@MainActivity)
-                    Snackbar.make(
-                        views.root,
-                        "Queued. It will run when the conditions are met.",
-                        Snackbar.LENGTH_LONG,
-                    ).show()
-                }
-                .show()
-        }
-    }
-
-    /**
-     * Copy a file from elsewhere on the phone into the synced directory.
-     *
-     * Through a temporary file rather than in memory: the whole point of
-     * `importFile` taking a path is that a large file never has to fit in the
-     * heap. Streaming it out of the content resolver keeps that true.
-     */
-    private fun addFile(uri: Uri) {
-        lifecycleScope.launch {
-            try {
-                Engine.importUri(this@MainActivity, uri)
-                refresh()
-            } catch (e: Exception) {
-                fail("Could not add that file", e)
-            }
-        }
-    }
-
-    /**
-     * Stream a stored file out to a location the user picked.
-     *
-     * Exported to a cache file first and copied from there, rather than held in
-     * memory: `export` writes a chunk at a time precisely so a large file never
-     * has to fit in the heap, and reading it back into a `ByteArray` here would
-     * throw that away at the last step.
+     * Stream a stored file out to where the person picked. Exported to a cache
+     * file and copied from there rather than held in memory: `export` writes a
+     * chunk at a time so a large file never has to fit in the heap.
      */
     private fun writeCopy(entry: FileEntry, destination: Uri) {
         lifecycleScope.launch {
@@ -526,14 +442,13 @@ class MainActivity : AppCompatActivity() {
                         staging.delete()
                     }
                 }
-                Snackbar.make(views.root, "Saved a copy", Snackbar.LENGTH_LONG).show()
+                say("Saved a copy")
             } catch (e: Exception) {
                 fail("Could not save that file", e)
             }
         }
     }
 
-    /** This app's own document URI for a stored path. */
     private fun documentUri(path: String): Uri =
         android.provider.DocumentsContract.buildDocumentUri("com.qurb.documents", "qurb/$path")
 
@@ -543,76 +458,7 @@ class MainActivity : AppCompatActivity() {
             ?: "application/octet-stream"
     }
 
-    private fun fail(title: String, e: Exception) {
-        MaterialAlertDialogBuilder(this)
-            .setTitle(title)
-            // `readable()` rather than `e.message`: UniFFI generates
-            // "detail=${detail}", which puts a struct field name in front of
-            // the user, and the detail alone rarely says what to try next.
-            .setMessage(if (e is QurbException) e.readable() else e.message ?: e.toString())
-            .setPositiveButton("OK", null)
-            .show()
-    }
-
-    private inner class FileAdapter : RecyclerView.Adapter<FileHolder>() {
-        private var items: List<FileEntry> = emptyList()
-
-        fun submit(next: List<FileEntry>) {
-            items = next
-            notifyDataSetChanged()
-        }
-
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) =
-            FileHolder(
-                RowFileBinding.inflate(LayoutInflater.from(parent.context), parent, false),
-                ::chooseAction,
-            )
-
-        override fun onBindViewHolder(holder: FileHolder, position: Int) = holder.bind(items[position])
-        override fun getItemCount() = items.size
-    }
-
-    private class FileHolder(
-        private val views: RowFileBinding,
-        private val onTap: (FileEntry) -> Unit,
-    ) : RecyclerView.ViewHolder(views.root) {
-        fun bind(entry: FileEntry) {
-            views.root.setOnClickListener { onTap(entry) }
-            views.name.text = entry.path
-            views.detail.text = "${size(entry.size)} · ${when (entry.modifiedAt) {
-                0L -> "unknown"
-                // Nanoseconds since the epoch, which is what the index stores.
-                else -> DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
-                    .format(Date(entry.modifiedAt / 1_000_000))
-            }}"
-        }
-    }
-
     private companion object {
-        /** Room below the list so the last row is not hidden by the buttons. */
-        const val FAB_CLEARANCE = 260
-        const val FAB_MARGIN = 48
-
-        fun size(bytes: ULong): String {
-            val units = listOf("B", "KB", "MB", "GB", "TB")
-            var value = bytes.toDouble()
-            var unit = 0
-            while (value >= 1024 && unit < units.size - 1) {
-                value /= 1024
-                unit++
-            }
-            return if (unit == 0) "${bytes} B" else String.format("%.1f %s", value, units[unit])
-        }
+        const val TAB = "tab"
     }
-}
-
-private fun size(bytes: ULong): String {
-    val units = listOf("B", "KB", "MB", "GB", "TB")
-    var value = bytes.toDouble()
-    var unit = 0
-    while (value >= 1024 && unit < units.size - 1) {
-        value /= 1024
-        unit++
-    }
-    return if (unit == 0) "$bytes B" else String.format("%.1f %s", value, units[unit])
 }

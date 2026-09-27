@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One spacing scale, in steps of four, so screens line up with each other
+     without anybody measuring. -->
+<resources>
+    <dimen name="gap_xs">4dp</dimen>
+    <dimen name="gap_s">8dp</dimen>
+    <dimen name="gap_m">16dp</dimen>
+    <dimen name="gap_l">24dp</dimen>
+    <dimen name="gap_xl">32dp</dimen>
+    <dimen name="corner">16dp</dimen>
+    <!-- Large enough to hit without looking, per the platform's own guidance. -->
+    <dimen name="touch">48dp</dimen>
+</resources>

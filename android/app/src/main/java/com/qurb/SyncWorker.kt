@@ -62,6 +62,10 @@ class SyncWorker(context: Context, params: WorkerParameters) :
                         "${outcome.adopted} file${if (outcome.adopted == 1u) "" else "s"} arrived"
                     outcome.reached > 0u -> "up to date"
                     outcome.unreachable > 0u -> "no device answered"
+                    // Reached nobody, answered by nobody, and still out of
+                    // time: the window closed before the phone could try.
+                    // Once reported as "no paired devices", which it is not.
+                    outcome.timedOut -> "ran out of time"
                     else -> "no paired devices"
                 },
                 started,

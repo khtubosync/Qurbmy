@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Home: are my devices there, is anything only on this phone, what happened.
+     One big action: connecting a device until there is one, because everything
+     else starts there, and syncing after. The second button is how to connect
+     another. Negative margins are start and end rather than horizontal:
+     Android ignores a negative layout_marginHorizontal. -->
+<androidx.swiperefreshlayout.widget.SwipeRefreshLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/refresh"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <LinearLayout
+            android:id="@+id/content"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="@dimen/gap_m">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/gap_s"
+                android:text="qurb"
+                android:textAppearance="@style/Text.Title" />
+
+            <TextView
+                android:id="@+id/status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/gap_xs"
+                android:textAppearance="@style/Text.Quiet" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/primary"
+                android:layout_width="match_parent"
+                android:layout_height="72dp"
+                android:layout_marginTop="@dimen/gap_l"
+                android:textSize="18sp"
+                app:cornerRadius="@dimen/corner"
+                app:icon="@drawable/ic_link"
+                app:iconGravity="textStart" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/secondary"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/touch"
+                android:layout_marginTop="@dimen/gap_s"
+                android:text="Connect another device"
+                android:visibility="gone"
+                app:icon="@drawable/ic_link"
+                app:iconGravity="textStart" />
+
+            <com.google.android.material.progressindicator.LinearProgressIndicator
+                android:id="@+id/progress"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/gap_s"
+                android:indeterminate="true"
+                android:visibility="gone" />
+
+            <!-- Shown only while it is true: a file on this phone and nowhere
+                 else is lost with the phone. -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/keep_card"
+                style="@style/Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/gap_l"
+                android:visibility="gone"
+                app:cardBackgroundColor="@color/notice_soft">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/keep_title"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="@style/Text.Body"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/keep_text"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/gap_xs"
+                        android:textAppearance="@style/Text.Quiet" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/keep_action"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/gap_xs"
+                        android:text="Choose a device" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/gap_l"
+                android:text="Recently"
+                android:textAppearance="@style/Text.Heading" />
+
+            <LinearLayout
+                android:id="@+id/recent"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="-16dp"
+                android:layout_marginEnd="-16dp"
+                android:orientation="vertical" />
+        </LinearLayout>
+    </ScrollView>
+</androidx.swiperefreshlayout.widget.SwipeRefreshLayout>

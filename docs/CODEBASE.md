@@ -288,8 +288,10 @@ never in the folder, never shown — which lets it free its local copy with
 the owner's deletion, never because it is missing from a list, so a wiped
 phone cannot delete its own backup. On the wire each tree entry says which of
 four areas it belongs to — shared, sent, held, hold — which is what moved the
-protocol to `qurb/2`. Built and verified between two desktops; the Android app
-does not use it yet, so a phone's files still go to the shared area. See
+protocol to `qurb/2`. Built and verified between two desktops, and used by the
+Android app, where files added on the phone are private by default and a device
+is chosen on the Devices screen to keep them; a phone and a desktop holding for
+each other has not yet been verified on hardware. See
 [decisions/0036](decisions/0036-a-phone-keeps-its-own-files.md).
 
 ### 2.7 The index remembers what happened, not just what is
@@ -556,7 +558,14 @@ qurb/
 ├── android/               The Android app. Kotlin over the FFI, no sync logic.
 │   └── app/src/
 │       ├── main/java/com/qurb/
-│       │                  MainActivity.kt     what is here, and a Sync button
+│       │                  MainActivity.kt     the shell: five tabs, and what they share
+│       │                  Screen.kt           what a tab is: views and a refresh
+│       │                  HomeScreen.kt       devices, what is only here, lately
+│       │                  VaultScreen.kt      the files, and where their bytes are
+│       │                  DevicesScreen.kt    who keeps this phone's files
+│       │                  TransfersScreen.kt  sends waiting, and the history
+│       │                  SettingsScreen.kt   privacy default, space, syncing
+│       │                  Words.kt            how the app says things, in one place
 │       │                  SetupActivity.kt    the 24 words, once
 │       │                  ScanActivity.kt     reading a pairing QR code
 │       │                  ShareActivity.kt    the share sheet's way in
@@ -703,7 +712,7 @@ for the workspace as it stands.
 | Recovery, end to end | the phrase turns back into the user's files |
 | Key hygiene | redacted in `Debug`, wiped on drop, owner-only on disk |
 
-669 tests pass in 78 test binaries on Linux (2026-09-27, debug build, the
+672 tests pass in 78 test binaries on Linux (2026-09-27, debug build, the
 development laptop); clippy is clean. The last run on
 a Galaxy S23 was 426 of them, before this week's work — see
 [phases/phase-5-mobile.md](phases/phase-5-mobile.md).
@@ -874,7 +883,7 @@ on. It can also be **woken** when another device has something, if a push
 service is configured — without one it learns at its next scheduled look, about
 fifteen minutes away. See
 [decisions/0028](decisions/0028-waking-a-sleeping-device.md), which sets out
-what that costs and why nothing else works. The app's own screen and the share sheet's confirmation both say how many
+what that costs and why nothing else works. Home and the share sheet's confirmation both say how many
 files are still held only by the phone, which is the honest form of "it will
 get there".
 
@@ -904,15 +913,21 @@ installed on a Galaxy S23 against 46.7 MB for the debug build, with a cold start
 of about 175 ms — see [decisions/0039](decisions/0039-a-light-android-app.md).
 
 **There is an Android app** — [`android/`](../android/) — which installs, sets up
-an identity, keeps the key in the Android Keystore, lists files, pairs and
-syncs. Building it found a bug nothing else could: UniFFI keeps only the *last*
+an identity, keeps the key in the Android Keystore, pairs and syncs, in five
+tabs: Home, Vault, Devices, Transfers and Settings. The Vault says where each
+file's bytes are and frees or fetches them back; Devices chooses who keeps the
+phone's own files. See [android/README.md](../android/README.md). Building it found a bug nothing else could: UniFFI keeps only the *last*
 `#[uniffi::export] impl` block for an object and silently discards the others,
 so eight methods were missing from the generated Kotlin and Swift while every
 Rust test passed.
 
 The app syncs on its own through WorkManager, every fifteen minutes when
 Android allows it, and a `DocumentsProvider` puts the synced files in the
-system file picker and the Files app.
+system file picker and the Files app. A device that has not answered when a
+window closes counts as *unreachable*, not as time running out: the second is
+a retry with exponential backoff, and confusing them once pushed a phone's next
+sync further away each time its computer was off
+([decisions/0020](decisions/0020-sync-takes-a-deadline.md#found-on-a-phone)).
 
 **A real phone and a real laptop sync both ways**, verified on hardware: a
 4.7 MB photo crossed from a Galaxy S23 to a laptop, byte-identical by SHA-256.

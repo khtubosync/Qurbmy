@@ -1,6 +1,6 @@
 # 0036 — A phone keeps its own files, and another device holds them for it
 
-**Status:** Accepted — built in the engine and on the desktop; not yet on the phone
+**Status:** Accepted — built in the engine, on the desktop and in the phone app; a phone and a desktop holding for each other not yet verified on hardware
 **Date:** 2026-09-25
 
 ## Decision
@@ -223,6 +223,15 @@ for one works as for the shared area, from the holder's *held* entries.
   files private (`Settings.ownFilesPrivate`), name and list holders, free a
   file (`OnlyCopy` when nobody else has it), fetch it back, send, cancel a
   send, and read history; tested through the same calls the app will make.
+- **2026-09-27 — the phone app.** Files added on the phone are private by
+  default, with *Keep new files private* in Settings to turn that off from the
+  next file (`set_own_files_private`, tested). The Devices screen chooses who
+  keeps them; the Vault says where each file's bytes are and offers *Free phone
+  space* and *Download*; Home says how many files are only on the phone and
+  what to do about it. Installed on a Galaxy S23 and its screens checked
+  against the phone's real data. **Not yet verified:** the S23 and the desktop
+  actually holding for each other, freeing and fetching back between them —
+  the desktop was switched off.
 - **Not yet:** the app using any of it. The setting stays off until the
   rebuilt screens can name a holder, so a phone's files still go to the shared
   area.

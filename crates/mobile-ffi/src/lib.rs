@@ -925,6 +925,14 @@ impl Qurb {
         Ok(self.engine()?.store().db().want(&qurb_watcher::normalize(&path))?)
     }
 
+    /// Whether files added from now on go into this phone's own vault. Files
+    /// already here stay where they are: an edit never moves a file between
+    /// areas, and neither does this.
+    pub fn set_own_files_private(&self, private: bool) -> Result<(), QurbError> {
+        self.engine()?.store_mut().set_new_files_private(private);
+        Ok(())
+    }
+
     /// The devices that keep this phone's own files for it (decision 0036).
     pub fn holders(&self) -> Result<Vec<PeerInfo>, QurbError> {
         let holders = self.engine()?.store().db().holders()?;
@@ -1174,23 +1182,40 @@ impl Qurb {
         // Built per pass rather than kept. A phone's address changes with every
         // move between Wi-Fi and cellular, and a connector holding a stale
         // public address announces somewhere nothing can reach.
-        let connector = runtime
-            .block_on(qurb_peer::Connector::start(
-                format!("0.0.0.0:{}", self.port).parse().expect("a literal address"),
-                identity,
-                self.master.clone(),
-                &qurb_peer::tls::TrustList::new(peers.clone()),
-                self.signal_url.clone(),
-                // Beacons only when this pass is allowed to look around at
-                // all. A phone syncing in a background window on a carrier
-                // network has nothing to discover locally and no time to
-                // spend finding that out.
-                match self.discover {
-                    true => qurb_peer::Finding::everything(relay),
-                    false => qurb_peer::Finding { stun: false, beacons: None, relay },
-                },
-            ))
-            .map_err(|e| QurbError::Network { detail: e.to_string() })?;
+        // Inside the deadline like everything else. Starting means finding a
+        // public address and connecting to the rendezvous service, each bounded
+        // on its own, but together they can outlast a short window -- and a
+        // window that closes before the phone could reach anybody is every
+        // device unreachable, not a pass with work left over. See `sync_one`
+        // for why the difference matters.
+        let started_connector = runtime.block_on(async {
+            tokio::time::timeout(
+                budget,
+                qurb_peer::Connector::start(
+                    format!("0.0.0.0:{}", self.port).parse().expect("a literal address"),
+                    identity,
+                    self.master.clone(),
+                    &qurb_peer::tls::TrustList::new(peers.clone()),
+                    self.signal_url.clone(),
+                    // Beacons only when this pass is allowed to look around at
+                    // all. A phone syncing in a background window on a carrier
+                    // network has nothing to discover locally and no time to
+                    // spend finding that out.
+                    match self.discover {
+                        true => qurb_peer::Finding::everything(relay),
+                        false => qurb_peer::Finding { stun: false, beacons: None, relay },
+                    },
+                ),
+            )
+            .await
+        });
+        let connector = match started_connector {
+            Ok(started) => started.map_err(|e| QurbError::Network { detail: e.to_string() })?,
+            Err(_) => {
+                outcome.unreachable = peers.len() as u32;
+                return Ok(outcome);
+            }
+        };
 
         // Say how this device can be woken, so the service can poke it when
         // another device has something and this one is asleep. Registered on
@@ -1283,12 +1308,27 @@ impl Qurb {
         // outside `block_on` panics with a message about being called from
         // outside a runtime -- which is true and reads like it is about the
         // future it wraps.
+        //
+        // A peer that has not answered by the end of the window did not
+        // answer: unreachable, not "ran out of time". The difference is what
+        // the platform does next. Time running out means work is waiting and
+        // asks for another window soon, which on Android is a retry with
+        // exponential backoff; a device that is switched off is the ordinary
+        // state of things and wants the ordinary schedule. Found on a Galaxy
+        // S23 whose only computer was off: finding a device through the
+        // rendezvous service waits up to twenty seconds, the background
+        // window was twenty seconds, and every pass came back as time running
+        // out.
         let client = match runtime
             .block_on(async { tokio::time::timeout(budget, connector.reach(peer)).await })
         {
             Ok(Ok(client)) => client,
             Ok(Err(e)) => return Err(QurbError::Network { detail: e.to_string() }),
-            Err(_) => return Ok(None),
+            Err(_) => {
+                return Err(QurbError::Network {
+                    detail: "did not answer before the time ran out".into(),
+                })
+            }
         };
 
         let started = std::time::Instant::now();
@@ -1451,10 +1491,13 @@ pub struct SyncOutcome {
     pub adopted: u32,
     /// Conflicts, each of which left both versions on disk.
     pub conflicts: u32,
-    /// Whether the pass ran out of time before finishing.
+    /// Whether the pass ran out of time before finishing: a peer that
+    /// answered was still being synced, or peers were left untried.
     ///
     /// Not a failure. It means the next window has work to do, and the platform
-    /// side should schedule one rather than report a problem.
+    /// side should schedule one rather than report a problem. A peer that never
+    /// answered is counted in `unreachable` instead, however long it was waited
+    /// for.
     pub timed_out: bool,
 }
 

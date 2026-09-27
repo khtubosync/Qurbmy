@@ -78,6 +78,7 @@ object Engine {
                     port = 0u,
                     discover = true,
                     wakeToken = wake,
+                    ownFilesPrivate = ownFilesPrivate(context),
                 ),
             ).also { handle = it }
         }
@@ -171,14 +172,6 @@ object Engine {
     }
 
     /**
-     * Where the rendezvous service is.
-     *
-     * Editable because there is no hosted one yet: to try this you run
-     * `qurb signal` on a computer and point the phone at it. `10.0.2.2` is the
-     * emulator's route to its host; a real phone needs the machine's address on
-     * the local network.
-     */
-    /**
      * Run something with the phone able to *hear* the local network.
      *
      * Android drops multicast before it reaches an application unless a
@@ -213,6 +206,14 @@ object Engine {
         }
     }
 
+    /**
+     * Where the rendezvous service is.
+     *
+     * Editable because there is no hosted one yet: to try this you run
+     * `qurb signal` on a computer and point the phone at it. `10.0.2.2` is the
+     * emulator's route to its host; a real phone needs the machine's address on
+     * the local network.
+     */
     fun signalUrl(context: Context): String =
         context.getSharedPreferences("qurb", Context.MODE_PRIVATE)
             .getString("signal", DEFAULT_SIGNAL) ?: DEFAULT_SIGNAL
@@ -226,4 +227,44 @@ object Engine {
     }
 
     const val DEFAULT_SIGNAL = "ws://10.0.2.2:9000"
+
+    /**
+     * Whether a file added on this phone stays private to it rather than going
+     * to every device (decision 0036). On unless the person turns it off: a
+     * phone's photographs are its owner's until they send them somewhere.
+     * Files already here stay where they are either way.
+     */
+    fun ownFilesPrivate(context: Context): Boolean =
+        context.getSharedPreferences("qurb", Context.MODE_PRIVATE).getBoolean("own_private", true)
+
+    suspend fun setOwnFilesPrivate(context: Context, private: Boolean) {
+        context.getSharedPreferences("qurb", Context.MODE_PRIVATE)
+            .edit().putBoolean("own_private", private).commit()
+        withContext(Dispatchers.IO) { open(context).setOwnFilesPrivate(private) }
+    }
+
+    /**
+     * Send something picked from anywhere on the phone to one device.
+     *
+     * Staged through the cache for the same reason as [importUri]: the engine
+     * takes a path, and a `content://` URI is not one. The staged copy is
+     * deleted whether or not the send works; the engine has already stored what
+     * it needs. Returns the name the other device will see.
+     */
+    suspend fun sendUri(context: Context, uri: android.net.Uri, to: String): String =
+        withContext(Dispatchers.IO) {
+            val name = safeName(displayName(context, uri))
+            val staging = File(context.cacheDir, "send-${System.nanoTime()}")
+            try {
+                context.contentResolver.openInputStream(uri).use { input ->
+                    staging.outputStream().use { output ->
+                        requireNotNull(input) { "could not read that file" }.copyTo(output)
+                    }
+                }
+                open(context).sendFile(staging.absolutePath, name, to)
+                name
+            } finally {
+                staging.delete()
+            }
+        }
 }

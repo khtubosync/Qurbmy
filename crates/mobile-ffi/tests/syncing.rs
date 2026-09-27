@@ -338,12 +338,75 @@ fn an_unreachable_peer_is_counted_not_raised() {
     // `a` never syncs, so it never announces and cannot be found.
     drop(a);
 
+    // The rendezvous service is running and says at once that `a` is not
+    // there. This used to accept "ran out of time" as well, and the
+    // difference matters -- see the next test.
     let outcome = b.sync_within(5).unwrap();
     assert_eq!(outcome.reached, 0);
     assert_eq!(outcome.adopted, 0);
-    // Either it gave up on the peer or it ran out of time. Both are fine; what
-    // must not happen is an error reaching the caller.
-    assert!(outcome.unreachable == 1 || outcome.timed_out, "{outcome:?}");
+    assert_eq!(outcome.unreachable, 1, "{outcome:?}");
+    assert!(!outcome.timed_out, "a device that never answered was reported as time running out");
+}
+
+/// The phone's ordinary morning: its computer is switched off, so the
+/// rendezvous service that runs on it is too. A background window closes while
+/// the phone is still waiting to be introduced.
+///
+/// That is a device that did not answer, and must be reported as one. It was
+/// reported as time running out, which the worker answers by asking for
+/// another window sooner -- exponential backoff, for a device that will not
+/// answer until someone switches it on. Measured on a Galaxy S23: the worker's
+/// window was twenty seconds and the wait for an introduction is twenty
+/// seconds, so every background pass came back that way.
+#[test]
+fn a_device_that_never_answers_is_unreachable_not_out_of_time() {
+    let _sharing = ALONE.read().unwrap_or_else(|e| e.into_inner());
+    let (_runtime, signal) = signalling();
+
+    let a_dir = tempfile::tempdir().unwrap();
+    let b_dir = tempfile::tempdir().unwrap();
+    let a_root = a_dir.path().display().to_string();
+    let b_root = b_dir.path().display().to_string();
+
+    let setup = create(a_root.clone()).unwrap();
+    restore(b_root.clone(), setup.recovery_phrase).unwrap();
+
+    let a = Qurb::open_with(a_root, None, settings("a", &signal)).unwrap();
+    let b = Qurb::open_with(b_root.clone(), None, settings("b", &signal)).unwrap();
+    let offer = a.offer_pairing().unwrap();
+    let code = offer.code();
+    let waiting = std::thread::spawn(move || offer.wait());
+    b.join_pairing(code).unwrap();
+    waiting.join().unwrap().unwrap();
+    drop((a, b));
+
+    // A rendezvous address that accepts the connection and never says a word:
+    // what a switched-off computer's port looks like from behind a router that
+    // holds the connection open, and what a slow one looks like everywhere.
+    let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("ws://{}", silent.local_addr().unwrap());
+    std::thread::spawn(move || {
+        let mut held = Vec::new();
+        for stream in silent.incoming().flatten() {
+            held.push(stream);
+        }
+    });
+
+    let b = Qurb::open_with(b_root, None, settings("b", &url)).unwrap();
+
+    // Three seconds: the window closes while the phone is still connecting to
+    // the rendezvous service. Eight: connecting gives up after five, and the
+    // window closes while the phone waits for `a` -- the phone's own case.
+    for window in [3, 8] {
+        let started = std::time::Instant::now();
+        let outcome = b.sync_within(window).unwrap();
+
+        assert_eq!(outcome.reached, 0);
+        assert_eq!(outcome.unreachable, 1, "{window}s: {outcome:?}");
+        assert!(!outcome.timed_out, "{window}s: a device that never answered was reported as time running out");
+        let limit = std::time::Duration::from_secs(window as u64 + 2);
+        assert!(started.elapsed() < limit, "{window}s: overran its window: {:?}", started.elapsed());
+    }
 }
 
 /// An expired or malformed code must be refused as such, because "the code is

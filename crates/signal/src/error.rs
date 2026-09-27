@@ -27,6 +27,12 @@ pub enum Error {
     #[error("the signalling server closed the connection")]
     Closed,
 
+    /// The service took the connection and did not finish the handshake in
+    /// time: a server that has stopped responding, or a port something else is
+    /// holding open.
+    #[error("the rendezvous service did not answer within {0:?}")]
+    NoAnswer(std::time::Duration),
+
     #[error("server said: {detail}")]
     Server { detail: String },
 }

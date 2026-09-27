@@ -281,6 +281,41 @@ async fn plaintext_to_a_remote_server_is_refused() {
     }
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn a_service_that_never_answers_is_given_up_on() {
+    // Accepts the connection and says nothing: a hung server, or a port some
+    // other program is holding. Connecting used to wait for ever, and with it
+    // a phone's sync, whatever deadline the phone had set.
+    let silent = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("ws://{}", silent.local_addr().unwrap());
+    let holding = tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((stream, _)) = silent.accept().await {
+            held.push(stream);
+        }
+    });
+
+    let master = MasterKey::generate();
+    let started = std::time::Instant::now();
+    let result = SignalClient::connect_insecure(
+        &url,
+        GroupId::derive(&master),
+        MemberId::derive(&master, &[1; 32]),
+        endpoints(4002),
+    )
+    .await;
+
+    match result {
+        Err(qurb_signal::Error::NoAnswer(after)) => {
+            assert_eq!(after, qurb_signal::client::HANDSHAKE_TIMEOUT);
+        }
+        Err(other) => panic!("gave up, but for the wrong reason: {other}"),
+        Ok(_) => panic!("connected to a service that never answered"),
+    }
+    assert!(started.elapsed() < qurb_signal::client::HANDSHAKE_TIMEOUT + Duration::from_secs(2));
+    holding.abort();
+}
+
 // -- limits ------------------------------------------------------------------
 
 /// A server with limits tight enough to reach in a test.

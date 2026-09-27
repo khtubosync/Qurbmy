@@ -7,6 +7,14 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 
+/// How long connecting to the rendezvous service may take, TLS included.
+///
+/// A healthy service completes the handshake in a few round trips, well under
+/// a second even over a mobile network. Five seconds is long enough not to give
+/// up on a slow one and short enough to leave most of a phone's twenty-second
+/// background window for the sync itself.
+pub const HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// A held-open connection to the rendezvous service.
 pub struct SignalClient {
     outgoing: mpsc::UnboundedSender<FromClient>,
@@ -72,19 +80,29 @@ impl SignalClient {
         // no name for an authority to sign. Without one, the ordinary public
         // roots apply, which is what a deployment with a domain wants.
         let (address, pin) = crate::tls::split_pin(url);
-        let (websocket, _) = match pin {
-            None => tokio_tungstenite::connect_async(address).await?,
-            Some(fingerprint) => {
-                let config = crate::tls::pinned_to(fingerprint)?;
-                tokio_tungstenite::connect_async_tls_with_config(
-                    address,
-                    None,
-                    false,
-                    Some(tokio_tungstenite::Connector::Rustls(std::sync::Arc::new(config))),
-                )
-                .await?
-            }
+        let handshake = async {
+            Ok::<_, Error>(match pin {
+                None => tokio_tungstenite::connect_async(address).await?,
+                Some(fingerprint) => {
+                    let config = crate::tls::pinned_to(fingerprint)?;
+                    tokio_tungstenite::connect_async_tls_with_config(
+                        address,
+                        None,
+                        false,
+                        Some(tokio_tungstenite::Connector::Rustls(std::sync::Arc::new(config))),
+                    )
+                    .await?
+                }
+            })
         };
+        // Bounded, because nothing else bounds it. A service that accepts the
+        // connection and never answers used to hold this forever -- and with
+        // it a phone's sync, whatever deadline the phone had asked for, and a
+        // desktop's start. A refused or unroutable address fails by itself;
+        // only a silent one needs this.
+        let (websocket, _) = tokio::time::timeout(HANDSHAKE_TIMEOUT, handshake)
+            .await
+            .map_err(|_| Error::NoAnswer(HANDSHAKE_TIMEOUT))??;
         let (mut sink, mut source) = websocket.split();
 
         let (outgoing, mut to_send) = mpsc::unbounded_channel::<FromClient>();
