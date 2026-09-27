@@ -1212,12 +1212,13 @@ impl Qurb {
         // Built per pass rather than kept. A phone's address changes with every
         // move between Wi-Fi and cellular, and a connector holding a stale
         // public address announces somewhere nothing can reach.
+        //
         // Inside the deadline like everything else. Starting means finding a
         // public address and connecting to the rendezvous service, each bounded
         // on its own, but together they can outlast a short window -- and a
         // window that closes before the phone could reach anybody is every
-        // device unreachable, not a pass with work left over. See `sync_one`
-        // for why the difference matters.
+        // device unreachable, not a pass with work left over. See
+        // `SyncOutcome::timed_out` for why the difference matters.
         let started_connector = runtime.block_on(async {
             tokio::time::timeout(
                 budget,
@@ -1291,16 +1292,58 @@ impl Qurb {
             }));
         }
 
-        for peer in peers {
+        // Every device at once, and each synced as soon as it answers.
+        //
+        // Reaching is mostly waiting -- for an introduction, for a hole punch,
+        // for a switched-off device to fail to answer -- and waiting for them
+        // one after another let the first absent device use the whole window:
+        // with two paired and the first off, the second was never tried, pass
+        // after pass, since the order never changes. Reaching is spawned, one
+        // task per device, each bounded by what is left of the window; syncing
+        // stays one at a time, because it holds the engine.
+        let connector = Arc::new(connector);
+        let mut reaching = tokio::task::JoinSet::new();
+        for peer in peers.iter().copied() {
+            let connector = Arc::clone(&connector);
+            let left = budget.saturating_sub(started.elapsed());
+            reaching.spawn_on(
+                async move { (peer, tokio::time::timeout(left, connector.reach(peer)).await) },
+                runtime.handle(),
+            );
+        }
+
+        while let Some(done) = runtime.block_on(reaching.join_next()) {
+            let (peer, client) = match done {
+                Ok((peer, Ok(Ok(client)))) => (peer, client),
+                // A device that has not answered by the end of the window did
+                // not answer: unreachable, not "ran out of time". The
+                // difference is what the platform does next -- see
+                // `SyncOutcome::timed_out` and decision 0020.
+                Ok((_, Ok(Err(e)))) => {
+                    tracing::debug!(error = %e, "peer unreachable");
+                    outcome.unreachable += 1;
+                    continue;
+                }
+                Ok((_, Err(_))) => {
+                    tracing::debug!("peer did not answer before the time ran out");
+                    outcome.unreachable += 1;
+                    continue;
+                }
+                Err(e) => {
+                    tracing::debug!(error = %e, "reaching a peer failed");
+                    outcome.unreachable += 1;
+                    continue;
+                }
+            };
+
             let left = match budget.checked_sub(started.elapsed()) {
                 Some(left) if !left.is_zero() => left,
                 _ => {
                     outcome.timed_out = true;
-                    break;
+                    continue;
                 }
             };
-
-            match self.sync_one(&runtime, &connector, peer, left) {
+            match self.sync_reached(&runtime, &client, peer, left) {
                 Ok(Some(stats)) => {
                     outcome.reached += 1;
                     outcome.adopted += stats.adopted as u32;
@@ -1308,12 +1351,9 @@ impl Qurb {
                 }
                 // Ran out of time mid-peer. Whatever landed is already
                 // committed; the rest is the next window's problem.
-                Ok(None) => {
-                    outcome.timed_out = true;
-                    break;
-                }
+                Ok(None) => outcome.timed_out = true,
                 Err(e) => {
-                    tracing::debug!(error = %e, "peer unreachable");
+                    tracing::debug!(error = %e, "peer went away while syncing");
                     outcome.unreachable += 1;
                 }
             }
@@ -1371,42 +1411,19 @@ impl Qurb {
         }))
     }
 
-    /// Sync against one peer. `Ok(None)` means the time ran out.
-    fn sync_one(
+    /// Sync against a peer already reached. `Ok(None)` means the time ran out.
+    fn sync_reached(
         &self,
         runtime: &tokio::runtime::Runtime,
-        connector: &qurb_peer::Connector,
+        client: &qurb_peer::PeerClient,
         peer: qurb_peer::Fingerprint,
         budget: std::time::Duration,
     ) -> Result<Option<qurb_engine::PlanStats>, QurbError> {
-        // The timeout is constructed *inside* the async block. `timeout` needs a
-        // reactor when it is built, not when it is awaited, so building it
-        // outside `block_on` panics with a message about being called from
+        // The timeouts are constructed *inside* the async blocks. `timeout`
+        // needs a reactor when it is built, not when it is awaited, so building
+        // one outside `block_on` panics with a message about being called from
         // outside a runtime -- which is true and reads like it is about the
         // future it wraps.
-        //
-        // A peer that has not answered by the end of the window did not
-        // answer: unreachable, not "ran out of time". The difference is what
-        // the platform does next. Time running out means work is waiting and
-        // asks for another window soon, which on Android is a retry with
-        // exponential backoff; a device that is switched off is the ordinary
-        // state of things and wants the ordinary schedule. Found on a Galaxy
-        // S23 whose only computer was off: finding a device through the
-        // rendezvous service waits up to twenty seconds, the background
-        // window was twenty seconds, and every pass came back as time running
-        // out.
-        let client = match runtime
-            .block_on(async { tokio::time::timeout(budget, connector.reach(peer)).await })
-        {
-            Ok(Ok(client)) => client,
-            Ok(Err(e)) => return Err(QurbError::Network { detail: e.to_string() }),
-            Err(_) => {
-                return Err(QurbError::Network {
-                    detail: "did not answer before the time ran out".into(),
-                })
-            }
-        };
-
         let started = std::time::Instant::now();
         let tree = match runtime
             .block_on(async { tokio::time::timeout(budget, client.tree()).await })
@@ -1440,7 +1457,7 @@ impl Qurb {
         let reader = Store::open(&self.store_dir, engine.store().chunk_key())?.in_tree(&self.root);
         if let Ok(Some(known)) = engine.store().db().peer_by_fingerprint(peer.as_bytes()) {
             runtime.block_on(qurb_peer::report_holdings(
-                &client,
+                client,
                 &reader,
                 &known.device_id,
                 64,
@@ -1469,7 +1486,7 @@ impl Qurb {
         // one of those rather than a current-thread runtime.
         let stats = runtime.block_on(async {
             tokio::task::block_in_place(|| {
-                let mut source = qurb_peer::NetworkSource::new(&client, &reader);
+                let mut source = qurb_peer::NetworkSource::new(client, &reader);
                 engine.apply_plan(&plan, &mut source)
             })
         })?;

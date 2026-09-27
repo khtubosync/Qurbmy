@@ -159,11 +159,17 @@ never answers and an eight-second window, and without the fix returns exactly
 `reached: 0, unreachable: 0, timed_out: true`. The older test for an unreachable
 device accepted either answer, which is how this went unnoticed.
 
-**Not fixed:** devices are tried one after another. With two paired devices and
-the first switched off, waiting for the first can use the whole window, and the
-second is never tried; the pass is then `timed_out`, retried, and the same thing
-happens next time. Trying devices concurrently is the fix, and has not been
-made.
+**Devices were tried one after another** — recorded here as not fixed, and
+fixed the same day. With two paired devices and the first switched off, waiting
+for the first could use the whole window and the second was never tried; the
+pass came back `timed_out`, was retried, and the same happened next time, since
+the order is by name and never changes. Every device is now reached at once,
+each bounded by what is left of the window, and each is synced as soon as it
+answers; syncing itself stays one at a time. `a_device_that_is_off_does_not_starve_one_that_is_on`
+in `crates/mobile-ffi/tests/syncing.rs` pairs a phone with a working desktop and
+with a device, named to be tried first, announced at an address that never
+answers: with the old loop and a six-second window it returned `reached: 0,
+unreachable: 1, timed_out: true`, and now reaches and syncs the desktop.
 
 ## A pass that waits to be collected from
 

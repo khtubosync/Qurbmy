@@ -712,7 +712,7 @@ for the workspace as it stands.
 | Recovery, end to end | the phrase turns back into the user's files |
 | Key hygiene | redacted in `Debug`, wiped on drop, owner-only on disk |
 
-679 tests pass in 79 test binaries on Linux (2026-09-27, debug build, the
+680 tests pass in 79 test binaries on Linux (2026-09-27, debug build, the
 development laptop); clippy is clean. The last run on
 a Galaxy S23 was 426 of them, before this week's work — see
 [phases/phase-5-mobile.md](phases/phase-5-mobile.md).
@@ -928,8 +928,10 @@ window closes counts as *unreachable*, not as time running out: the second is
 a retry with exponential backoff, and confusing them once pushed a phone's next
 sync further away each time its computer was off
 ([decisions/0020](decisions/0020-sync-takes-a-deadline.md#found-on-a-phone)).
-A pass with something waiting for a device it reached stays open up to ten
-seconds for that device to collect it, because every device pulls and the
+A pass reaches every paired device at once and syncs each as it answers, so a
+switched-off device cannot use up the window a working one needs. A pass with
+something waiting for a device it reached stays open up to ten seconds for
+that device to collect it, because every device pulls and the
 phone's own syncing can finish before the other side dials back; and dropping
 the pass's connector stops everything it started
 ([same record](decisions/0020-sync-takes-a-deadline.md#a-pass-that-waits-to-be-collected-from)).

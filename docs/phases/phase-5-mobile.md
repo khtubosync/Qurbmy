@@ -1030,6 +1030,11 @@ from schema version 10 to 12; a copy of the version-10 index was kept, and the
 `qurb` and `qurb-tray` installed on 22 September predate `qurb/2` and should not
 open that folder again.
 
+Later the same day a pass also stopped trying its devices one after another:
+it reaches them all at once and syncs each as it answers, so a switched-off
+device no longer uses the window a working one needed (decision 0020, with the
+test that showed it).
+
 It found three more things, all fixed or recorded:
 
 - **Each pass left its discovery running** — six sockets and three beacon
@@ -1098,10 +1103,6 @@ scanning one.
   Since a per-pass connector is built fresh each time, the next pass does get a
   fresh chance — so on mobile this is less severe than on the desktop daemon,
   which holds one connector for hours.
-- **Trying devices one at a time.** A pass tries each paired device in turn,
-  so a device that does not answer can use the whole window and leave the next
-  one untried — every time, since the order does not change. Found while fixing
-  the timeout above; trying them at once is the fix, and has not been made.
 - **Conflict resolution on a small screen.** The engine never discards an edit,
   so conflicts appear as extra files. On a desktop that is tolerable. On a phone
   it is confusing, and nothing has been designed for it.

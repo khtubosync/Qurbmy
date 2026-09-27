@@ -354,6 +354,89 @@ fn an_unreachable_peer_is_counted_not_raised() {
     assert!(!outcome.timed_out, "a device that never answered was reported as time running out");
 }
 
+/// A device that is switched off does not keep the phone from the one that is
+/// on.
+///
+/// The phone used to try its devices one after another, in name order, each
+/// with whatever was left of the window. One whose announced address leads
+/// nowhere takes eight seconds to give up on, so with a six-second window the
+/// working desktop sorted after it was never tried -- in every pass, since the
+/// order never changes. Now every device is reached at once.
+#[test]
+fn a_device_that_is_off_does_not_starve_one_that_is_on() {
+    let _sharing = ALONE.read().unwrap_or_else(|e| e.into_inner());
+    logging();
+    let (signal_runtime, signal) = signalling();
+
+    let desktop_dir = tempfile::tempdir().unwrap();
+    let phone_dir = tempfile::tempdir().unwrap();
+    let setup = create(desktop_dir.path().display().to_string()).unwrap();
+    restore(phone_dir.path().display().to_string(), setup.recovery_phrase.clone()).unwrap();
+    let master = qurb_keys::MasterKey::from_phrase(
+        &qurb_keys::RecoveryPhrase::parse(&setup.recovery_phrase).unwrap(),
+    )
+    .unwrap();
+
+    // A laptop that is off, paired long ago, and named so it is tried first.
+    let off = [0xB1; 32];
+    {
+        let store_dir = phone_dir.path().join(".qurb");
+        let key = qurb_keys::Vault::at(&store_dir).unlock(None).unwrap();
+        let chunk_key = qurb_storage::ChunkKey::from_bytes(
+            key.derive(qurb_keys::Purpose::ChunkEncryption).to_bytes(),
+        );
+        let store = qurb_storage::Store::open(&store_dir, chunk_key).unwrap();
+        let device = qurb_sync::DeviceId::from_bytes([0xB0; 32]);
+        store.db().trust_peer(&device, &off, "a laptop that is off").unwrap();
+    }
+    // Still announced at an address where nothing answers: the rendezvous
+    // service introduces the phone to it, and the phone waits on it.
+    let _ghost = signal_runtime.block_on(qurb_signal::SignalClient::connect_insecure(
+        &signal,
+        qurb_signal::GroupId::derive(&master),
+        qurb_signal::MemberId::derive(&master, &off),
+        qurb_signal::Endpoints { public: None, local: vec!["192.0.2.1:9".parse().unwrap()] },
+    ));
+
+    let desktop = Qurb::open_with(
+        desktop_dir.path().display().to_string(),
+        None,
+        settings("desktop", &signal),
+    )
+    .unwrap();
+    let phone =
+        Qurb::open_with(phone_dir.path().display().to_string(), None, settings("phone", &signal))
+            .unwrap();
+    let offer = desktop.offer_pairing().unwrap();
+    let code = offer.code();
+    let waiting = std::thread::spawn(move || offer.wait());
+    phone.join_pairing(code).unwrap();
+    waiting.join().unwrap().unwrap();
+    assert_eq!(phone.peers().unwrap()[0].name, "a laptop that is off", "tried first, or this tests nothing");
+
+    std::fs::write(desktop_dir.path().join("notes.txt"), b"written on the desktop").unwrap();
+    desktop.scan().unwrap();
+    let desktop = Arc::new(desktop);
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let serving = Arc::clone(&desktop);
+    let stopping = Arc::clone(&stop);
+    let server = std::thread::spawn(move || {
+        while !stopping.load(std::sync::atomic::Ordering::Relaxed) {
+            let _ = serving.sync_within(5);
+        }
+    });
+
+    // One pass, shorter than it takes to give up on the laptop that is off.
+    let outcome = phone.sync_within(6).unwrap();
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    server.join().unwrap();
+
+    assert_eq!(outcome.reached, 1, "the working desktop was never tried: {outcome:?}");
+    assert_eq!(outcome.adopted, 1, "{outcome:?}");
+    assert_eq!(outcome.unreachable, 1, "{outcome:?}");
+    assert!(!outcome.timed_out, "{outcome:?}");
+}
+
 /// One pass that reaches the desktop is enough for the desktop to take what
 /// the phone made.
 ///
