@@ -6,7 +6,7 @@
 //! do test is everything on this side of the boundary: that the sequence an app
 //! actually performs works, and that the memory promise holds.
 
-use qurb_mobile::{create, is_set_up, restore, Qurb, QurbError};
+use qurb_mobile::{create, is_set_up, restore, Available, Qurb, QurbError};
 use qurb_storage::{ChunkKey, Store};
 
 fn scratch() -> tempfile::TempDir {
@@ -420,4 +420,67 @@ fn housekeeping_gives_back_what_the_folder_already_holds() {
     let out = dir.path().join("out.jpg");
     qurb.export("photo.jpg".into(), out.display().to_string()).unwrap();
     assert_eq!(std::fs::read(&out).unwrap(), bytes);
+}
+
+/// Pair `qurb` with a made-up device, the way pairing would record it, and
+/// return the fingerprint the app would name it by.
+fn pair_with_somebody(dir: &std::path::Path, name: &str, seed: u8) -> String {
+    let store = Store::open(&dir.join(".qurb"), chunk_key_of(dir)).unwrap();
+    let device = qurb_sync::DeviceId::from_bytes([seed; 32]);
+    let fingerprint = [seed.wrapping_add(1); 32];
+    store.db().trust_peer(&device, &fingerprint, name).unwrap();
+    fingerprint.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Everything the rebuilt app asks of a phone's own files, through the same
+/// calls the app will make: where each file is, freeing refused for the only
+/// copy, a device named to keep them, and a send taken back.
+#[test]
+fn the_app_can_see_free_hold_send_and_take_back() {
+    let dir = scratch();
+    let staging = scratch();
+    let root = dir.path().display().to_string();
+    create(root.clone()).unwrap();
+    let laptop = pair_with_somebody(dir.path(), "laptop", 0x1A);
+
+    let private = qurb_mobile::Settings { own_files_private: true, ..Default::default() };
+    let qurb = Qurb::open_with(root, None, private).unwrap();
+
+    let photo = staging.path().join("IMG_0001.jpg");
+    std::fs::write(&photo, b"a photo taken on the phone").unwrap();
+    qurb.import_file(photo.display().to_string(), "IMG_0001.jpg".into()).unwrap();
+
+    let listed = qurb.page(0, 50).unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].available, Available::OnlyHere, "nobody else has it yet");
+    assert!(listed[0].private, "a phone's own file was put in the shared area");
+
+    // The only copy: refused, and said as such rather than as a failure.
+    let refused = qurb.free_local("IMG_0001.jpg".into()).unwrap_err();
+    assert!(matches!(refused, QurbError::OnlyCopy { .. }), "{refused:?}");
+    assert!(dir.path().join("IMG_0001.jpg").exists());
+    assert!(!qurb.fetch("IMG_0001.jpg".into()).unwrap(), "asked for a file that is here");
+
+    // A device to keep them.
+    assert!(qurb.holders().unwrap().is_empty());
+    qurb.add_holder(laptop.clone()).unwrap();
+    let holders = qurb.holders().unwrap();
+    assert_eq!(holders.len(), 1);
+    assert_eq!(holders[0].name, "laptop");
+    assert!(qurb.add_holder("not a fingerprint".into()).is_err());
+
+    // A send, waiting, and taken back.
+    qurb.send_file(photo.display().to_string(), "for-the-laptop.jpg".into(), laptop.clone())
+        .unwrap();
+    let waiting = qurb.waiting().unwrap();
+    assert_eq!(waiting.len(), 1, "{waiting:?}");
+    assert_eq!((waiting[0].path.as_str(), waiting[0].to.as_str()), ("for-the-laptop.jpg", "laptop"));
+    qurb.cancel_send("for-the-laptop.jpg".into(), waiting[0].to_fingerprint.clone()).unwrap();
+    assert!(qurb.waiting().unwrap().is_empty());
+
+    let kinds: Vec<String> = qurb.history(20, None).unwrap().into_iter().map(|h| h.kind).collect();
+    assert!(kinds.contains(&"sent".to_string()) && kinds.contains(&"cancelled".to_string()), "{kinds:?}");
+
+    qurb.remove_holder(laptop).unwrap();
+    assert!(qurb.holders().unwrap().is_empty());
 }

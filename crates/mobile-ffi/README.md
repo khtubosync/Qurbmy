@@ -69,12 +69,37 @@ qurb.scan()                           // catch up with what changed while we wer
 Files by path, content by file:
 
 ```kotlin
-qurb.list()                           // List<FileEntry>
+qurb.list()                           // List<FileEntry>, every file in the folder
+qurb.page(0, 100)                     //   ...or a screenful at a time
 qurb.export("album/photo.jpg", tmp)   // writes to tmp, returns bytes written
 qurb.importFile(tmp, "album/photo.jpg")
 qurb.remove("album/photo.jpg")
-qurb.usage()                          // logical vs on-disk
+qurb.usage()                          // the files' size, and what qurb takes on the phone
 qurb.outstanding()                    // what this device made and nobody else has
+qurb.housekeep()                      // free what nothing needs; run it off the main thread
+```
+
+Each `FileEntry` says where its bytes are — `Here`, `Elsewhere` or `OnlyHere`,
+decided in the storage crate so the phone and the desktop cannot disagree — and
+whether it is in the phone's own vault.
+
+A phone's own files, and a device to keep them (decision 0036):
+
+```kotlin
+Settings(..., ownFilesPrivate = true) // new files go into this phone's own vault
+qurb.addHolder(peer.fingerprint)      // that device keeps a copy it never shows
+qurb.holders(); qurb.removeHolder(peer.fingerprint)
+qurb.freeLocal("IMG_0001.jpg")        // throws OnlyCopy if nobody else has it
+qurb.fetch("IMG_0001.jpg")            // back at the next sync with a device that has it
+```
+
+Sending, and what happened:
+
+```kotlin
+qurb.sendFile(staged, "photo.jpg", peer.fingerprint)
+qurb.waiting()                        // sent, not yet collected
+qurb.cancelSend("photo.jpg", peer.fingerprint)
+qurb.history(50, null)                // newest first; pass the last id to page back
 ```
 
 `outstanding()` is the honest answer to "did it get there yet": live files this
@@ -225,22 +250,20 @@ this app.
 
 ## Not built yet
 
-- **Keychain and Android Keystore, actually implemented.** The `KeyStore`
-  contract exists and is tested against a fake. Neither platform's real
-  implementation has been written or run — the snippets above are a starting
-  point, not tested code.
-- **Background scheduling.** `syncWithin` is the Rust half. The platform half —
-  `WorkManager`, `BGTaskScheduler`, and deciding when to ask for a window at
-  all — needs an app to live in.
+- **Keychain, on iOS.** The Android Keystore half is written and runs on a
+  Galaxy S23 (`android/app/.../AndroidKeyStore.kt`); nothing has been written
+  against the same contract for iOS.
+- **`BGTaskScheduler`.** Android's background scheduling is built, on
+  WorkManager; iOS's is not.
 - **Selective sync.** A phone cannot hold a desktop's library. Deciding what it
   keeps, and what happens when someone opens a file it does not have, is
   untouched.
 - **iOS, at all.** The `staticlib` crate type is declared and the Swift bindings
   generate, but building for iOS needs Xcode, which needs a Mac. Nothing here
   about iOS is measured.
-- **The generated bindings, compiled.** The Kotlin and Swift are exercised only
-  as the Rust functions underneath them. Neither has been through a Kotlin or
-  Swift toolchain.
+- **The Swift bindings, compiled.** The Kotlin bindings are compiled into the
+  Android app on every build; the Swift ones have never been through a Swift
+  toolchain.
 - **An app's conditions.** The tests run from `/data/local/tmp` as a shell user
   on a plugged-in, awake phone. Nothing measures battery cost, what survives a
   suspend, or how the platform treats a backgrounded process. See

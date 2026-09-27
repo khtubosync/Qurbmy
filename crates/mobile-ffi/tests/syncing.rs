@@ -66,6 +66,8 @@ fn settings(name: &str, signal: &str) -> Settings {
         // No push in tests: the devices here are both awake, and a test that
         // depended on Google would not be a test.
         wake_token: None,
+        // The shared area, as every test here expects.
+        own_files_private: false,
     }
 }
 

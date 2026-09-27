@@ -75,6 +75,12 @@ pub enum QurbError {
     #[error("network: {detail}")]
     Network { detail: String },
 
+    /// Freeing a file's local copy was refused, because no other device is
+    /// known to hold it: this is the only copy. Not a fault to report as one --
+    /// the answer is to have a device keep it, or to send it somewhere.
+    #[error("only copy: {detail}")]
+    OnlyCopy { detail: String },
+
     /// Anything else, including bugs.
     #[error("{detail}")]
     Other { detail: String },
@@ -100,6 +106,7 @@ impl From<qurb_storage::Error> for QurbError {
     fn from(e: qurb_storage::Error) -> Self {
         match &e {
             qurb_storage::Error::NotFound { .. } => QurbError::NotFound { detail: e.to_string() },
+            qurb_storage::Error::CannotEvict { .. } => QurbError::OnlyCopy { detail: e.to_string() },
             _ => QurbError::Storage { detail: e.to_string() },
         }
     }
@@ -122,6 +129,77 @@ pub struct FileEntry {
     pub size: u64,
     /// Modification time in nanoseconds since the Unix epoch.
     pub modified_at: i64,
+    /// Where the bytes are.
+    pub available: Available,
+    /// In this phone's own vault rather than the shared area.
+    pub private: bool,
+}
+
+/// Where a file's bytes are, as the phone should say it.
+///
+/// Three answers, decided in the storage crate so the phone and the desktop
+/// cannot disagree. The third is the one that matters: a file only on this
+/// phone is lost with the phone, and must never be offered as space to free.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum Available {
+    /// On this phone, and another device has it too.
+    Here,
+    /// Freed on this phone; another device has it, and `fetch` brings it back.
+    Elsewhere,
+    /// On this phone and nowhere else anybody knows of.
+    OnlyHere,
+}
+
+impl From<qurb_storage::db::Availability> for Available {
+    fn from(a: qurb_storage::db::Availability) -> Self {
+        match a {
+            qurb_storage::db::Availability::Here => Available::Here,
+            qurb_storage::db::Availability::Elsewhere => Available::Elsewhere,
+            qurb_storage::db::Availability::OnlyHere => Available::OnlyHere,
+        }
+    }
+}
+
+impl From<qurb_storage::db::FolderEntry> for FileEntry {
+    fn from(f: qurb_storage::db::FolderEntry) -> Self {
+        FileEntry {
+            path: f.path,
+            size: f.size,
+            modified_at: f.mtime_ns,
+            available: f.availability.into(),
+            private: f.private,
+        }
+    }
+}
+
+/// Something sent to another device that it has not collected yet.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct Waiting {
+    pub path: String,
+    pub size: u64,
+    /// The device's name, as it was paired.
+    pub to: String,
+    /// Its fingerprint, to name it back in `cancel_send`.
+    pub to_fingerprint: String,
+}
+
+/// One thing that happened, for a history screen.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct Happening {
+    /// For paging: pass the last one's id as `before` to get older ones.
+    pub id: i64,
+    /// Unix seconds.
+    pub at: i64,
+    /// `stored`, `deleted`, `received`, `sent`, `collected`, `evicted`,
+    /// `restored`, `conflicted`, `paired`, `failed`, `cancelled`, or a word a
+    /// newer build knows and this one does not.
+    pub kind: String,
+    pub path: Option<String>,
+    pub size: Option<u64>,
+    /// The other device's name, where there is one.
+    pub device: Option<String>,
+    /// Why it failed, what a conflict was filed as, where a file went.
+    pub detail: Option<String>,
 }
 
 /// What a scan did.
@@ -298,6 +376,11 @@ pub struct Settings {
     /// and on a phone whose owner has not set up push.
     #[uniffi(default = None)]
     pub wake_token: Option<String>,
+    /// Whether a file added on this phone goes into its own vault rather than
+    /// the shared area (decision 0036). Off by default, so that turning it on
+    /// is a choice the app makes once it can name a device to keep them.
+    #[uniffi(default = false)]
+    pub own_files_private: bool,
 }
 
 impl Default for Settings {
@@ -309,6 +392,7 @@ impl Default for Settings {
             port: 0,
             discover: true,
             wake_token: None,
+            own_files_private: false,
         }
     }
 }
@@ -582,18 +666,18 @@ impl Qurb {
     /// still the phone's own file -- a list without it would hide exactly the
     /// thing somebody just sent.
     pub fn list(&self) -> Result<Vec<FileEntry>, QurbError> {
+        self.page(0, u32::MAX)
+    }
+
+    /// A page of the same, in path order.
+    ///
+    /// For a screen that shows a large library a screenful at a time: every
+    /// record crosses the boundary, and ten thousand of them at once is time a
+    /// person spends looking at an empty list.
+    pub fn page(&self, offset: u32, limit: u32) -> Result<Vec<FileEntry>, QurbError> {
         let engine = self.engine()?;
-        let db = engine.store().db();
-        let mut out = Vec::new();
-        for path in db.folder_paths()? {
-            let Some(file) = db.in_folder(&path)? else { continue };
-            out.push(FileEntry {
-                path,
-                size: file.size,
-                modified_at: file.mtime_ns,
-            });
-        }
-        Ok(out)
+        let rows = engine.store().db().folder_listing(limit as usize, offset as usize)?;
+        Ok(rows.into_iter().map(FileEntry::from).collect())
     }
 
     /// Whether a path exists in the index.
@@ -783,9 +867,13 @@ impl Qurb {
         let waiting = engine.store().undelivered()?;
 
         let bytes = waiting.iter().map(|(_, size)| size).sum();
+        let db = engine.store().db();
         let files = waiting
             .into_iter()
-            .map(|(path, size)| FileEntry { path, size, modified_at: 0 })
+            .map(|(path, size)| {
+                let private = matches!(db.folder_row(&path), Ok(Some((_, Some(_)))));
+                FileEntry { path, size, modified_at: 0, available: Available::OnlyHere, private }
+            })
             .collect();
         Ok(Outstanding { files, bytes })
     }
@@ -818,6 +906,117 @@ impl Qurb {
             tombstones_expired: done.collected.tombstones_expired as u32,
         })
     }
+
+    /// Free this phone's copy of a file another device keeps: *Free local
+    /// space*. The file stays known, and `fetch` brings it back.
+    ///
+    /// Refused with `OnlyCopy` when no other device is known to hold it --
+    /// the engine's check, not the app's, so no screen can skip it. Returns the
+    /// bytes freed.
+    pub fn free_local(&self, path: String) -> Result<u64, QurbError> {
+        Ok(self.engine()?.store_mut().free_local(&qurb_watcher::normalize(&path))?)
+    }
+
+    /// Ask for a freed file back. Acted on at the next sync with a device that
+    /// has it, so asking while offline works. Returns whether it was freed at
+    /// all -- asking for a file already here is not an error, and changes
+    /// nothing.
+    pub fn fetch(&self, path: String) -> Result<bool, QurbError> {
+        Ok(self.engine()?.store().db().want(&qurb_watcher::normalize(&path))?)
+    }
+
+    /// The devices that keep this phone's own files for it (decision 0036).
+    pub fn holders(&self) -> Result<Vec<PeerInfo>, QurbError> {
+        let holders = self.engine()?.store().db().holders()?;
+        Ok(self
+            .peers()?
+            .into_iter()
+            .filter(|p| self.device_of(&p.fingerprint).is_ok_and(|d| holders.contains(&d)))
+            .collect())
+    }
+
+    /// Let a paired device keep this phone's own files. It is shown them from
+    /// the next sync, keeps them where nobody using it sees them, and gives
+    /// them back when asked.
+    pub fn add_holder(&self, fingerprint: String) -> Result<(), QurbError> {
+        let device = self.device_of(&fingerprint)?;
+        Ok(self.engine()?.store().db().add_holder(&device)?)
+    }
+
+    /// Stop showing a device this phone's own files. What it already keeps it
+    /// keeps; nothing here reaches into another device.
+    pub fn remove_holder(&self, fingerprint: String) -> Result<(), QurbError> {
+        let device = self.device_of(&fingerprint)?;
+        self.engine()?.store().db().remove_holder(&device)?;
+        Ok(())
+    }
+
+    /// Send a file to one device and to nobody else, under `name`.
+    ///
+    /// `source` is a file on this phone: something in the folder, or a copy
+    /// the app staged from the share sheet or a picker. The bytes are kept here
+    /// until that device confirms it has them, so it works while the other
+    /// device is off. Returns the bytes stored to do so.
+    pub fn send_file(&self, source: String, name: String, to: String) -> Result<u64, QurbError> {
+        let device = self.device_of(&to)?;
+        let name = qurb_watcher::normalize(&name);
+        if !qurb_sync::is_safe_path(&name) {
+            return Err(QurbError::Other {
+                detail: format!("{name:?} is not a name a file can be sent under"),
+            });
+        }
+        let stats = self.engine()?.store_mut().send_to_vault(&name, Path::new(&source), &device)?;
+        Ok(stats.bytes_written)
+    }
+
+    /// What this phone has sent that has not been collected yet.
+    pub fn waiting(&self) -> Result<Vec<Waiting>, QurbError> {
+        let peers = self.peers()?;
+        let pending = self.engine()?.store().pending_deliveries()?;
+        Ok(pending
+            .into_iter()
+            .map(|(path, size, to)| {
+                let peer = peers.iter().find(|p| self.device_of(&p.fingerprint).ok() == Some(to));
+                Waiting {
+                    path,
+                    size,
+                    to: peer.map(|p| p.name.clone()).unwrap_or_else(|| to.short()),
+                    to_fingerprint: peer.map(|p| p.fingerprint.clone()).unwrap_or_default(),
+                }
+            })
+            .collect())
+    }
+
+    /// Take back a send the other device has not collected yet. Refused once
+    /// it has: the file is theirs then.
+    pub fn cancel_send(&self, path: String, to: String) -> Result<(), QurbError> {
+        let device = self.device_of(&to)?;
+        Ok(self.engine()?.store_mut().cancel_send(&path, &device)?)
+    }
+
+    /// What happened, newest first. `before` pages backwards by id.
+    pub fn history(&self, limit: u32, before: Option<i64>) -> Result<Vec<Happening>, QurbError> {
+        let peers = self.engine()?.store().db().trusted_peers()?;
+        let rows = self.engine()?.store().db().activity(limit as usize, before)?;
+        Ok(rows
+            .into_iter()
+            .map(|r| Happening {
+                id: r.id,
+                at: r.at,
+                kind: r.kind.as_str().to_string(),
+                path: r.path,
+                size: r.size,
+                device: r.device.map(|id| {
+                    peers
+                        .iter()
+                        .find(|p| p.device_id == id)
+                        .map(|p| p.name.clone())
+                        .unwrap_or_else(|| id.short())
+                }),
+                detail: r.detail,
+            })
+            .collect())
+    }
 }
 
 /// Not exported. `#[uniffi::export]` takes every function in the block it is
@@ -844,7 +1043,8 @@ impl Qurb {
         let master: MasterKey = vault.unlock(passphrase.as_deref())?;
         let chunk_key = ChunkKey::from_bytes(master.derive(Purpose::ChunkEncryption).to_bytes());
         let root = PathBuf::from(&root);
-        let store = Store::open(&store_dir, chunk_key)?;
+        let mut store = Store::open(&store_dir, chunk_key)?;
+        store.set_new_files_private(settings.own_files_private);
         let ignore = IgnoreRules::new().with_store_dir(&store_dir);
 
         Ok(Self {
@@ -867,6 +1067,25 @@ impl Qurb {
 /// Not exported. `#[uniffi::export]` takes every method in the block it is
 /// applied to, and a `MutexGuard` cannot cross an FFI boundary — nor should it.
 impl Qurb {
+    /// The paired device with this fingerprint, as `peers` gives it: hex, in
+    /// full. Only paired devices -- a fingerprint nobody paired with names
+    /// nothing here.
+    fn device_of(&self, fingerprint: &str) -> Result<qurb_sync::DeviceId, QurbError> {
+        let unknown = || QurbError::NotFound { detail: format!("no paired device {fingerprint}") };
+        let bytes: Vec<u8> = (0..fingerprint.len())
+            .step_by(2)
+            .map(|i| fingerprint.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok()))
+            .collect::<Option<_>>()
+            .ok_or_else(unknown)?;
+        let bytes: [u8; 32] = bytes.try_into().map_err(|_| unknown())?;
+        self.engine()?
+            .store()
+            .db()
+            .peer_by_fingerprint(&bytes)?
+            .map(|p| p.device_id)
+            .ok_or_else(unknown)
+    }
+
     /// This device's network identity, loaded or created on first use.
     fn identity(&self) -> Result<qurb_peer::Identity, QurbError> {
         qurb_peer::Identity::load_or_create(&self.store_dir)

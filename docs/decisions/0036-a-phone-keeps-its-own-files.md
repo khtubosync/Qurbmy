@@ -219,10 +219,13 @@ for one works as for the shared area, from the holder's *held* entries.
   back in about 8 seconds, SHA-256 identical. Deleting it on the phone made the
   holder let go within about 2 seconds. Also 6 engine tests and a network test;
   the privacy checks were each removed and their tests seen to fail.
-- **Not yet:** anything on the phone. The Android app does not set its files
-  private, has no way to name a holder, and cannot free or fetch a file. That
-  is the phone half of step 6, and until it is built a phone's files still go
-  to the shared area.
+- **2026-09-27 — the phone's interface.** The FFI can now keep a phone's new
+  files private (`Settings.ownFilesPrivate`), name and list holders, free a
+  file (`OnlyCopy` when nobody else has it), fetch it back, send, cancel a
+  send, and read history; tested through the same calls the app will make.
+- **Not yet:** the app using any of it. The setting stays off until the
+  rebuilt screens can name a holder, so a phone's files still go to the shared
+  area.
 
 ## Reversing it
 

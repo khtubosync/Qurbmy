@@ -501,7 +501,8 @@ qurb/
 │   │   └── src/source.rs    plugs the client into the engine
 │   │
 │   ├── mobile-ffi/        The engine, as a phone can call it.
-│   │   └── src/lib.rs       UniFFI surface: files, pairing, bounded sync
+│   │   └── src/lib.rs       UniFFI surface: files and where they are, pairing,
+│   │                        bounded sync, holding, freeing, sending, history
 │   │
 │   ├── keys/              The root secret and the way back to it.
 │   │   ├── src/master.rs    HKDF derivation, one key per purpose
@@ -702,7 +703,7 @@ for the workspace as it stands.
 | Recovery, end to end | the phrase turns back into the user's files |
 | Key hygiene | redacted in `Debug`, wiped on drop, owner-only on disk |
 
-668 tests pass in 78 test binaries on Linux (2026-09-27, debug build, the
+669 tests pass in 78 test binaries on Linux (2026-09-27, debug build, the
 development laptop); clippy is clean. The last run on
 a Galaxy S23 was 426 of them, before this week's work — see
 [phases/phase-5-mobile.md](phases/phase-5-mobile.md).

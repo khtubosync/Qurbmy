@@ -623,7 +623,8 @@ impl Db {
     pub fn live_bytes(&self) -> Result<u64> {
         let total: i64 = self.conn.query_row(
             "SELECT coalesce(sum(size), 0) FROM files
-              WHERE deleted_at IS NULL AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))",
+              WHERE deleted_at IS NULL
+                AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))",
             [],
             |r| r.get(0),
         )?;
@@ -683,7 +684,8 @@ impl Db {
     /// Note that a path was just read or written here.
     pub fn touch(&self, path: &str) -> Result<()> {
         self.conn.execute(
-            "UPDATE files SET touched_at = unixepoch() WHERE path = ?1 AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))",
+            "UPDATE files SET touched_at = unixepoch() WHERE path = ?1
+              AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))",
             params![path],
         )?;
         Ok(())
@@ -792,7 +794,8 @@ impl Db {
     pub fn set_materialised(&self, path: &str, held: bool) -> Result<bool> {
         let changed = self.conn.execute(
             "UPDATE files SET materialised = ?2
-             WHERE path = ?1 AND deleted_at IS NULL AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))",
+             WHERE path = ?1 AND deleted_at IS NULL
+               AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))",
             params![path, held as i64],
         )?;
         Ok(changed > 0)
@@ -806,7 +809,8 @@ impl Db {
         self.conn
             .query_row(
                 "SELECT materialised FROM files
-                  WHERE path = ?1 AND deleted_at IS NULL AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))",
+                  WHERE path = ?1 AND deleted_at IS NULL
+                    AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))",
                 params![path],
                 |r| Ok(r.get::<_, i64>(0)? != 0),
             )
@@ -818,7 +822,8 @@ impl Db {
     pub fn evicted_paths(&self) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare(
             "SELECT path FROM files
-              WHERE deleted_at IS NULL AND materialised = 0 AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))
+              WHERE deleted_at IS NULL AND materialised = 0
+                AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))
               ORDER BY path",
         )?;
         let rows = stmt.query_map([], |r| r.get(0))?;
@@ -829,7 +834,8 @@ impl Db {
     pub fn materialised_bytes(&self) -> Result<u64> {
         let n: i64 = self.conn.query_row(
             "SELECT coalesce(sum(size), 0) FROM files
-              WHERE deleted_at IS NULL AND materialised = 1 AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))",
+              WHERE deleted_at IS NULL AND materialised = 1
+                AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))",
             [],
             |r| r.get(0),
         )?;
@@ -840,7 +846,8 @@ impl Db {
     pub fn want(&self, path: &str) -> Result<bool> {
         let changed = self.conn.execute(
             "UPDATE files SET wanted = 1
-             WHERE path = ?1 AND deleted_at IS NULL AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))",
+             WHERE path = ?1 AND deleted_at IS NULL AND materialised = 0
+               AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))",
             params![path],
         )?;
         Ok(changed > 0)
@@ -850,7 +857,8 @@ impl Db {
     pub fn wanted_paths(&self) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare(
             "SELECT path FROM files
-              WHERE wanted = 1 AND materialised = 0 AND deleted_at IS NULL AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))
+              WHERE wanted = 1 AND materialised = 0 AND deleted_at IS NULL
+                AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))
               ORDER BY path",
         )?;
         let rows = stmt.query_map([], |r| r.get(0))?;
@@ -1145,6 +1153,35 @@ impl Db {
               LIMIT ?2",
         )?;
         let rows = stmt.query_map(params![before, limit as i64], activity_row)?;
+        rows.collect::<std::result::Result<_, _>>().map_err(Into::into)
+    }
+
+    /// A page of everything in this device's folder: the shared area and its
+    /// own vault, in path order, with where each file's bytes are.
+    ///
+    /// One query, availability included, because a phone lists its files on
+    /// every screen and a query per file would make a large library slow to
+    /// open.
+    pub fn folder_listing(&self, limit: usize, offset: usize) -> Result<Vec<FolderEntry>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT f.path, f.size, f.mtime_ns, f.materialised, f.scope IS NOT NULL,
+                    EXISTS (SELECT 1 FROM replicas r
+                             WHERE r.content_hash = f.content_hash AND r.private = 0)
+               FROM files f
+              WHERE f.deleted_at IS NULL
+                AND (f.scope IS NULL OR f.scope = (SELECT device_id FROM local WHERE id = 1))
+              ORDER BY f.path
+              LIMIT ?1 OFFSET ?2",
+        )?;
+        let rows = stmt.query_map(params![limit as i64, offset as i64], |r| {
+            Ok(FolderEntry {
+                path: r.get(0)?,
+                size: r.get::<_, i64>(1)? as u64,
+                mtime_ns: r.get(2)?,
+                availability: Availability::of(r.get::<_, i64>(3)? != 0, r.get::<_, i64>(5)? != 0),
+                private: r.get::<_, i64>(4)? != 0,
+            })
+        })?;
         rows.collect::<std::result::Result<_, _>>().map_err(Into::into)
     }
 
@@ -2004,6 +2041,47 @@ fn file_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<FileRow> {
         modified_by: modified_by.and_then(to_device),
         updated_at: r.get(8)?,
     })
+}
+
+/// Where a file's bytes are, from this device's point of view.
+///
+/// Three values, not two. A file that is here and also on another device, and
+/// a file that is here and nowhere else in the world, look identical to
+/// anything that only checks whether the bytes are on disk -- and offering to
+/// free the second is offering to delete it. Decided here, once, so that the
+/// desktop's window and the phone's app cannot disagree about it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Availability {
+    /// In the folder, openable now, and another device holds it too.
+    Here,
+    /// Known about, freed locally, and another device has it.
+    Elsewhere,
+    /// In the folder, and no other device is known to hold it. While this is
+    /// true, losing this device loses the file.
+    OnlyHere,
+}
+
+impl Availability {
+    /// From whether the bytes are here, and whether another device that will
+    /// hand them back is known to hold them.
+    pub fn of(here: bool, elsewhere: bool) -> Self {
+        match (here, elsewhere) {
+            (true, true) => Availability::Here,
+            (true, false) => Availability::OnlyHere,
+            (false, _) => Availability::Elsewhere,
+        }
+    }
+}
+
+/// One file in this device's folder, as an app lists it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FolderEntry {
+    pub path: String,
+    pub size: u64,
+    pub mtime_ns: i64,
+    pub availability: Availability,
+    /// In this device's own vault rather than the shared area.
+    pub private: bool,
 }
 
 /// One row of a listing: what a file browser needs and nothing more.

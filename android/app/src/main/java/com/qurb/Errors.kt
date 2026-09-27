@@ -42,6 +42,11 @@ fun QurbException.readable(): String = when (this) {
     is QurbException.Storage ->
         "The store could not be read or written.\n\n$detail"
 
+    // Not a fault: a refusal that protects the only copy of something.
+    is QurbException.OnlyCopy ->
+        "This is the only copy — no other device has it yet, so it cannot be freed here. " +
+            "Choose a device to keep your files, or send it somewhere first."
+
     is QurbException.Other -> detail
 }
 

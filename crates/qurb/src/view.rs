@@ -49,18 +49,9 @@ pub struct Device {
     pub last_seen: Option<i64>,
 }
 
-/// Where a file's bytes are, from this device's point of view.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Availability {
-    /// In the folder, openable right now.
-    Here,
-    /// Known about, dropped locally, and another device has it. `qurb fetch`
-    /// brings it back.
-    Elsewhere,
-    /// In the folder, and no other device is known to hold it. Worth saying
-    /// out loud: while this is true, losing this device loses the file.
-    OnlyHere,
-}
+/// Where a file's bytes are. Decided in the storage crate, so that the phone,
+/// which does not link this one, draws the same three answers.
+pub use qurb_storage::db::Availability;
 
 /// One file, as a listing shows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -273,11 +264,7 @@ impl<'a> View<'a> {
         rows.into_iter()
             .map(|row| {
                 let elsewhere = self.store.db().replica_count(&row.content)? > 0;
-                let availability = match (row.here, elsewhere) {
-                    (true, true) => Availability::Here,
-                    (true, false) => Availability::OnlyHere,
-                    (false, _) => Availability::Elsewhere,
-                };
+                let availability = Availability::of(row.here, elsewhere);
                 Ok(File {
                     path: row.path,
                     size: row.size,
