@@ -161,6 +161,21 @@ class MainActivity : AppCompatActivity() {
                     if (found.stored > 0u || found.deleted > 0u) snapshot(engine) else null
                 }
                 changed?.let { show(it) }
+
+                // And once per launch, free what nothing needs -- the same
+                // routine the background worker runs after a sync. Here too so
+                // that a phone the worker has not run on lately, or one set up
+                // by an older build, does not wait for it. After everything is
+                // on screen, and off the main thread.
+                if (!housekept) {
+                    housekept = true
+                    val tidied = withContext(Dispatchers.IO) {
+                        runCatching { engine.housekeep() }.getOrNull()
+                    }
+                    if (tidied != null && tidied.freed > 0uL) {
+                        show(withContext(Dispatchers.IO) { snapshot(engine) })
+                    }
+                }
             } catch (e: Exception) {
                 fail("Could not read the store", e)
             } finally {
@@ -168,6 +183,9 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+
+    /** Whether this launch has freed what nothing needs yet. Once is enough. */
+    private var housekept = false
 
     /** Everything a refresh draws, read in one go off the main thread. */
     private fun snapshot(engine: Qurb) = Snapshot(
@@ -204,9 +222,14 @@ class MainActivity : AppCompatActivity() {
         peers: Int,
         waiting: Int,
     ): String {
-        val saved = if (logical > 0uL) {
-            " · ${size(onDisk)} on disk, from ${size(logical)}"
-        } else ""
+        // The files' size, and what qurb takes on this phone only when that is
+        // more -- content kept for another device, or a deleted file not yet
+        // collected. "On disk, from" used to read as a saving it was not.
+        val saved = when {
+            logical == 0uL -> ""
+            onDisk > logical + 1024uL * 1024uL -> " · ${size(logical)}, ${size(onDisk)} on this phone"
+            else -> " · ${size(logical)}"
+        }
         val devices = when (peers) {
             0 -> "no paired devices"
             1 -> "1 paired device"

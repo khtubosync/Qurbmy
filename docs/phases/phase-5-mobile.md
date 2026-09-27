@@ -894,10 +894,6 @@ safe.
   free one chosen file yet. When *Free local space* is built, a received file
   must be refused with the real reason — the sender's copy is one the phone may
   not count on — not "not found".
-- **Nothing on a phone collects garbage.** Only the desktop daemon runs it, so
-  on a phone tombstones never expire and chunks nothing references are never
-  removed. Found 2026-09-25 while tracing a different bug. Measured 2026-09-27:
-  the S23 holds 100.7 MB for 30.9 MB of files.
 - **Case collisions are checked against the shared area only.** A received
   `Report.pdf` beside a shared `report.pdf` is not reported. Both of this
   project's platforms are case-sensitive, so it is latent rather than live.
@@ -948,9 +944,24 @@ around 160 and 350 ms and suggested a difference that was not there. The
 measuring script now wakes the screen before every launch and aborts if the lock
 screen is showing.
 
-**Found:** the phone reports 100.7 MB on disk for 30.9 MB of files. Nothing on a
-phone runs garbage collection, so the chunks of deleted and replaced files stay
-for ever. Not fixed yet; it belongs in the background worker.
+**Found, and fixed the same day:** the phone reported 100.7 MB on disk for
+30.9 MB of files, because nothing on a phone ever ran garbage collection or
+reclaimed the copies older builds kept. The routine the desktop daemon runs is
+now one engine function, `housekeep`, and the phone runs it after every
+background sync and once per launch, after the list is drawn.
+
+On the S23 the first run freed about 19.5 MB — the chunk store went from
+100.7 MB to 81.2 MB. The index, copied off the phone with a debug build and
+read on the laptop, says what the rest is: all of it belongs to one deleted
+file, a 2.27 GB video of which the phone had fetched 81 MB, deleted on
+22 September. Deleted content is kept for seven days, so it is collected on the
+29th. Keeping part of a file that was never fully here cannot help restore it;
+harmless, and recorded rather than special-cased.
+
+The number the phone showed was also misleading. "On disk" counted the chunk
+store alone and was worded as a saving ("100.7 MB on disk, from 30.9 MB"); it
+now counts the folder's files as well, and the screen says what qurb takes on
+the phone only when that is more than the files themselves.
 
 ## Deliberately left undone
 

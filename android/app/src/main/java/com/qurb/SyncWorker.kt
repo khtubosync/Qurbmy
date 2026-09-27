@@ -69,6 +69,15 @@ class SyncWorker(context: Context, params: WorkerParameters) :
             Log.i(TAG, "sync: reached=${outcome.reached} unreachable=${outcome.unreachable} " +
                 "adopted=${outcome.adopted} timedOut=${outcome.timedOut}")
 
+            // Then free what nothing needs, as the desktop daemon does on its
+            // own timer. A phone has no timer of its own but this one, and
+            // until this ran here a phone kept every replaced and deleted
+            // file's chunks for good. Its failure is not the sync's: the sync
+            // already happened, and the next run tries again.
+            runCatching { engine.housekeep() }
+                .onSuccess { if (it.freed > 0uL) Log.i(TAG, "freed ${it.freed} bytes nothing needed") }
+                .onFailure { Log.w(TAG, "housekeeping failed", it) }
+
             when {
                 // Ran out of time with work outstanding. Retrying asks
                 // WorkManager for another window sooner than the next period,

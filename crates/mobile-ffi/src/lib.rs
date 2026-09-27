@@ -154,9 +154,21 @@ pub struct Usage {
     /// What the user's files add up to, counted the way they would count them:
     /// three copies of one photo are three photos.
     pub logical: u64,
-    /// What they actually occupy here, after identical content is stored once
-    /// and compressed. The gap between this and `logical` is the saving.
+    /// What qurb actually occupies on this phone: the files in the folder, plus
+    /// the chunk store's copies of what the folder cannot supply. Both,
+    /// because under single-copy storage (decision 0024) neither half is the
+    /// whole; this used to report the chunk store alone, which read as a
+    /// saving it was not.
     pub on_disk: u64,
+}
+
+/// What [`Qurb::housekeep`] freed.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct Tidied {
+    /// Bytes the chunk store gave back.
+    pub freed: u64,
+    /// Deleted files past the retention window, now gone for good.
+    pub tombstones_expired: u32,
 }
 
 /// What this device is still the only holder of.
@@ -789,8 +801,22 @@ impl Qurb {
         // Live *files*, not chunks. Summing chunks would count shared content
         // once and report that three copies of a photo take up one photo's
         // worth of space, which is true of the disk and not of the library.
-        let (_, on_disk) = db.size_totals()?;
-        Ok(Usage { logical: db.live_bytes()?, on_disk })
+        Ok(Usage { logical: db.live_bytes()?, on_disk: engine.store().usage()?.total() })
+    }
+
+    /// Free what nothing needs: garbage past the retention window, and
+    /// chunk-store copies of bytes the folder already holds.
+    ///
+    /// The same routine the desktop daemon runs every few minutes. Nothing on a
+    /// phone ran it before, and a Galaxy S23 was measured holding 100.7 MB of
+    /// chunks for 30.9 MB of files. Slow enough on a large store to belong off
+    /// the main thread, like everything here.
+    pub fn housekeep(&self) -> Result<Tidied, QurbError> {
+        let done = self.engine()?.housekeep(qurb_engine::RETENTION)?;
+        Ok(Tidied {
+            freed: done.bytes_freed(),
+            tombstones_expired: done.collected.tombstones_expired as u32,
+        })
     }
 }
 

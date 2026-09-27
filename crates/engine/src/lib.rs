@@ -358,6 +358,25 @@ impl Engine {
     /// case.
     ///
     /// A limit of zero means no limit.
+    /// Free what nothing needs: garbage past `retention`, and chunk-store
+    /// copies of bytes the folder already holds.
+    ///
+    /// The routine every device runs -- the desktop daemon every few minutes,
+    /// a phone after each background sync. Before this was shared, only the
+    /// daemon collected garbage and nothing ran `reclaim` unless a person typed
+    /// it, so a phone kept the chunks of every file it had ever replaced or
+    /// deleted: measured on a Galaxy S23, 100.7 MB on disk for 30.9 MB of
+    /// files.
+    ///
+    /// Content held for another device is not released here. That is kept on
+    /// purpose until the disk is short (decision 0030), which is
+    /// [`enforce_limit`](Self::enforce_limit)'s business.
+    pub fn housekeep(&mut self, retention: std::time::Duration) -> Result<Housekeeping> {
+        let collected = self.store.gc(retention)?;
+        let reclaimed = self.store.reclaim()?;
+        Ok(Housekeeping { collected, reclaimed })
+    }
+
     pub fn enforce_limit(&mut self, limit: u64) -> Result<CapStats> {
         let mut stats = CapStats::default();
         if limit == 0 {
@@ -691,6 +710,28 @@ fn mtime_ns(meta: &std::fs::Metadata) -> i64 {
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_nanos() as i64)
         .unwrap_or(0)
+}
+
+/// How long deleted and superseded content is kept before it is collected.
+///
+/// A week: long enough to notice a mistake over a weekend, short enough that a
+/// device does not carry a month of things nobody wants. Content still
+/// referenced by a live file is never touched, whatever its age.
+pub const RETENTION: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 60 * 60);
+
+/// What [`Engine::housekeep`] freed.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Housekeeping {
+    /// Garbage past the retention window.
+    pub collected: qurb_storage::GcStats,
+    /// Chunk-store copies of bytes the folder already holds.
+    pub reclaimed: qurb_storage::GcStats,
+}
+
+impl Housekeeping {
+    pub fn bytes_freed(&self) -> u64 {
+        self.collected.bytes_reclaimed + self.reclaimed.bytes_reclaimed
+    }
 }
 
 /// What enforcing a storage limit achieved.

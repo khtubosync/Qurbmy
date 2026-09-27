@@ -260,9 +260,15 @@ fn export_does_not_hold_the_file_in_memory() {
     assert!(grew_mib < 16, "export grew the heap by {grew_mib} MiB, exporting {} MiB", size >> 20);
 }
 
-/// Usage reports both numbers, and deduplication is visible in the difference.
+/// Usage says what is actually on the disk.
+///
+/// This test used to assert the opposite -- three copies of one file, "near one
+/// copy on disk" -- which was true of the chunk store and false of the phone:
+/// since single-copy storage the folder holds each file itself, three real
+/// files, and the chunk store keeps no fourth. The number now counts both, and
+/// this checks it neither hides the folder nor counts a copy that is not there.
 #[test]
-fn usage_shows_what_deduplication_saved() {
+fn usage_counts_what_is_actually_on_disk() {
     let dir = scratch();
     let staging = scratch();
     let root = dir.path().display().to_string();
@@ -279,11 +285,10 @@ fn usage_shows_what_deduplication_saved() {
 
     let usage = qurb.usage().unwrap();
     assert_eq!(usage.logical, 3 * 4 * 1024 * 1024, "three copies, counted as three");
+    assert!(usage.on_disk >= usage.logical, "the folder's files are not counted: {usage:?}");
     assert!(
-        usage.on_disk < usage.logical / 2,
-        "on disk {} should be near one copy, not three ({})",
-        usage.on_disk,
-        usage.logical
+        usage.on_disk < usage.logical + 1024 * 1024,
+        "a second copy is being kept or counted: {usage:?}"
     );
 }
 
@@ -373,4 +378,46 @@ fn walk(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
         }
     }
     out
+}
+
+/// A phone collects its own garbage now, and gives back the second copies an
+/// older build kept of files the folder already holds.
+///
+/// Before single-copy storage every file was also written into the chunk
+/// store; a Galaxy S23 set up then was holding 100.7 MB of chunks for 30.9 MB of
+/// files, because nothing on a phone ever ran the routine that frees them.
+#[test]
+fn housekeeping_gives_back_what_the_folder_already_holds() {
+    let dir = scratch();
+    let root = dir.path().display().to_string();
+    create(root.clone()).unwrap();
+
+    // Written the way an older build wrote it: into the chunk store, with no
+    // folder attached, so the payload is kept there as well as in the file.
+    // Incompressible, as a photo is: the chunk store compresses, and a copy of
+    // patterned bytes would cost almost nothing to keep.
+    let photo = dir.path().join("photo.jpg");
+    const SIZE: u64 = 2 << 20;
+    write_incompressible(&photo, SIZE as usize);
+    let bytes = std::fs::read(&photo).unwrap();
+    {
+        let mut old = Store::open(&dir.path().join(".qurb"), chunk_key_of(dir.path())).unwrap();
+        old.put_file("photo.jpg", &photo).unwrap();
+    }
+
+    let qurb = Qurb::open(root, None).unwrap();
+    let before = qurb.usage().unwrap();
+    assert!(before.on_disk >= 2 * SIZE, "the second copy is not counted: {before:?}");
+
+    let tidied = qurb.housekeep().unwrap();
+    assert!(tidied.freed >= SIZE, "freed only {} bytes", tidied.freed);
+
+    let after = qurb.usage().unwrap();
+    assert!(after.on_disk >= SIZE, "the folder's own file is not counted: {after:?}");
+    assert!(after.on_disk < before.on_disk);
+
+    // And the file is untouched, read back from the folder.
+    let out = dir.path().join("out.jpg");
+    qurb.export("photo.jpg".into(), out.display().to_string()).unwrap();
+    assert_eq!(std::fs::read(&out).unwrap(), bytes);
 }

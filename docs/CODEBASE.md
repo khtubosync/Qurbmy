@@ -619,7 +619,7 @@ product around it largely is not.
 | Deduplication | within a file, across files, across versions |
 | Single-copy storage | a materialised file *is* its own payload store |
 | Deletion, tombstones, restore | content survives a retention window |
-| Garbage collection | two-stage, never touches a referenced chunk; the daemon runs it every five minutes |
+| Garbage collection | two-stage, never touches a referenced chunk; the daemon runs it every five minutes, a phone after each background sync |
 | Integrity verification | detects missing, corrupt, and orphaned chunks |
 | Reclaiming duplicates | `qurb reclaim`, for stores written before single-copy |
 | A storage limit | drops local copies, keeps the index, never the only copy |
@@ -702,7 +702,7 @@ for the workspace as it stands.
 | Recovery, end to end | the phrase turns back into the user's files |
 | Key hygiene | redacted in `Debug`, wiped on drop, owner-only on disk |
 
-667 tests pass in 78 test binaries on Linux (2026-09-27, debug build, the
+668 tests pass in 78 test binaries on Linux (2026-09-27, debug build, the
 development laptop); clippy is clean. The last run on
 a Galaxy S23 was 426 of them, before this week's work — see
 [phases/phase-5-mobile.md](phases/phase-5-mobile.md).

@@ -78,11 +78,11 @@ asks for (§73) is styles, colours and a few custom views, which views handle.
 
 ## What else was found
 
-**The phone never collects garbage.** Its screen says 100.7 MB on disk for
-30.9 MB of files. Only the desktop daemon runs garbage collection, so on a phone
-deleted files' chunks are never reclaimed. Recorded in
-[phase 5](../phases/phase-5-mobile.md); the fix is running collection from the
-background worker.
+**The phone never collected garbage.** Its screen said 100.7 MB on disk for
+30.9 MB of files. Fixed the same day: the phone now runs the desktop's
+housekeeping after each background sync and once per launch. See
+[phase 5](../phases/phase-5-mobile.md) for what it freed and what the rest
+turned out to be.
 
 ## Not done
 

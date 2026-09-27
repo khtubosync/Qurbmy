@@ -53,13 +53,6 @@ const TRUST_INTERVAL: Duration = Duration::from_secs(5);
 /// far over its limit, and rare enough to be invisible.
 const MAINTENANCE_INTERVAL: Duration = Duration::from_secs(300);
 
-/// How long deleted and superseded content stays recoverable.
-///
-/// A week: long enough to notice a mistake over a weekend, short enough that a
-/// device does not carry a month of things nobody wants. Content still
-/// referenced by a live file is never touched by this, whatever its age.
-const RETENTION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
-
 /// How long to wait before the first retry after failing to reach a peer.
 ///
 /// Short, because the commonest failure is not a device that is off but one
@@ -228,15 +221,15 @@ impl Daemon {
     /// Everything here is best-effort. A device that cannot tidy up should
     /// keep syncing, which is what it is for.
     fn housekeep(&self, engine: &mut Engine) {
-        match engine.store_mut().gc(RETENTION) {
-            Ok(stats) if stats.chunks_removed > 0 => tracing::info!(
-                chunks = stats.chunks_removed,
-                bytes = stats.bytes_reclaimed,
-                tombstones = stats.tombstones_expired,
-                "collected"
+        match engine.housekeep(qurb_engine::RETENTION) {
+            Ok(done) if done.bytes_freed() > 0 => tracing::info!(
+                collected = done.collected.bytes_reclaimed,
+                reclaimed = done.reclaimed.bytes_reclaimed,
+                tombstones = done.collected.tombstones_expired,
+                "freed what nothing needs"
             ),
             Ok(_) => {}
-            Err(e) => tracing::warn!(error = %e, "collecting failed"),
+            Err(e) => tracing::warn!(error = %e, "housekeeping failed"),
         }
 
         let limit = self.limit();
