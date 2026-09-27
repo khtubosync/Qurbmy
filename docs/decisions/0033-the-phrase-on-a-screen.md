@@ -1,6 +1,6 @@
 # 0033 — The recovery phrase on a screen
 
-**Status:** Accepted — the storage clause amended by [0038](0038-the-storage-question-during-setup.md)
+**Status:** Accepted — the storage clause amended by [0038](0038-the-storage-question-during-setup.md); applied to the phone 2026-09-27
 **Date:** 2026-09-23
 
 ## Decision
@@ -97,3 +97,22 @@ only shows up much later, on the device that was set up the unusual way.
   a file in the folder is asking a question they cannot answer.
 - **No pairing.** Still `qurb pair` and `qurb join`. The last onboarding screen
   says so rather than implying the device is alone.
+
+## On the phone
+
+2026-09-27. The phone now follows the same four rules, adapted to what it is.
+There is no session to hold a pending phrase, but there is something better:
+the open engine already holds the key, so `phrase_matches` and
+`recovery_phrase` derive the words from it rather than remember them. The app
+draws the words it was given at setup once and keeps no copy. The matching
+rule itself is `RecoveryPhrase::matches`, used by the desktop and the phone
+alike, so the two cannot come to disagree about capitals or empty answers.
+
+Two things the phone needed that the desktop did not. A flag recording that
+the words have not yet been typed back, set when the key is made and cleared by
+a correct answer, because a phone's app is closed far more casually than a
+setup window, and closing it must not skip the check. And `FLAG_SECURE` on
+every window that shows the words, with the fields that take them telling the
+keyboard not to learn what is typed: a phone's screenshots and keyboard
+dictionary are both places a key could otherwise end up.
+

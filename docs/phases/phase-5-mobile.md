@@ -1045,11 +1045,23 @@ It found three more things, all fixed or recorded:
   such a file is never offered for freeing — and recorded rather than fixed.
 
 The share sheet's confirmation, seen when a test share failed for reasons of the
-test's own, has not taken the new design: square corners, the old background, a
-misaligned title.
+test's own, had not taken the new design: square corners, the old background, a
+title the theme was meant to hide. It has now, and its message follows the
+privacy setting — it used to promise that "your other devices will get it" of a
+file that, private by default, goes only to a device chosen to keep it.
 
-**Not done here:** the phrase confirmation, the storage question during setup
-(decision 0038), the system picker asking the engine, sending straight to a
+**The phrase is confirmed on the phone**, by the rules decision 0033 set for the
+desktop: three words typed back, checked by the engine against the key, and the
+words shown again from the key rather than kept. The matching rule moved into
+`RecoveryPhrase::matches` so the two cannot differ. Walked through on the
+emulator (a throwaway key): a wrong word kept the dialog open and said so; the
+app force-stopped half-way came back to the words, the same 24; the right
+words, one in capitals with a trailing space, went on to the app, and a
+relaunch went straight there. Screenshots of those dialogs come out blank —
+`FLAG_SECURE` — so the check was driven through the accessibility tree.
+
+**Not done here:** the storage question during setup (decision 0038, which is
+for desktops), the system picker asking the engine, sending straight to a
 device from the share sheet, and a phone showing a code rather than only
 scanning one.
 

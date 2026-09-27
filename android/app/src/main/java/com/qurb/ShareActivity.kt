@@ -9,7 +9,9 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
 import com.qurb.databinding.ActivityShareBinding
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The share sheet's way in.
@@ -125,11 +127,30 @@ class ShareActivity : AppCompatActivity() {
             // About what was just shared, not about the backlog. Someone who
             // shared one photo and is told their devices will get "them" is
             // being answered about something they did not ask.
+            //
+            // And about where it will actually go. Files added on the phone
+            // are private to it unless the person has said otherwise (decision
+            // 0036), so "your other devices will get it" is true only of the
+            // device chosen to keep them, if there is one.
             val it = if (saved == 1) "it" else "them"
+            val keepers = runCatching {
+                withContext(Dispatchers.IO) { Engine.open(this@ShareActivity).holders() }
+            }.getOrDefault(emptyList())
             views.detail.text = buildString {
                 append(
-                    "Your other devices will get $it the next time one is " +
-                        "switched on and reachable. You do not need to do anything."
+                    when {
+                        !Engine.ownFilesPrivate(this@ShareActivity) ->
+                            "Your other devices will get $it the next time one is " +
+                                "switched on and reachable. You do not need to do anything."
+                        keepers.isNotEmpty() ->
+                            "${keepers.joinToString(", ") { k -> k.name }} will keep a copy " +
+                                "the next time it is switched on and reachable. Nobody else " +
+                                "sees $it."
+                        else ->
+                            (if (saved == 1) "It stays" else "They stay") +
+                                " on this phone and nowhere else. To keep a copy safe, " +
+                                "choose a device on qurb's Devices screen."
+                    }
                 )
                 if (failed > 0) {
                     append("\n\n$failed could not be read and was not saved.")

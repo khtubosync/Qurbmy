@@ -78,7 +78,9 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        if (!Engine.isSetUp(this)) {
+        // Not set up, or set up and closed before the 24 words were typed
+        // back: the setup screen knows which, and picks up from there.
+        if (!Engine.isSetUp(this) || !Engine.phraseConfirmed(this)) {
             startActivity(Intent(this, SetupActivity::class.java))
             finish()
             return
@@ -187,7 +189,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Something every screen might need to say. */
-    fun say(message: String) = Words.say(views.root, message)
+    fun say(message: String) = Words.say(views.root, message, above = views.tabs)
 
     fun fail(title: String, e: Throwable) = Words.fail(this, title, e)
 
@@ -256,11 +258,13 @@ class MainActivity : AppCompatActivity() {
             // Scanning first, because it is what anyone will actually do. A
             // pairing code is over a hundred characters; typing one is possible
             // and nobody does it twice.
-            .setPositiveButton("Scan the code") { _, _ ->
+            // Two buttons, not three. With a Cancel as well the row stacked,
+            // whatever the labels, and a stacked dialog puts Cancel between
+            // the two ways of connecting. Back and a tap outside still cancel.
+            .setPositiveButton("Scan code") { _, _ ->
                 scanner.launch(Intent(this, ScanActivity::class.java))
             }
-            .setNeutralButton("Type it") { _, _ -> typeCode() }
-            .setNegativeButton("Cancel", null)
+            .setNeutralButton("Type code") { _, _ -> typeCode() }
             .show()
     }
 

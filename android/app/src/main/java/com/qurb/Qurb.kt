@@ -35,10 +35,33 @@ object Engine {
 
     fun isSetUp(context: Context): Boolean = isSetUp(root(context).absolutePath)
 
-    /** Set up a new identity. Returns the 24 words, which are shown exactly once. */
+    /**
+     * Set up a new identity. Returns the 24 words, for the setup screen to show
+     * and then drop; after that they are asked of the engine, which derives
+     * them from the key.
+     */
     suspend fun create(context: Context): String = withContext(Dispatchers.IO) {
         root(context).mkdirs()
-        createProtected(root(context).absolutePath, AndroidKeyStore(context)).recoveryPhrase
+        val phrase = createProtected(root(context).absolutePath, AndroidKeyStore(context)).recoveryPhrase
+        setPhraseConfirmed(context, false)
+        phrase
+    }
+
+    /**
+     * Whether the 24 words have been typed back since this phone was set up.
+     *
+     * Recorded as not yet when a key is made, and set when the check passes,
+     * so that an app closed between the two comes back to the check rather
+     * than past it. A phone set up before the check existed has no record,
+     * and is not asked; nor is one restored from the words, which has just
+     * typed all 24.
+     */
+    fun phraseConfirmed(context: Context): Boolean =
+        context.getSharedPreferences("qurb", Context.MODE_PRIVATE).getBoolean("phrase_confirmed", true)
+
+    fun setPhraseConfirmed(context: Context, confirmed: Boolean) {
+        context.getSharedPreferences("qurb", Context.MODE_PRIVATE)
+            .edit().putBoolean("phrase_confirmed", confirmed).commit()
     }
 
     /** Set up from another device's words. */

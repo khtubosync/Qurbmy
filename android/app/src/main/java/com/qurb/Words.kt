@@ -103,6 +103,30 @@ object Words {
         return headline to listOfNotNull(ago(h.at), extra).joinToString(" · ")
     }
 
+    /**
+     * The 24 words laid out to copy onto paper: numbered, two columns, in a
+     * fixed-width face so the columns line up. The realistic failure is losing
+     * one's place halfway down the list.
+     */
+    fun phraseView(context: Context, phrase: String): View {
+        val words = phrase.trim().split(Regex("\\s+"))
+        val half = (words.size + 1) / 2
+        val rows = (0 until half).joinToString("\n") { row ->
+            val left = "%2d. %-9s".format(row + 1, words[row])
+            val right = words.getOrNull(row + half)?.let { "%2d. %s".format(row + half + 1, it) } ?: ""
+            "$left   $right"
+        }
+        val scale = context.resources.displayMetrics.density
+        return android.widget.TextView(context).apply {
+            text = rows
+            typeface = android.graphics.Typeface.MONOSPACE
+            textSize = 16f
+            setLineSpacing(0f, 1.25f)
+            setTextColor(ContextCompat.getColor(context, R.color.ink))
+            setPadding((24 * scale).toInt(), (8 * scale).toInt(), (24 * scale).toInt(), 0)
+        }
+    }
+
     /** Say a failure, in words a person can act on. */
     fun fail(context: Context, title: String, e: Throwable) {
         MaterialAlertDialogBuilder(context)
@@ -115,7 +139,11 @@ object Words {
             .show()
     }
 
-    fun say(anchor: View, message: String) {
-        Snackbar.make(anchor, message, Snackbar.LENGTH_LONG).show()
+    /**
+     * A passing message. `above` is the view it must not cover -- the tab bar,
+     * which a snackbar otherwise sits on top of for its whole three seconds.
+     */
+    fun say(anchor: View, message: String, above: View? = null) {
+        Snackbar.make(anchor, message, Snackbar.LENGTH_LONG).setAnchorView(above).show()
     }
 }

@@ -412,7 +412,8 @@ rebuilt on platform views ([0039](decisions/0039-a-light-android-app.md)) as
 five tabs — Home, Vault, Devices, Transfers (with the history the brief calls
 Activity) and Settings — installed on the S23, and the phone and the laptop
 verified keeping, freeing, fetching back and deleting through those screens.
-Not done: the phrase confirmation and the system picker asking the engine.
+The phrase is confirmed on the phone as on the desktop. Not done: the system
+picker asking the engine.
 
 **7. Cross-device flows**, including Android↔Android, offline and relay.
 

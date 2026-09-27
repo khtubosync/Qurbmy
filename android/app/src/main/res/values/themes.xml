@@ -23,6 +23,7 @@
         <item name="colorOutline">@color/line</item>
         <item name="colorOutlineVariant">@color/line</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">@bool/light_bars</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
 
@@ -32,10 +33,19 @@
     <style name="Theme.Qurb.Share" parent="Theme.Material3.DayNight.Dialog">
         <item name="colorPrimary">@color/primary</item>
         <item name="colorOnPrimary">@color/on_primary</item>
+        <item name="colorSurface">@color/surface_soft</item>
+        <item name="colorOnSurface">@color/ink</item>
+        <item name="colorOnSurfaceVariant">@color/ink_soft</item>
+        <item name="colorSurfaceContainerHighest">@color/line</item>
+        <item name="android:windowBackground">@drawable/dialog_window</item>
         <!-- The activity's label is what the share sheet puts on its button;
              as a window title it only repeats the screen's own heading in
-             smaller type. -->
+             smaller type. Both spellings: this is an AppCompat theme, which
+             reads the one without the prefix and ignored the other, so the
+             title showed anyway. -->
         <item name="android:windowNoTitle">true</item>
+        <item name="windowNoTitle">true</item>
+        <item name="windowActionBar">false</item>
         <!-- Without these the dialog is sized to its text and comes out a
              narrow column, breaking one short sentence across four lines. -->
         <item name="android:windowMinWidthMajor">80%</item>

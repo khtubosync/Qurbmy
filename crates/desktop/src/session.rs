@@ -175,14 +175,8 @@ impl Hosted {
     pub fn phrase_matches(&self, answers: &[(usize, String)]) -> bool {
         let guard = self.pending.lock().expect("pending");
         let Some(phrase) = guard.as_ref() else { return false };
-        let words = phrase.words();
-
-        !answers.is_empty()
-            && answers.iter().all(|(position, given)| {
-                words
-                    .get(position.wrapping_sub(1))
-                    .is_some_and(|word| word.eq_ignore_ascii_case(given.trim()))
-            })
+        let answers: Vec<(usize, &str)> = answers.iter().map(|(p, w)| (*p, w.as_str())).collect();
+        phrase.matches(&answers)
     }
 
     /// Show the phrase being held. Only while one is.

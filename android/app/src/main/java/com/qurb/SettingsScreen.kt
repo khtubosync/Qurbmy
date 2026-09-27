@@ -61,6 +61,12 @@ class SettingsScreen(app: MainActivity) : Screen(app) {
             toggle.setOnCheckedChangeListener { _, on -> setPrivate(on) }
         }
 
+        page.heading("Your key")
+        page.setting(
+            "Recovery phrase",
+            "The 24 words that are your key. Show them to write out a new copy.",
+        ) { warnThenShowPhrase() }
+
         page.heading("Space")
         page.setting("Your files", Words.size(usage.logical))
         page.setting("qurb on this phone", Words.size(usage.onDisk))
@@ -75,6 +81,43 @@ class SettingsScreen(app: MainActivity) : Screen(app) {
             app.packageManager.getPackageInfo(app.packageName, 0).versionName
         }.getOrNull() ?: "unknown"
         page.setting("Version", version)
+    }
+
+    /**
+     * The words again, for a new paper copy before the old one is lost.
+     *
+     * Not a secret kept from the person holding the phone: anyone who can
+     * open this app can read every file already, so the words give away
+     * nothing new (decision 0033). But they are the key, so the screen says
+     * so first, and the window is kept out of screenshots while they are on it.
+     */
+    private fun warnThenShowPhrase() {
+        MaterialAlertDialogBuilder(app)
+            .setTitle("Show your recovery phrase?")
+            .setMessage(
+                "Anyone who sees these 24 words can read every file you keep in " +
+                    "qurb, on any device. Make sure nobody is looking."
+            )
+            .setPositiveButton("Show") { _, _ ->
+                scope.launch {
+                    try {
+                        val phrase = withContext(Dispatchers.IO) { engine().recoveryPhrase() }
+                        MaterialAlertDialogBuilder(app)
+                            .setTitle("Your recovery phrase")
+                            .setView(Words.phraseView(app, phrase))
+                            .setPositiveButton("Hide", null)
+                            .create()
+                            .apply {
+                                window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+                            }
+                            .show()
+                    } catch (e: Exception) {
+                        app.fail("Could not show the words", e)
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun setPrivate(on: Boolean) {

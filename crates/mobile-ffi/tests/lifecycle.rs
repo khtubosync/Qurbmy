@@ -516,3 +516,28 @@ fn keeping_new_files_private_applies_from_the_next_file() {
     assert!(!private_of("shared.jpg"), "switched off, and the file stayed private");
     assert!(private_of("after.jpg"), "switched back on, and the file went to everyone");
 }
+
+/// Confirming the phrase at setup, and showing it again later, through the
+/// calls the app makes. The app draws the words it was given once; everything
+/// after that is asked of the engine, which derives them from the key.
+#[test]
+fn the_phrase_is_confirmed_and_shown_again_from_the_key() {
+    let dir = scratch();
+    let root = dir.path().display().to_string();
+    let setup = create(root.clone()).unwrap();
+    let words: Vec<String> = setup.recovery_phrase.split(' ').map(str::to_string).collect();
+    assert_eq!(words.len(), 24);
+
+    let qurb = Qurb::open(root, None).unwrap();
+    let answer = |position: u32, word: &str| qurb_mobile::PhraseAnswer {
+        position,
+        word: word.to_string(),
+    };
+
+    assert!(qurb.phrase_matches(vec![answer(3, &words[2]), answer(17, &words[16])]));
+    assert!(qurb.phrase_matches(vec![answer(24, &format!(" {} ", words[23].to_uppercase()))]));
+    assert!(!qurb.phrase_matches(vec![answer(3, &words[3])]), "a right word in the wrong place");
+    assert!(!qurb.phrase_matches(vec![]), "answering nothing");
+
+    assert_eq!(qurb.recovery_phrase(), setup.recovery_phrase, "shown again differently");
+}

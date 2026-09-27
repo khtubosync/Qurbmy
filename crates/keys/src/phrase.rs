@@ -69,6 +69,24 @@ impl RecoveryPhrase {
         &self.words
     }
 
+    /// Whether words typed back are this phrase's words at those positions,
+    /// counted from one as they are shown.
+    ///
+    /// The check behind "confirm three of your words", in one place so that
+    /// the desktop and the phone cannot disagree about it
+    /// ([decision 0033](../../../docs/decisions/0033-the-phrase-on-a-screen.md)).
+    /// Case and surrounding space are ignored: people retype from paper, where
+    /// neither was recorded. Answering nothing is not answering correctly, and
+    /// a position outside the phrase is a wrong answer rather than a panic.
+    pub fn matches(&self, answers: &[(usize, &str)]) -> bool {
+        !answers.is_empty()
+            && answers.iter().all(|(position, given)| {
+                self.words
+                    .get(position.wrapping_sub(1))
+                    .is_some_and(|word| word.eq_ignore_ascii_case(given.trim()))
+            })
+    }
+
     /// The phrase laid out for someone to copy down.
     ///
     /// Numbered and in columns, because the realistic failure is a person
@@ -118,6 +136,18 @@ impl Drop for RecoveryPhrase {
 mod tests {
     use super::*;
     use crate::master::MasterKey;
+
+    #[test]
+    fn typed_back_words_are_checked_by_position() {
+        let phrase = MasterKey::from_bytes([7; 32]).to_phrase();
+        let w = phrase.words().to_vec();
+        assert!(phrase.matches(&[(1, &w[0]), (12, &w[11]), (24, &w[23])]));
+        assert!(phrase.matches(&[(3, &format!("  {} ", w[2].to_uppercase()))]));
+        assert!(!phrase.matches(&[(2, &w[0])]), "a right word in the wrong place");
+        assert!(!phrase.matches(&[(1, &w[0]), (2, "rhubarb")]), "one wrong answer");
+        assert!(!phrase.matches(&[]), "answering nothing");
+        assert!(!phrase.matches(&[(0, &w[0])]) && !phrase.matches(&[(25, &w[0])]));
+    }
 
     #[test]
     fn a_phrase_is_twenty_four_words() {

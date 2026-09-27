@@ -183,6 +183,14 @@ pub struct Waiting {
     pub to_fingerprint: String,
 }
 
+/// One word of the recovery phrase, as somebody typed it back from paper.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct PhraseAnswer {
+    /// Its position as shown, counting from one.
+    pub position: u32,
+    pub word: String,
+}
+
 /// One thing that happened, for a history screen.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct Happening {
@@ -931,6 +939,28 @@ impl Qurb {
     pub fn set_own_files_private(&self, private: bool) -> Result<(), QurbError> {
         self.engine()?.store_mut().set_new_files_private(private);
         Ok(())
+    }
+
+    /// Whether these are the recovery phrase's words at those positions: the
+    /// check behind "confirm three of your words" when a phone is set up.
+    ///
+    /// Answered here, against the phrase derived from the key this handle
+    /// already holds, so the app can let go of its copy of the words the moment
+    /// it has drawn them rather than keep all 24 to compare against
+    /// (decision 0033). The rule itself is `RecoveryPhrase::matches`, which the
+    /// desktop uses too.
+    pub fn phrase_matches(&self, answers: Vec<PhraseAnswer>) -> bool {
+        let answers: Vec<(usize, &str)> =
+            answers.iter().map(|a| (a.position as usize, a.word.as_str())).collect();
+        self.master.to_phrase().matches(&answers)
+    }
+
+    /// The 24 words again, for writing out a new copy before the old one is
+    /// lost. Derived from the key rather than kept anywhere: anyone who can
+    /// open this handle can already read every file, so showing them the words
+    /// gives away nothing they did not have (decision 0033).
+    pub fn recovery_phrase(&self) -> String {
+        self.master.to_phrase().to_string()
     }
 
     /// The devices that keep this phone's own files for it (decision 0036).

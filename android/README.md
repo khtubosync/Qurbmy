@@ -30,8 +30,8 @@ Five places under a tab bar, plus setup, scanning and the share sheet:
 | Vault | every file, and where its bytes are: on this phone and another device, only on this phone, or on another device and not here. Tapping one offers what that allows — open, save a copy, send to a device, free phone space, download, delete |
 | Devices | the connected devices, which of them keep this phone's files, and a way to send one files |
 | Transfers | what this phone has sent that has not been collected, with a way to stop it, and the history |
-| Settings | this phone's name, *Keep new files private*, what qurb takes in space and a way to free what nothing needs, background sync, the rendezvous service, the version |
-| setup | create an identity and show the 24 words, or restore from them |
+| Settings | this phone's name, *Keep new files private*, the recovery phrase shown again, what qurb takes in space and a way to free what nothing needs, background sync, the rendezvous service, the version |
+| setup | create an identity, show the 24 words and have three of them typed back; or restore from them |
 | scan | the camera, reading the code another device shows when connecting |
 | share | anything on the phone, sent into qurb from the system share sheet |
 
@@ -73,6 +73,16 @@ storage, so a file that arrives from another device and stays there is invisible
 to everything else on the phone. Without a way out, a sync product syncs into a
 hole. Both actions go through the app's own `DocumentsProvider`, so there is one
 path out of the store rather than two implementations of reading it.
+
+**The 24 words are checked, as on the desktop** (decision
+[0033](../docs/decisions/0033-the-phrase-on-a-screen.md)). After "I have written
+them down" the phone asks for three at random positions, drawn again each time
+the words are looked at again, and the engine checks them against the key: the
+app draws the words once and keeps no copy to compare with. Closed before the
+check, the app comes back to it. Settings shows the words again, after saying
+what they are. The windows that show them are kept out of screenshots and the
+recent-apps view, and the fields that take them tell the keyboard not to learn
+what is typed.
 
 Saving streams through a cache file rather than a byte array, because `export`
 writes a chunk at a time precisely so a large file never has to fit in the heap
@@ -219,8 +229,6 @@ next sync further and further away. See
   in flight.
 - **This phone cannot show a code**, only scan one. Connecting two phones to
   each other needs a computer's code, or typing.
-- **The phrase is not asked for again** after setup, to confirm it was written
-  down; the brief asks for that.
 - **The storage question during setup**
   ([decision 0038](../docs/decisions/0038-the-storage-question-during-setup.md)) is not
   built.
