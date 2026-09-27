@@ -246,13 +246,32 @@ pub fn inspect_folder(path: String) -> Answer<Folder> {
 /// [`shown_phrase`], so that the two are separate actions: creating a device is
 /// not the same event as putting somebody's key on a screen, and keeping them
 /// apart means the second can be repeated without the first.
+///
+/// `allowance` is the disk this device may use, in bytes, from the question
+/// asked before the key is made (decision 0038). Written with the rest of the
+/// device's settings, before anything syncs.
 #[tauri::command]
-pub fn create_device(hosted: Host<'_>, path: String) -> Answer<()> {
+pub fn create_device(hosted: Host<'_>, path: String, allowance: String) -> Answer<()> {
+    let bytes = bytes_of(&allowance)?;
     let root = expand(&path);
     hosted.aim_at(root.clone()).map_err(failed)?;
     let phrase = qurb_cli::setup::create(&root).map_err(failed)?;
+    qurb_cli::setup::allow(&root, bytes).map_err(failed)?;
     hosted.hold_phrase(phrase);
     Ok(())
+}
+
+/// What somebody typed as a custom allowance, in bytes — or why it is not one.
+#[tauri::command]
+pub fn read_allowance(text: String) -> Answer<String> {
+    qurb_cli::setup::allowance(&text).map(big).map_err(failed)
+}
+
+fn bytes_of(allowance: &str) -> Answer<u64> {
+    match allowance.parse::<u64>() {
+        Ok(0) | Err(_) => Err("choose how much space qurb may use".to_string()),
+        Ok(bytes) => Ok(bytes),
+    }
 }
 
 /// The words, to put on the screen.
@@ -283,14 +302,23 @@ pub fn confirm_phrase(hosted: Host<'_>, answers: Vec<(usize, String)>) -> Answer
 }
 
 /// Set this folder up with a key that already exists on another device.
+///
+/// `allowance` is as for [`create_device`].
 #[tauri::command]
-pub fn enrol_device(hosted: Host<'_>, path: String, phrase: String) -> Answer<()> {
+pub fn enrol_device(
+    hosted: Host<'_>,
+    path: String,
+    phrase: String,
+    allowance: String,
+) -> Answer<()> {
+    let bytes = bytes_of(&allowance)?;
     let parsed = qurb_keys::RecoveryPhrase::parse(&phrase).map_err(|_| {
         "those are not 24 valid words — check the spelling and the order".to_string()
     })?;
     let root = expand(&path);
     hosted.aim_at(root.clone()).map_err(failed)?;
     qurb_cli::setup::enrol(&root, &parsed).map_err(failed)?;
+    qurb_cli::setup::allow(&root, bytes).map_err(failed)?;
     hosted.start(|| Ok(String::new())).map_err(failed)
 }
 

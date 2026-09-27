@@ -77,6 +77,7 @@ fn run() -> Result<()> {
             commands::join_device,
             commands::inspect_folder,
             commands::create_device,
+            commands::read_allowance,
             commands::shown_phrase,
             commands::confirm_phrase,
             commands::enrol_device,

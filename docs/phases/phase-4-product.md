@@ -35,7 +35,7 @@ warns is not the fun part and is a full quarter.
 | the services deployable | ✅ systemd units, TLS, ports written down |
 | garbage collection running | ✅ every 5 minutes, 7-day retention |
 
-676 tests pass in 79 test binaries on Linux (2026-09-27, debug build, the
+679 tests pass in 79 test binaries on Linux (2026-09-27, debug build, the
 development laptop); clippy is clean.
 
 ## The interface
@@ -656,6 +656,19 @@ afterwards.
 The relay path in the window is untested: on one machine every direct attempt
 succeeds, so nothing here falls back to the relay by itself.
 
+## How much space, asked first
+
+**2026-09-27.** Setting up in the window now asks how much of the disk qurb may
+use, between choosing the folder and making the key — the brief's order and
+[decision 0038](../decisions/0038-the-storage-question-during-setup.md), which
+records what was built, the unit it counts in, and how it was checked: unit
+tests and the fixture page in a headless browser, not the real window, which
+synthetic input cannot reach under Wayland.
+
+The last setting-up screen also stopped saying devices are introduced "on the
+command line for now". The window's Devices screen has done that since pairing
+by code was built.
+
 ## Still to do
 
 - **Running the *daemon* as a service** — a user unit, a launch agent, a
@@ -668,9 +681,8 @@ succeeds, so nothing here falls back to the relay by itself.
   deleting a file from a folder, so a cap on a replica reports the overrun
   rather than acting on it. Dropping chunk payloads is a different operation
   and is not written.
-- **The rest of the interface.** Progress for a file being sent, and cancel and retry; more
-  than one file per send; "Open folder" for a received file; the `downloads`
-  setting in the window; the storage question during setup
-  ([0038](../decisions/0038-the-storage-question-during-setup.md)); and
-  recovering a deleted file. See [product-plan.md](../product-plan.md) for the
-  order.
+- **The rest of the interface.** Recovering a deleted file, and the
+  applications menu opening the window rather than the tray. Progress, cancel,
+  several files per send, "Open folder", the `downloads` setting and the
+  storage question during setup were on this list and are built — see the
+  sections above. See [product-plan.md](../product-plan.md) for the order.

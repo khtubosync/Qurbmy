@@ -712,7 +712,7 @@ for the workspace as it stands.
 | Recovery, end to end | the phrase turns back into the user's files |
 | Key hygiene | redacted in `Debug`, wiped on drop, owner-only on disk |
 
-676 tests pass in 79 test binaries on Linux (2026-09-27, debug build, the
+679 tests pass in 79 test binaries on Linux (2026-09-27, debug build, the
 development laptop); clippy is clean. The last run on
 a Galaxy S23 was 426 of them, before this week's work — see
 [phases/phase-5-mobile.md](phases/phase-5-mobile.md).
@@ -973,10 +973,12 @@ network. iOS needs Xcode, which needs a Mac. See
 An iOS app, per-file keys, key rotation, relay selection and quotas, accounts
 and billing, installers and updates.
 
-The desktop interface is partly built rather than absent: a window showing what
-the daemon is doing, with a slider for how much disk it may use. What it cannot
-do is pair a device, browse what is synced, or recover a deleted file — and the
-onboarding that asks somebody to write down 24 words is still a terminal.
+The desktop interface is built, with gaps. The window sets a device up — the
+folder, how much disk it may use, the 24 words shown and three typed back, or
+joining with the words from another device — pairs devices by code, browses
+what is synced and where each file's bytes are, sends to one device, and shows
+activity, transfers and storage. What it cannot do is recover a deleted file,
+and the applications menu still opens the smaller tray rather than it.
 
 Selective sync is half-built rather than unbuilt: a device drops local copies
 when it is over its storage limit and fetches them back on request, which is

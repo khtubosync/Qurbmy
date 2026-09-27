@@ -42,6 +42,24 @@
       </div>
     </section>
 
+    <section class="step" data-step="storage">
+      <h1>How much space may qurb use?</h1>
+      <p class="lead">
+        On this disk, for your files and for what it keeps for your other
+        devices. You can change it at any time on the Storage screen.
+      </p>
+      <div id="allowances" class="allowances"></div>
+      <div id="allowance-custom" class="hidden">
+        <input type="text" id="custom-allowance" spellcheck="false" autocomplete="off"
+               placeholder="How much, in GB — 75, or 1.5 TB">
+      </div>
+      <p id="storage-says" class="quiet"></p>
+      <div class="buttons">
+        <button class="act" data-back="folder">Back</button>
+        <button class="act primary" id="storage-next" disabled>Continue</button>
+      </div>
+    </section>
+
     <section class="step" data-step="phrase">
       <h1>Write these down</h1>
       <p class="lead">
@@ -83,7 +101,7 @@
                 placeholder="wheel push industry …"></textarea>
       <p id="join-says" class="warn hidden"></p>
       <div class="buttons">
-        <button class="act" data-back="folder">Back</button>
+        <button class="act" data-back="storage">Back</button>
         <button class="act primary" id="join-next">Set up this device</button>
       </div>
     </section>
@@ -93,8 +111,8 @@
       <p class="lead" id="ready-says"></p>
       <p class="quiet">
         Sharing a key is what makes two devices <em>yours</em>. They still have
-        to be introduced, which happens on the command line for now:
-        <code>qurb pair</code> on one, <code>qurb join</code> on the other.
+        to be introduced: on the Devices screen, choose Show a code, and scan it
+        with your phone — or enter it on your other computer.
       </p>
       <div class="buttons">
         <button class="act primary" id="ready-next">Open my folder</button>

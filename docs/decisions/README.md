@@ -59,10 +59,10 @@ is worth more than a tidy directory.
 | [0030](0030-sending-a-file-to-one-device.md) | Sending a file to one device | Accepted, amended by 0037, extended by 0036 |
 | [0031](0031-what-happened-is-written-down.md) | What happened is written down | Accepted |
 | [0032](0032-the-interface-hosts-the-daemon.md) | The interface hosts the daemon, and asks it nouns | Accepted |
-| [0033](0033-the-phrase-on-a-screen.md) | The recovery phrase on a screen | Accepted, storage clause amended by 0038 |
+| [0033](0033-the-phrase-on-a-screen.md) | The recovery phrase on a screen | Accepted, storage clause amended by 0038, applied to the phone |
 | [0034](0034-finding-each-other-with-no-server.md) | Finding each other with no server | Accepted |
 | [0035](0035-a-rendezvous-on-a-bare-address.md) | A rendezvous on a bare address | Accepted |
-| [0036](0036-a-phone-keeps-its-own-files.md) | A phone keeps its own files, and another device holds them for it | Accepted — built on the desktop, not yet on the phone |
+| [0036](0036-a-phone-keeps-its-own-files.md) | A phone keeps its own files, and another device holds them for it | Accepted — built, verified between a phone and a laptop |
 | [0037](0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md) | A file sent to a desktop is an ordinary file in Downloads | Accepted — built |
-| [0038](0038-the-storage-question-during-setup.md) | The storage question is asked during setup | Accepted — not built |
+| [0038](0038-the-storage-question-during-setup.md) | The storage question is asked during setup | Accepted — built |
 | [0039](0039-a-light-android-app.md) | A light Android app, on the platform's own views | Accepted |

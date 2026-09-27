@@ -289,6 +289,25 @@ dd { margin: 0; font-variant-numeric: tabular-nums; }
 }
 
 .choice:hover { border-color: var(--accent); }
+
+/* The allowance presets: a row of choices, one of them chosen. One that is
+   more than the disk has free stays visible, and says so, rather than
+   vanishing and leaving somebody to wonder where 500 GB went. */
+.allowances { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.allowances button {
+  appearance: none;
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  cursor: pointer;
+}
+.allowances button:hover:not(:disabled) { border-color: var(--accent); }
+.allowances button.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.allowances button:disabled { cursor: default; opacity: .45; }
+#allowance-custom { margin-bottom: 12px; }
 .choice strong { font-weight: 600; }
 
 #setup input[type="text"], #setup textarea, .field input {

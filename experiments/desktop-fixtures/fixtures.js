@@ -45,6 +45,13 @@ const ANSWERS = {
   }),
 
   create_device: () => null,
+  // Numbers in GB only, which is all a person looking at the screen needs to
+  // try; the real parser, with its units, is tested in `qurb-cli`.
+  read_allowance: ({ text }) => {
+    const gb = parseFloat(text);
+    if (!(gb > 0)) throw new Error(`\`${text.trim()}\` is not an amount of space — try 75 or 1.5 TB`);
+    return String(Math.round(gb * 1024 ** 3));
+  },
   shown_phrase: () => WORDS,
   // Any answer is accepted here; the real one checks against the phrase the
   // session is holding, which a fixture has no way to be.
@@ -206,3 +213,27 @@ window.__TAURI__ = {
     },
   },
 };
+
+// `?setup&at=storage` walks the setting-up screens as far as the storage
+// question, for looking at it without clicking through; `&custom=75` then
+// types into its custom field.
+(() => {
+  const params = new URLSearchParams(location.search);
+  if (params.get("at") !== "storage") return;
+  const ready = setInterval(async () => {
+    if (typeof lookAtFolder !== "function") return;
+    clearInterval(ready);
+    document.getElementById("choose-new").click();
+    document.getElementById("folder-path").value = "/home/saqib/Sync";
+    await lookAtFolder();
+    document.getElementById("folder-next").click();
+    const custom = params.get("custom");
+    if (custom !== null) {
+      [...document.querySelectorAll("#allowances button")].pop().click();
+      const field = document.getElementById("custom-allowance");
+      field.value = custom;
+      field.dispatchEvent(new Event("input"));
+    }
+  }, 50);
+})();
+

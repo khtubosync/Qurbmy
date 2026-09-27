@@ -129,6 +129,42 @@ pub fn enrol(root: &Path, phrase: &RecoveryPhrase) -> Result<()> {
     Ok(())
 }
 
+/// How much disk a device may use, as somebody typed it while setting it up.
+///
+/// The question is asked in gigabytes, so a bare number is gigabytes; a unit
+/// may still be given, with or without its `B`: `75`, `75 GB`, `1.5T`,
+/// `500 MB`. The unit is the one `qurb config` uses, counted in 1024s, so the
+/// figure chosen is the figure the Storage screen shows afterwards. Nothing is
+/// refused here as well as nonsense: setup asks for an allowance
+/// (decision 0038), and "no limit" stays what `qurb config <dir> limit=0` sets.
+pub fn allowance(text: &str) -> Result<u64> {
+    let trimmed = text.trim();
+    let unit = ["iB", "ib", "IB", "B", "b"]
+        .iter()
+        .find_map(|suffix| trimmed.strip_suffix(suffix))
+        .unwrap_or(trimmed)
+        .replace(' ', "");
+    let unit = match unit.chars().last() {
+        Some(c) if c.is_ascii_digit() || c == '.' => format!("{unit}G"),
+        _ => unit,
+    };
+    let bytes = crate::config::parse_size(&unit)
+        .map_err(|_| anyhow::anyhow!("`{}` is not an amount of space — try 75 or 1.5 TB", text.trim()))?;
+    if bytes == 0 {
+        bail!("an allowance of nothing would leave qurb unable to keep a file");
+    }
+    Ok(bytes)
+}
+
+/// Write down the allowance chosen while setting up: the same setting the
+/// Storage screen and `qurb config <dir> limit=` change later.
+pub fn allow(root: &Path, bytes: u64) -> Result<()> {
+    let dir = store_dir(root);
+    let mut config = Config::load(&dir)?;
+    config.limit = bytes;
+    config.save(&dir)
+}
+
 /// The recovery phrase for a device that is already set up.
 ///
 /// Derived from the stored key rather than remembered, because it was never
@@ -207,3 +243,37 @@ fn space(dir: &Path) -> (u64, u64) {
         ((stat.f_blocks as u64).saturating_mul(block), (stat.f_bavail as u64).saturating_mul(block))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const GB: u64 = 1 << 30;
+
+    #[test]
+    fn an_allowance_is_read_the_way_people_type_it() {
+        assert_eq!(allowance("75").unwrap(), 75 * GB, "a bare number is gigabytes");
+        assert_eq!(allowance(" 75 GB ").unwrap(), 75 * GB);
+        assert_eq!(allowance("75gb").unwrap(), 75 * GB);
+        assert_eq!(allowance("75G").unwrap(), 75 * GB);
+        assert_eq!(allowance("1.5 TB").unwrap(), (1.5 * (1u64 << 40) as f64) as u64);
+        assert_eq!(allowance("500 MB").unwrap(), 500 << 20);
+        assert_eq!(allowance("2 TiB").unwrap(), 2 << 40);
+    }
+
+    #[test]
+    fn nothing_and_nonsense_are_refused() {
+        for text in ["", "0", "0 GB", "  ", "lots", "GB", "-5"] {
+            assert!(allowance(text).is_err(), "accepted {text:?}");
+        }
+    }
+
+    #[test]
+    fn the_allowance_is_written_where_the_storage_screen_reads_it() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(store_dir(dir.path())).unwrap();
+        allow(dir.path(), 100 * GB).unwrap();
+        assert_eq!(Config::load(&store_dir(dir.path())).unwrap().limit, 100 * GB);
+    }
+}
+

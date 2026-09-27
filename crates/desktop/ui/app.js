@@ -113,6 +113,9 @@ document.querySelectorAll("#setup [data-back]").forEach((b) => {
 });
 
 let looking = null;
+
+/** What the folder step last found, for the storage step's free space. */
+let looked = null;
 $("folder-path").addEventListener("input", () => {
   clearTimeout(looking);
   looking = setTimeout(lookAtFolder, 200);
@@ -131,6 +134,7 @@ async function lookAtFolder() {
   let folder;
   try {
     folder = await invoke("inspect_folder", { path });
+    looked = folder;
   } catch (e) {
     says.textContent = String(e);
     next.disabled = true;
@@ -169,18 +173,125 @@ async function lookAtFolder() {
   next.disabled = false;
 }
 
-$("folder-next").addEventListener("click", async () => {
-  const path = $("folder-path").value.trim();
+$("folder-next").addEventListener("click", () => {
+  offerAllowances(looked ? Number(looked.free) : 0);
+  step("storage");
+});
+
+// ------------------------------------------------------------------ the allowance
+//
+// Asked before the key is made (decision 0038): how much of this disk qurb may
+// take. The brief's four figures and a custom one; "no limit" is not offered
+// here, and stays what `qurb config <dir> limit=0` sets.
+
+const GB = 1024 ** 3;
+const PRESETS = [50, 100, 250, 500];
+
+/**
+ * An amount in the unit the question is asked in. "GB" here is the unit the
+ * presets use and `qurb config limit=50G` means, 2^30 bytes, so the screen
+ * speaks one unit throughout rather than offering "GB" and answering "GiB".
+ */
+function gb(bytes) {
+  const n = Number(bytes) / GB;
+  if (n >= 1024) return `${(n / 1024).toFixed(1)} TB`;
+  return `${n < 10 ? n.toFixed(1) : n.toFixed(0)} GB`;
+}
+
+/** Bytes chosen, as a string, or null while nothing valid is. */
+let allowance = null;
+
+function offerAllowances(free) {
+  const box = $("allowances");
+  box.replaceChildren();
+  allowance = null;
+  $("allowance-custom").classList.add("hidden");
+  $("custom-allowance").value = "";
+
+  const pick = (button, bytes) => {
+    box.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === button));
+    allowance = bytes;
+    $("storage-next").disabled = allowance === null;
+  };
+
+  for (const amount of PRESETS) {
+    const button = el("button", null, `${amount} GB`);
+    // Known free space only: a disk that could not be looked at does not
+    // disable anything, rather than disabling everything.
+    if (free > 0 && amount * GB > free) {
+      button.disabled = true;
+      button.title = `More than the ${gb(free)} free on this disk`;
+    }
+    button.addEventListener("click", () => {
+      $("allowance-custom").classList.add("hidden");
+      pick(button, String(amount * GB));
+      tellAboutAllowance(free);
+    });
+    box.append(button);
+  }
+
+  const custom = el("button", null, "Another amount");
+  custom.addEventListener("click", () => {
+    pick(custom, null);
+    $("allowance-custom").classList.remove("hidden");
+    $("custom-allowance").focus();
+    readCustom(free);
+  });
+  box.append(custom);
+
+  // The largest preset that fits, chosen to begin with, so that Continue
+  // works at once for somebody content with a sensible figure.
+  const fits = [...box.querySelectorAll("button")].filter((b) => !b.disabled && b !== custom);
+  if (fits.length) fits[Math.min(1, fits.length - 1)].click();
+  tellAboutAllowance(free);
+}
+
+function tellAboutAllowance(free) {
+  const says = $("storage-says");
+  const disk = free > 0 ? `${gb(free)} free on this disk.` : "";
+  const over = free > 0 && PRESETS.some((amount) => amount * GB > free)
+    ? " Larger amounts are more than it has free." : "";
+  says.textContent = disk + over;
+}
+
+let reading = null;
+$("custom-allowance").addEventListener("input", () => {
+  clearTimeout(reading);
+  reading = setTimeout(() => readCustom(looked ? Number(looked.free) : 0), 200);
+});
+
+async function readCustom(free) {
+  const says = $("storage-says");
+  const text = $("custom-allowance").value;
+  allowance = null;
+  $("storage-next").disabled = true;
+  if (!text.trim()) { tellAboutAllowance(free); return; }
+  try {
+    const bytes = await invoke("read_allowance", { text });
+    if (free > 0 && Number(bytes) > free) {
+      says.textContent = `${gb(bytes)} is more than the ${gb(free)} free on this disk.`;
+      return;
+    }
+    allowance = bytes;
+    says.textContent = `${gb(bytes)}, of ${gb(free)} free.`;
+    $("storage-next").disabled = false;
+  } catch (e) {
+    says.textContent = String(e);
+  }
+}
+
+$("storage-next").addEventListener("click", async () => {
+  if (allowance === null) return;
   if (joining) { step("join"); return; }
 
-  const next = $("folder-next");
+  const next = $("storage-next");
   next.disabled = true;
   try {
-    await invoke("create_device", { path });
+    await invoke("create_device", { path: $("folder-path").value.trim(), allowance });
     await showPhrase();
     step("phrase");
   } catch (e) {
-    $("folder-says").textContent = String(e);
+    $("storage-says").textContent = String(e);
   } finally {
     next.disabled = false;
   }
@@ -265,6 +376,7 @@ $("join-next").addEventListener("click", async () => {
     await invoke("enrol_device", {
       path: $("folder-path").value.trim(),
       phrase: $("given-phrase").value,
+      allowance,
     });
     // Off the screen as soon as it has been used.
     $("given-phrase").value = "";

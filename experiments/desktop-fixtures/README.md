@@ -44,6 +44,10 @@ Then open `http://localhost:8731/experiments/desktop-fixtures/`.
 Add `?setup` to see the setting-up screens instead of the running window:
 `http://localhost:8731/experiments/desktop-fixtures/?setup`.
 
+Add `&at=storage` as well to be taken straight to the storage question, and
+`&custom=75` to have a custom amount typed into it. The fixture disk has about
+188 GiB free, so the two largest presets show as too big.
+
 Pairing answers "waiting" for six seconds and then "paired", so the countdown
 and the arrival can both be looked at without a second device. It returns no QR,
 which is also worth seeing: the window has to cope with a code it could not

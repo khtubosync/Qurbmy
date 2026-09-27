@@ -417,8 +417,9 @@ picker asking the engine.
 
 **7. Cross-device flows**, including Android↔Android, offline and relay.
 
-**8. Storage**: the first-run question (§3.3), freeing a chosen file's local
-copy, fetch, selective availability, replica eviction.
+**8. Storage**: the first-run question (§3.3, built 2026-09-27 — decision
+0038), freeing a chosen file's local copy, fetch, selective availability,
+replica eviction.
 
 **9. Sharing**, once §4.6 is decided.
 
