@@ -578,7 +578,7 @@ qurb/
 │       └── nopush/java/   the same surface, doing nothing, when it is not
 │
 ├── packaging/             Getting it onto a machine.
-│   ├── install.sh         qurb in this user's applications menu
+│   ├── install.sh         qurb in this user's applications menu: the window
 │   ├── qurb.desktop       the launcher entry
 │   └── server/            systemd units and TLS for a host of your own
 │
@@ -979,8 +979,9 @@ The desktop interface is built, with gaps. The window sets a device up — the
 folder, how much disk it may use, the 24 words shown and three typed back, or
 joining with the words from another device — pairs devices by code, browses
 what is synced and where each file's bytes are, sends to one device, and shows
-activity, transfers and storage. What it cannot do is recover a deleted file,
-and the applications menu still opens the smaller tray rather than it.
+activity, transfers and storage; the applications menu opens it
+([decisions/0040](decisions/0040-the-menu-opens-the-window.md)). What it cannot
+do is recover a deleted file, or keep syncing once it is closed.
 
 Selective sync is half-built rather than unbuilt: a device drops local copies
 when it is over its storage limit and fetches them back on request, which is
@@ -1190,7 +1191,9 @@ cargo run --release -p qurb-tray -- ~/qurb
 ```
 
 ```bash
-# Put it in the applications menu for this user. --uninstall undoes it.
+# Put it in the applications menu for this user: the menu opens the window,
+# and qurb and qurb-tray are installed alongside. --uninstall undoes it.
+cargo build --release -p qurb-cli -p qurb-tray -p qurb-desktop
 ./packaging/install.sh
 ```
 

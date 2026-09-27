@@ -66,3 +66,4 @@ is worth more than a tidy directory.
 | [0037](0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md) | A file sent to a desktop is an ordinary file in Downloads | Accepted — built |
 | [0038](0038-the-storage-question-during-setup.md) | The storage question is asked during setup | Accepted — built |
 | [0039](0039-a-light-android-app.md) | A light Android app, on the platform's own views | Accepted |
+| [0040](0040-the-menu-opens-the-window.md) | The applications menu opens the window | Accepted |

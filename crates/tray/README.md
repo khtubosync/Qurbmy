@@ -31,7 +31,9 @@ be showing the past.
 ```
 
 Copies the binaries to `~/.local/bin`, the icon to the user's icon theme, and a
-`.desktop` file into the applications menu. Per-user on purpose: it needs no
+`.desktop` file into the applications menu. The menu entry opens the window,
+`qurb-desktop`, rather than this ([decision 0040](../../docs/decisions/0040-the-menu-opens-the-window.md));
+this is installed alongside, to be started by name. Per-user on purpose: it needs no
 root, touches nothing outside `$HOME`, and `--uninstall` genuinely undoes it. A
 packaged build for distribution is a separate job.
 

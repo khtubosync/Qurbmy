@@ -150,7 +150,7 @@ another document.
 | System file picker (§40) | works | walks the directory itself rather than asking the engine, so a freed file is simply absent and the engine's view of the file is not what the picker shows |
 | Selective sync (§29) | `PinSet`, wired only to `Role::Replica` | an ordinary device takes everything |
 | Storage cap (§28, §58) | works on a device with a folder | a replica cannot free anything — [decision 0025](decisions/0025-a-storage-cap-that-cannot-lose-data.md) |
-| Tray (§42) | `qurb-tray`: an icon, a menu, a window with a slider | it is a second front end. The applications-menu entry launches `qurb-tray`, not `qurb-desktop`, so the full window is not what a person opening qurb gets |
+| Tray (§42) | `qurb-tray`: an icon, a menu, a window with a slider | it is a second front end. The applications-menu entry opens `qurb-desktop` since 2026-09-27 (decision 0040); the tray is installed alongside |
 | Installing (§69) | `packaging/install.sh`, per user, with `--uninstall` | not a package; no autostart |
 | Versions (§70) | schema migrations run at open; the wire protocol is versioned (`qurb/2`) and refuses a mismatch | no version shown anywhere; no update path |
 
@@ -424,7 +424,8 @@ replica eviction.
 **9. Sharing**, once §4.6 is decided.
 
 **10. Security, search, activity, polish, packaging, verification.** Packaging
-includes choosing one front end for the applications menu (§2.3, Tray).
+includes choosing one front end for the applications menu (§2.3, Tray) —
+chosen 2026-09-27: the window (decision 0040).
 
 ## 7. Rules this plan holds itself to
 

@@ -431,8 +431,9 @@ Pairing is a QR code, a typed code or a spoken one, with a countdown. Three
 things raise a notification and nothing else does: a file sent to you, one
 collected, and a failure.
 
-The applications menu still launches `qurb-tray`, the smaller front end, rather
-than this window. Choosing one is packaging work, and it is not done.
+The applications menu launched `qurb-tray`, the smaller front end, rather than
+this window, until 2026-09-27: it opens the window now
+([decision 0040](../decisions/0040-the-menu-opens-the-window.md)).
 
 ## Files sent to a desktop go to Downloads
 
@@ -681,8 +682,7 @@ by code was built.
   deleting a file from a folder, so a cap on a replica reports the overrun
   rather than acting on it. Dropping chunk payloads is a different operation
   and is not written.
-- **The rest of the interface.** Recovering a deleted file, and the
-  applications menu opening the window rather than the tray. Progress, cancel,
-  several files per send, "Open folder", the `downloads` setting and the
-  storage question during setup were on this list and are built — see the
-  sections above. See [product-plan.md](../product-plan.md) for the order.
+- **The rest of the interface.** Recovering a deleted file. Progress, cancel,
+  several files per send, "Open folder", the `downloads` setting, the storage
+  question during setup and the menu opening the window were on this list and
+  are built — see the sections above and decision 0040. See [product-plan.md](../product-plan.md) for the order.
