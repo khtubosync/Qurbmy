@@ -15,8 +15,10 @@ the `mobile` profile — link-time optimisation across every crate. Measured on 
 Galaxy S23: 10.7 MB installed against 46.7 MB for the debug build, the code it
 keeps in memory down from 26.4 MB to 8.1 MB, and a cold start of about 175 ms.
 The measurements and what they do and do not show are in
-[decision 0039](../docs/decisions/0039-a-light-android-app.md). A release build
-takes longer, because link-time optimisation does; the debug build stays quick.
+[decision 0039](../docs/decisions/0039-a-light-android-app.md), which also
+measures the five-tab app against the one-list app it replaced: the same
+startup, and a few megabytes more memory. A release build takes longer, because
+link-time optimisation does; the debug build stays quick.
 
 ## What it does
 

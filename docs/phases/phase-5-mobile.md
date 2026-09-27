@@ -991,18 +991,24 @@ The screens are plain classes holding their views rather than Fragments, and
 none reads anything on the main thread. Installed over the existing app with
 the same key, so its data — 21 files, one paired desktop — was the phone's
 real data, and Home, Vault, Transfers and Settings were checked against it on
-screen. Two layout faults found that way were fixed: the history rows on Home
-were indented twice, because Android ignores a negative
-`layout_marginHorizontal`, and Home's big button said *Connect another device*
-while a device was already connected. The fixed build was installed and not
-yet looked at; the Devices screen was not seen on the phone at all. The phone
-was in use, so both wait.
+screen, then all five again after fixes. Three faults found that way:
 
-**Measured:** the release APK is 10.8 MB, against 10.7 MB before the rebuild.
-Cold start and memory have **not** been measured again for the rebuilt app; the
-two launches timed while installing (287 and 431 ms) were a first launch after
-install and a launch while the phone was in use, and are not comparable with
-decision 0039's 175 ms.
+- Home's history rows were indented twice, because Android ignores a negative
+  `layout_marginHorizontal`; and its big button said *Connect another device*
+  while a device was already connected. Both fixed and seen fixed.
+- The Devices screen said *"Not reached yet"* about the desktop the phone had
+  been taking files from for days. Only the desktop daemon ever recorded when a
+  device was last reached; the phone's sync never did. It does now, once the
+  other device has answered, and the end-to-end pairing test checks it — seen
+  to fail first. On the phone this shows at the next sync that reaches the
+  desktop, which was switched off.
+
+**Measured**, against the one-list app it replaced, back to back on the same
+phone — the table is in
+[decision 0039](../decisions/0039-a-light-android-app.md#the-rebuilt-app-measured).
+Startup did not change (medians of 171 and 173 ms against 186 and 171 ms); five
+screens cost on average 0.2 MB of heap and 3.5 MB in total; the APK is 10.8 MB
+against 10.7 MB.
 
 **Found by looking at the screens:** Settings showed the background worker's
 last record as *"no paired devices"* on a phone paired with a desktop. The

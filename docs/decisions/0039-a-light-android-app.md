@@ -56,6 +56,32 @@ What that says, plainly:
   changes that. Totals therefore swung between 34 and 83 MB from one reading to
   the next, which is why the table gives the parts the app controls.
 
+## The rebuilt app, measured
+
+The same day, after the one-list app was replaced by five tabs (commit
+`496d448`). Same phone, same data, same key; the old build (C above) and the new
+one installed alternately and measured back to back, so both saw the same
+battery, temperature and background load. Compiled to `verify` before each run.
+
+| | C: one list | rebuilt: five tabs |
+|---|---|---|
+| APK | 10.7 MB | 10.8 MB |
+| cold start, median of 15 | 186 ms, 171 ms | 171 ms, 173 ms |
+| Java heap (PSS) | 5.4, 5.5, 5.4, 5.5 MB | 5.5, 5.6, 5.6, 5.8 MB |
+| code in memory (PSS) | 7.4, 7.4, 7.2, 7.2 MB | 7.2, 7.3, 8.2, 9.5 MB |
+| total (PSS) | 72.7, 72.8, 71.2, 71.3 MB | 74.1, 74.6, 75.5, 78.0 MB |
+
+Memory is read 3 seconds after a cold launch onto Home, twice per install, in
+the order the columns give; a megabyte here is `dumpsys meminfo`'s kilobytes
+divided by 1024.
+
+- **Startup did not change.** The difference between the two builds is smaller
+  than the difference between two runs of the same one; in an earlier pair of
+  runs `verify` and `speed-profile` swapped places.
+- **Five screens cost a few megabytes**: on average 0.2 MB more heap and
+  3.5 MB more in total. The code figure is the noisiest, and its two highest
+  readings are both the new build's, so some of that is real.
+
 ## Measured and rejected
 
 **Checking whether the phone is set up without the engine.** The first call

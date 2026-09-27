@@ -149,6 +149,12 @@ fn a_phone_pairs_with_a_desktop_and_takes_its_files() {
     assert_eq!(outcome.adopted, 1, "the file did not arrive");
     assert!(!outcome.timed_out);
 
+    // And it remembers when. The phone's Devices screen said "not reached yet"
+    // about a desktop it had been syncing with for days, because only the
+    // desktop daemon ever wrote this down.
+    let seen = phone.peers().unwrap()[0].last_seen;
+    assert!(seen.is_some(), "reached the desktop and did not record it");
+
     // Present, listed, and byte-exact.
     let listed = phone.list().unwrap();
     assert_eq!(listed.len(), 1);

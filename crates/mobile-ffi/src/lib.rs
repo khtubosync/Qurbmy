@@ -1341,6 +1341,12 @@ impl Qurb {
         };
 
         let mut engine = self.engine()?;
+        // It answered, so say when: the Devices screen's "last reached" is
+        // the first thing to look at when something has not arrived. Only the
+        // desktop daemon used to write this down, so a phone said "not reached
+        // yet" about a computer it had been syncing with for days. Best
+        // effort: failing to note the time is no reason to abandon the sync.
+        let _ = engine.store().db().mark_peer_seen(peer.as_bytes());
         let peer_device = engine
             .store()
             .db()
