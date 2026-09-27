@@ -68,11 +68,19 @@ one the phone learns at its next scheduled look, and the SDK is not even linked.
 See [decision 0028](../docs/decisions/0028-waking-a-sleeping-device.md).
 
 **Opening a file, and saving a copy to the phone, matter more than they
-sound: the synced directory is this app's private
-storage, so a file that arrives from another device and stays there is invisible
-to everything else on the phone. Without a way out, a sync product syncs into a
-hole. Both actions go through the app's own `DocumentsProvider`, so there is one
-path out of the store rather than two implementations of reading it.
+sound.** The synced directory is this app's private storage, so a file that
+arrives from another device and stays there is invisible to everything else on
+the phone. Without a way out, a sync product syncs into a hole. Both actions go
+through the app's own `DocumentsProvider`, so there is one path out of the store
+rather than two implementations of reading it.
+
+**In the system file picker and the Files app, qurb lists what the engine
+knows**, not what is on disk: a file freed from this phone is still there, says
+it is not on this phone, and is downloaded when it is opened — asked for and
+synced while the opening app waits, up to 25 seconds. Another app can save into
+qurb through the picker; a name already taken gets `(2)`, and closing the file
+starts a scan and a sync. Deleting and renaming from a file manager are still
+refused: a deletion becomes a tombstone on every device, and there is no undo.
 
 **The 24 words are checked, as on the desktop** (decision
 [0033](../docs/decisions/0033-the-phrase-on-a-screen.md)). After "I have written

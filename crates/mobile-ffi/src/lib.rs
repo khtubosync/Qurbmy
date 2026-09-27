@@ -172,6 +172,15 @@ impl From<qurb_storage::db::FolderEntry> for FileEntry {
     }
 }
 
+/// One directory of the folder, as a file browser shows it.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct Directory {
+    /// The folders directly inside it, by name, sorted.
+    pub folders: Vec<String>,
+    /// The files directly inside it, in path order.
+    pub files: Vec<FileEntry>,
+}
+
 /// Something sent to another device that it has not collected yet.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct Waiting {
@@ -691,6 +700,46 @@ impl Qurb {
     /// Whether a path exists in the index.
     pub fn contains(&self, path: String) -> Result<bool, QurbError> {
         Ok(self.engine()?.store().db().in_folder(&path)?.is_some())
+    }
+
+    /// One directory of the folder: the folders directly inside it and the
+    /// files directly inside it, with where each file's bytes are. `dir` is
+    /// relative to the root; empty is the root.
+    ///
+    /// From the index, not the disk. A file freed from this phone has no bytes
+    /// in the folder and is still one of its files; a file browser that walked
+    /// the directory simply lost it. The index is flat, so a folder is what the
+    /// paths beneath it say it is.
+    pub fn browse(&self, dir: String) -> Result<Directory, QurbError> {
+        let dir = qurb_watcher::normalize(dir.trim_matches('/'));
+        let entries = self.engine()?.store().db().folder_entries_under(&dir)?;
+        let prefix = if dir.is_empty() { String::new() } else { format!("{dir}/") };
+
+        let mut folders = std::collections::BTreeSet::new();
+        let mut files = Vec::new();
+        for entry in entries {
+            let Some(rest) = entry.path.strip_prefix(&prefix) else { continue };
+            match rest.split_once('/') {
+                Some((folder, _)) => {
+                    folders.insert(folder.to_string());
+                }
+                None => files.push(FileEntry::from(entry)),
+            }
+        }
+        Ok(Directory { folders: folders.into_iter().collect(), files })
+    }
+
+    /// One file, with where its bytes are; nothing if the path is not a file
+    /// in the folder.
+    pub fn entry(&self, path: String) -> Result<Option<FileEntry>, QurbError> {
+        let path = qurb_watcher::normalize(path.trim_matches('/'));
+        Ok(self.engine()?.store().db().folder_entry(&path)?.map(FileEntry::from))
+    }
+
+    /// Files whose path contains `text`, ignoring case, at most `limit`.
+    pub fn search(&self, text: String, limit: u32) -> Result<Vec<FileEntry>, QurbError> {
+        let found = self.engine()?.store().db().folder_search(&text, limit as usize)?;
+        Ok(found.into_iter().map(FileEntry::from).collect())
     }
 
     /// Write a stored file's contents to `destination`, a chunk at a time.

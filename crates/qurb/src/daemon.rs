@@ -785,12 +785,9 @@ impl Daemon {
             .ok()
             .flatten()
             .map(|p| p.device_id);
-        let mut plan = engine.plan_with(&tree, peer_device.as_ref())?;
-
-        // Files somebody asked to have back. The peer and this device agree
-        // about them, so reconciliation finds nothing to do -- the difference
-        // is only that the bytes are not here.
-        plan.extend(engine.wanted_actions()?);
+        // Files somebody asked to have back are in the plan too; see
+        // `plan_with`.
+        let plan = engine.plan_with(&tree, peer_device.as_ref())?;
 
         // Before the early return below, not after it. Two devices that agree
         // about everything have an empty plan every time, and those are

@@ -1070,6 +1070,47 @@ for desktops), the system picker asking the engine, sending straight to a
 device from the share sheet, and a phone showing a code rather than only
 scanning one.
 
+## The file picker asks the engine
+
+**2026-09-27, on the emulator**, paired with a throwaway laptop device in
+`target/live-check/` that shares the emulator's throwaway key, through a
+rendezvous service on the laptop at the address the app uses by default
+(`ws://10.0.2.2:9000`, the emulator's way to its host). The laptop device ran
+with its own `HOME` and config directory, so nothing reached the real folder
+registry or Downloads.
+
+The provider used to walk the folder. It now lists what the engine knows:
+`browse` gives a directory's folders and files, `entry` one file, `search`
+matches anywhere in a path — one index query each. Checked end to end: a text
+file made on the laptop synced to the emulator, freed there, **was listed in the
+system Files app**, and **opening it downloaded it** — the viewer showed the
+laptop's line and the copy back in the folder had the same SHA-256. Saving a
+copy into qurb's root through the system save dialog left a 63-byte file with
+the right contents, which the next sync indexed as the phone's own.
+
+Getting there found four things:
+
+- **A freed shared file asked for on a phone was never downloaded.** The
+  daemon added the step that turns "asked for back" into a download after
+  planning; the phone planned with the same function and never added it. The
+  first attempt to open the freed file reached the laptop and came back empty.
+  Moved into `plan_with`, which both use;
+  `a_freed_shared_file_comes_back_when_asked_for` fails without it. The Vault's
+  *Download* had the same bug for shared files — the hardware check earlier
+  brought back a *private* file, which takes a different path.
+- **Saving into qurb from another app could only make an empty file.** The
+  provider created the file and then refused to open it for anything but
+  reading. Writing is now allowed onto a file on the phone; a created file gets
+  a free name rather than the name of one it would overwrite.
+- **A folder name with `_` or `%` in it matched other folders**, in two index
+  queries — one behind the desktop's Files screen. Escaped, and tested with
+  folders called `a_b` and `axb`.
+- **Paths from other processes were used as given.** A document ID with `..`
+  in it now cannot leave the folder, nor one starting `.qurb` enter the store.
+
+Not checked: the same on the S23, and opening a freed file when no device that
+has it is reachable, which should fail with the message it was written to give.
+
 ## Deliberately left undone
 
 - **Keychain, on iOS.** The Android half is done and verified on a device —

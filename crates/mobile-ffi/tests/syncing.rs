@@ -354,6 +354,68 @@ fn an_unreachable_peer_is_counted_not_raised() {
     assert!(!outcome.timed_out, "a device that never answered was reported as time running out");
 }
 
+/// A shared file freed from the phone comes back when asked for.
+///
+/// The phone's sync planned with everything but the one step that turns "I
+/// asked for this back" into a download -- the desktop daemon added that step
+/// itself -- so asking did nothing. Found by opening a freed file from the
+/// system file picker on an emulator, which asks for it and syncs.
+#[test]
+fn a_freed_shared_file_comes_back_when_asked_for() {
+    let _sharing = ALONE.read().unwrap_or_else(|e| e.into_inner());
+    logging();
+    let (_runtime, signal) = signalling();
+
+    let desktop_dir = tempfile::tempdir().unwrap();
+    let phone_dir = tempfile::tempdir().unwrap();
+    let setup = create(desktop_dir.path().display().to_string()).unwrap();
+    restore(phone_dir.path().display().to_string(), setup.recovery_phrase).unwrap();
+    let desktop = Qurb::open_with(
+        desktop_dir.path().display().to_string(),
+        None,
+        settings("desktop", &signal),
+    )
+    .unwrap();
+    let phone =
+        Qurb::open_with(phone_dir.path().display().to_string(), None, settings("phone", &signal))
+            .unwrap();
+    let offer = desktop.offer_pairing().unwrap();
+    let code = offer.code();
+    let waiting = std::thread::spawn(move || offer.wait());
+    phone.join_pairing(code).unwrap();
+    waiting.join().unwrap().unwrap();
+
+    let bytes = b"a photograph the desktop took".to_vec();
+    std::fs::write(desktop_dir.path().join("photo.jpg"), &bytes).unwrap();
+    desktop.scan().unwrap();
+
+    let desktop = Arc::new(desktop);
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let serving = Arc::clone(&desktop);
+    let stopping = Arc::clone(&stop);
+    let server = std::thread::spawn(move || {
+        while !stopping.load(std::sync::atomic::Ordering::Relaxed) {
+            let _ = serving.sync_within(5);
+        }
+    });
+
+    let arrived = until_reached(&phone, std::time::Duration::from_secs(60));
+    assert_eq!(arrived.adopted, 1, "{arrived:?}");
+
+    // Freed: the desktop made it, so the phone knows the desktop has it.
+    phone.free_local("photo.jpg".into()).unwrap();
+    let freed = phone_dir.path().join("photo.jpg");
+    assert!(!freed.exists());
+
+    assert!(phone.fetch("photo.jpg".into()).unwrap(), "asked for a file that was not freed");
+    let back = until_reached(&phone, std::time::Duration::from_secs(60));
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    server.join().unwrap();
+
+    assert_eq!(back.reached, 1, "{back:?}");
+    assert_eq!(std::fs::read(&freed).ok(), Some(bytes), "asked for, reached the desktop, and not brought back");
+}
+
 /// A device that is switched off does not keep the phone from the one that is
 /// on.
 ///

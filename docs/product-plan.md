@@ -9,18 +9,22 @@ Section numbers such as §23 refer to the product brief this plan answers ("qurb
 2026-09-25 and the whole plan was checked against the code that day. Section 2
 is the result.
 
-**Status: steps 0–4 of the sequence are done and step 5 mostly.** The data model
-is settled and built — see
-[decisions/0029](decisions/0029-two-areas-shared-and-private.md) — and a device
-can put a file in another device's vault and have it arrive, with the retention
-rule recorded in
-[decisions/0030](decisions/0030-sending-a-file-to-one-device.md). The desktop
-window can set a device up, pair, send and show where every file's contents
-are.
+**Status, 2026-09-27: steps 0–6 of the sequence are done**, with step 8's
+first-run question and step 10's choice of front end. The data model is
+settled and built — see
+[decisions/0029](decisions/0029-two-areas-shared-and-private.md) and
+[0036](decisions/0036-a-phone-keeps-its-own-files.md). The desktop window sets a
+device up, asks how much space it may use, pairs, sends, shows transfers and
+where every file's contents are, and is what the applications menu opens. The
+Android app is rebuilt as five tabs; a phone's own files are private and kept by
+a device it chooses, verified between a Galaxy S23 and a laptop; and the system
+file picker lists from the engine and downloads a freed file when it is opened.
+What remains is steps 7–10: cross-device flows beyond one phone and one laptop,
+selective availability and replica eviction, sharing, and the rest.
 
 **Four things the brief asks for disagreed with decisions already recorded.**
 All four were decided on 2026-09-25, each the brief's way — see §3. Three are
-new decision records, none of them built yet:
+new decision records, all since built:
 [0036](decisions/0036-a-phone-keeps-its-own-files.md) (a phone's files are its
 own, and another device holds them for it),
 [0037](decisions/0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md) (a file
@@ -107,7 +111,9 @@ that — see §3.1.
 
 The brief asks for everything to be sorted into eight kinds before anything is
 built. Each entry here was checked in the source on 2026-09-25, not taken from
-another document.
+another document, and is kept as the record of where the work started. What has
+changed since is in [§2.9](#29-since-then); a row here is not current on its
+own.
 
 ### 2.1 Built, and a person can reach it without a terminal
 
@@ -204,6 +210,41 @@ requests by itself:
 - Vault operations the owner performs — new folder, rename, move, delete.
   Today only a delivery creates a vault row.
 - A query that lists conflicts.
+
+### 2.9 Since then
+
+Checked 2026-09-27. Built since the inventory above, each reachable without a
+terminal:
+
+- **The Android app, rebuilt** (§15–§22): Home, Vault, Devices, Transfers with
+  the history, and Settings, on platform views
+  ([0039](decisions/0039-a-light-android-app.md)). The phrase is confirmed at
+  setup and can be shown again.
+- **Sending from a phone**, to one device (§20, §21): the FFI's `send_file`,
+  from a file in the Vault or files picked on the Devices screen.
+- **Freeing a chosen file's local copy, and getting it back** (§14, §30), on
+  both: the phone's Vault, `qurb free` and `qurb fetch`. The engine refuses the
+  only copy. A freed *shared* file asked for on a phone was never downloaded
+  until 2026-09-27 — the phone's sync lacked the step the daemon had added for
+  itself; it is now part of `plan_with`, which both use.
+- **Devices and history on a phone** (§10, §27): the Devices and Transfers tabs,
+  including which device keeps the phone's files.
+- **Files sent to a phone** show in the app: `list()` and the Vault cover the
+  shared area and the phone's own vault.
+- **The system file picker asks the engine** (§40): a freed file is listed and
+  downloads when opened, and another app can save into qurb.
+- **Transfers in flight on the desktop** (§26): progress, several files and
+  folders per send, cancelling a send not yet collected.
+- **Direct or relay** (§36, §37): in the daemon's status and on the Devices
+  screen.
+- **Onboarding** (§6, §71): the storage question, before the key
+  ([0038](decisions/0038-the-storage-question-during-setup.md)).
+- **The applications menu opens the window** (§42, §69)
+  ([0040](decisions/0040-the-menu-opens-the-window.md)).
+
+Still as the inventory says: removing a device, conflicts, a passphrase in the
+window, selective sync, a replica freeing space, sharing, vault operations
+beyond delivery, a query for conflicts, and everything in §2.4–§2.6.
 
 ---
 
@@ -412,8 +453,8 @@ rebuilt on platform views ([0039](decisions/0039-a-light-android-app.md)) as
 five tabs — Home, Vault, Devices, Transfers (with the history the brief calls
 Activity) and Settings — installed on the S23, and the phone and the laptop
 verified keeping, freeing, fetching back and deleting through those screens.
-The phrase is confirmed on the phone as on the desktop. Not done: the system
-picker asking the engine.
+The phrase is confirmed on the phone as on the desktop, and the system picker
+asks the engine (2026-09-27). Step 6 is done.
 
 **7. Cross-device flows**, including Android↔Android, offline and relay.
 

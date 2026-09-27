@@ -712,6 +712,8 @@ impl Db {
               ORDER BY path
               LIMIT ?3 OFFSET ?4",
         )?;
+        // Escaped, so that a folder called `a_b` does not also list `axb`.
+        let pattern = pattern.map(|p| escape_like(&p));
         let rows =
             stmt.query_map(params![exact, pattern, limit as i64, offset as i64], listed_row)?;
         rows.collect::<std::result::Result<_, _>>().map_err(Into::into)
@@ -1163,17 +1165,64 @@ impl Db {
     /// every screen and a query per file would make a large library slow to
     /// open.
     pub fn folder_listing(&self, limit: usize, offset: usize) -> Result<Vec<FolderEntry>> {
-        let mut stmt = self.conn.prepare(
+        let tail = format!("LIMIT {} OFFSET {}", limit as i64, offset as i64);
+        self.folder_entries("1", params![], &tail)
+    }
+
+    /// Everything in this device's folder beneath `dir`, at any depth, in path
+    /// order: what a file browser needs to show one directory, since the index
+    /// is flat and a directory is only the paths that begin with it. The empty
+    /// string is the whole folder.
+    pub fn folder_entries_under(&self, dir: &str) -> Result<Vec<FolderEntry>> {
+        let dir = dir.trim_matches('/');
+        if dir.is_empty() {
+            return self.folder_entries("1", params![], "");
+        }
+        let pattern = escape_like(&format!("{dir}/%"));
+        self.folder_entries("f.path LIKE ?1 ESCAPE '\\'", params![pattern], "")
+    }
+
+    /// One file in this device's folder, with where its bytes are. The shared
+    /// area first, as [`folder_row`](Self::folder_row) looks.
+    pub fn folder_entry(&self, path: &str) -> Result<Option<FolderEntry>> {
+        let mut found = self.folder_entries("f.path = ?1", params![path], "")?;
+        found.sort_by_key(|entry| entry.private);
+        Ok(found.into_iter().next())
+    }
+
+    /// Files in this device's folder whose path contains `text`, ignoring
+    /// case as far as SQLite's LIKE does (ASCII).
+    pub fn folder_search(&self, text: &str, limit: usize) -> Result<Vec<FolderEntry>> {
+        let escaped = text.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        self.folder_entries(
+            "f.path LIKE ?1 ESCAPE '\\'",
+            params![format!("%{escaped}%")],
+            &format!("LIMIT {}", limit as i64),
+        )
+    }
+
+    /// The one query behind every folder listing: live files in the shared
+    /// area or this device's own vault, availability included, filtered by
+    /// `condition`. One query rather than one per file, because a phone lists
+    /// on every screen and a file picker lists while someone waits.
+    fn folder_entries(
+        &self,
+        condition: &str,
+        values: &[&dyn rusqlite::ToSql],
+        tail: &str,
+    ) -> Result<Vec<FolderEntry>> {
+        let mut stmt = self.conn.prepare(&format!(
             "SELECT f.path, f.size, f.mtime_ns, f.materialised, f.scope IS NOT NULL,
                     EXISTS (SELECT 1 FROM replicas r
                              WHERE r.content_hash = f.content_hash AND r.private = 0)
                FROM files f
               WHERE f.deleted_at IS NULL
                 AND (f.scope IS NULL OR f.scope = (SELECT device_id FROM local WHERE id = 1))
+                AND ({condition})
               ORDER BY f.path
-              LIMIT ?1 OFFSET ?2",
-        )?;
-        let rows = stmt.query_map(params![limit as i64, offset as i64], |r| {
+              {tail}"
+        ))?;
+        let rows = stmt.query_map(values, |r| {
             Ok(FolderEntry {
                 path: r.get(0)?,
                 size: r.get::<_, i64>(1)? as u64,
@@ -1414,7 +1463,7 @@ impl Db {
               ORDER BY path",
         )?;
         let rows = stmt.query_map(
-            params![prefix.trim_end_matches('/'), pattern, me.as_bytes().as_slice()],
+            params![prefix.trim_end_matches('/'), escape_like(&pattern), me.as_bytes().as_slice()],
             |r| r.get(0),
         )?;
         rows.collect::<std::result::Result<_, _>>().map_err(Into::into)

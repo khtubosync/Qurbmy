@@ -541,3 +541,55 @@ fn the_phrase_is_confirmed_and_shown_again_from_the_key() {
 
     assert_eq!(qurb.recovery_phrase(), setup.recovery_phrase, "shown again differently");
 }
+
+/// What a file browser asks: a directory's folders and files, one file, and a
+/// search -- answered from the index, so a file freed from the phone is still
+/// there, marked as not here, instead of missing.
+#[test]
+fn a_file_browser_sees_the_index_including_what_was_freed() {
+    let dir = scratch();
+    let staging = scratch();
+    let root = dir.path().display().to_string();
+    create(root.clone()).unwrap();
+    let laptop = qurb_sync::DeviceId::from_bytes([0x3C; 32]);
+    {
+        let store = Store::open(&dir.path().join(".qurb"), chunk_key_of(dir.path())).unwrap();
+        store.db().trust_peer(&laptop, &[0x3D; 32], "laptop").unwrap();
+    }
+    let qurb = Qurb::open(root, None).unwrap();
+    for (path, bytes) in [
+        ("top.txt", b"top".as_slice()),
+        ("album/one.jpg", b"one"),
+        ("album/deep/two.jpg", b"two"),
+    ] {
+        let source = staging.path().join("source");
+        std::fs::write(&source, bytes).unwrap();
+        qurb.import_file(source.display().to_string(), path.into()).unwrap();
+    }
+
+    let top = qurb.browse(String::new()).unwrap();
+    assert_eq!(top.folders, ["album"]);
+    assert_eq!(top.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["top.txt"]);
+    let album = qurb.browse("album".into()).unwrap();
+    assert_eq!(album.folders, ["deep"]);
+    assert_eq!(album.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["album/one.jpg"]);
+
+    // The laptop has the photo; the phone frees its own copy.
+    {
+        let store = Store::open(&dir.path().join(".qurb"), chunk_key_of(dir.path())).unwrap();
+        let row = store.db().in_folder("album/one.jpg").unwrap().unwrap();
+        store.note_replica(&row.content_hash, &laptop).unwrap();
+    }
+    qurb.free_local("album/one.jpg".into()).unwrap();
+    assert!(!dir.path().join("album/one.jpg").exists(), "freed, so not on disk");
+
+    let album = qurb.browse("album".into()).unwrap();
+    assert_eq!(album.files.len(), 1, "a freed file vanished from the listing");
+    assert_eq!(album.files[0].available, Available::Elsewhere);
+    assert_eq!(qurb.entry("album/one.jpg".into()).unwrap().unwrap().available, Available::Elsewhere);
+    assert!(qurb.entry("album".into()).unwrap().is_none(), "a folder is not a file");
+
+    let found: Vec<String> = qurb.search("JPG".into(), 10).unwrap().into_iter().map(|f| f.path).collect();
+    assert_eq!(found, ["album/deep/two.jpg", "album/one.jpg"]);
+}
+

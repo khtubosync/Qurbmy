@@ -572,7 +572,9 @@ qurb/
 │       │                  AndroidKeyStore.kt  the platform half of decision 0021
 │       │                  SyncWorker.kt       background sync, on WorkManager
 │       │                  QurbDocumentsProvider.kt
-│       │                                      the files, in the system picker
+│       │                                      the files, in the system picker,
+│       │                                      from the index; freed ones download
+│       │                                      when opened
 │       ├── push/java/     being woken by Firebase — compiled only when a
 │       │                  google-services.json is present
 │       └── nopush/java/   the same surface, doing nothing, when it is not
@@ -712,7 +714,7 @@ for the workspace as it stands.
 | Recovery, end to end | the phrase turns back into the user's files |
 | Key hygiene | redacted in `Debug`, wiped on drop, owner-only on disk |
 
-680 tests pass in 79 test binaries on Linux (2026-09-27, debug build, the
+686 tests pass in 80 test binaries on Linux (2026-09-27, debug build, the
 development laptop); clippy is clean. The last run on
 a Galaxy S23 was 426 of them, before this week's work — see
 [phases/phase-5-mobile.md](phases/phase-5-mobile.md).
@@ -923,7 +925,8 @@ Rust test passed.
 
 The app syncs on its own through WorkManager, every fifteen minutes when
 Android allows it, and a `DocumentsProvider` puts the synced files in the
-system file picker and the Files app. A device that has not answered when a
+system file picker and the Files app — listed from the index, so a freed file
+is shown and downloads when opened, and other apps can save into the folder. A device that has not answered when a
 window closes counts as *unreachable*, not as time running out: the second is
 a retry with exponential backoff, and confusing them once pushed a phone's next
 sync further away each time its computer was off

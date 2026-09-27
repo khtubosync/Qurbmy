@@ -228,12 +228,19 @@ impl Engine {
     /// is -- the file's author need not be its owner. And this device's own
     /// freed files are fetched back from the device holding them, which only
     /// its entries marked *held* say. See decision 0036.
+    ///
+    /// And files this device asked to have back, from whichever peer it is
+    /// syncing with ([`wanted_actions`](Self::wanted_actions)). That used to be
+    /// added by the desktop daemon after calling this, and the phone, which
+    /// calls this too, never added it: asking for a freed shared file back on
+    /// a phone did nothing, pass after pass. One planning function for both.
     pub fn plan_with(&self, remote: &[FileVersion], peer: Option<&DeviceId>) -> Result<Vec<Action>> {
         let mut actions = self.plan_against(remote)?;
         if let Some(owner) = peer {
             actions.extend(self.holding(remote, owner)?);
         }
         actions.extend(self.own_wanted(remote)?);
+        actions.extend(self.wanted_actions()?);
         Ok(actions)
     }
 

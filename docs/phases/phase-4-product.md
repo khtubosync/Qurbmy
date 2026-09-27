@@ -35,7 +35,7 @@ warns is not the fun part and is a full quarter.
 | the services deployable | ✅ systemd units, TLS, ports written down |
 | garbage collection running | ✅ every 5 minutes, 7-day retention |
 
-680 tests pass in 79 test binaries on Linux (2026-09-27, debug build, the
+686 tests pass in 80 test binaries on Linux (2026-09-27, debug build, the
 development laptop); clippy is clean.
 
 ## The interface

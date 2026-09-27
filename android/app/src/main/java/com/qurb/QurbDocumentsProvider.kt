@@ -4,12 +4,18 @@ import android.database.Cursor
 import android.database.MatrixCursor
 import android.graphics.Point
 import android.os.CancellationSignal
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract.Document
 import android.provider.DocumentsContract.Root
 import android.provider.DocumentsProvider
 import android.webkit.MimeTypeMap
+import uniffi.qurb_mobile.Available
+import uniffi.qurb_mobile.FileEntry
+import uniffi.qurb_mobile.Qurb
 import java.io.File
+import java.io.FileNotFoundException
 
 /**
  * The synced files, visible to the rest of the phone.
@@ -30,16 +36,28 @@ import java.io.File
  *    while a user is looking at a spinner, so listing reads the index and does
  *    not sync.
  *
+ * ## The index, not the disk
+ *
+ * What is listed is what the engine knows, not what happens to be in the
+ * directory. It used to walk the directory, which lost every file freed from
+ * this phone -- its bytes are elsewhere, so there was nothing on disk to find --
+ * and meant the picker and the app could disagree about what the folder held.
+ * A freed file is listed, says it is not on this phone, and is downloaded when
+ * opened. The one thing still read from disk is an empty directory somebody
+ * just created here, which the index cannot know about until a file is in it.
+ *
  * ## The memory rule, restated where it bites hardest
  *
  * `openDocument` is the reason
  * [decision 0018](../../../../../docs/decisions/0018-file-contents-never-cross-the-ffi.md)
  * exists. The system hands back a file descriptor and the reading app may pull
- * gigabytes through it. Content is exported to a cache file a chunk at a time —
- * peak memory is one chunk, at most 2 MiB — and the descriptor is opened onto
- * that. Assembling a whole file in memory here is what gets an iOS FileProvider
- * extension killed, and would get this process killed too on a phone under
- * pressure.
+ * gigabytes through it. So no path here holds a file in memory: a file in the
+ * folder is opened where it lies; bytes the engine holds without a copy in the
+ * folder are exported to a cache file a chunk at a time — peak memory one
+ * chunk, at most 2 MiB; and a freed file is brought back by a sync, which
+ * writes it into the folder the same way. Assembling a whole file in memory
+ * here is what gets an iOS FileProvider extension killed, and would get this
+ * process killed too on a phone under pressure.
  */
 class QurbDocumentsProvider : DocumentsProvider() {
 
@@ -84,23 +102,27 @@ class QurbDocumentsProvider : DocumentsProvider() {
             return cursor
         }
 
-        val path = documentId.removePrefix("$ROOT_ID/")
-        val file = File(Engine.root(context!!), path)
-        if (file.isDirectory) {
-            cursor.addDirectory(documentId, file.name)
-        } else {
-            cursor.addFile(documentId, path, file.length(), file.lastModified())
+        val context = context ?: return cursor
+        val path = pathOf(documentId)
+        val engine = engine()
+        engine.entry(path)?.let { entry ->
+            cursor.addFile(documentId, entry, onDisk(context, path))
+            return cursor
         }
-        return cursor
+        val listed = engine.browse(path)
+        if (listed.folders.isNotEmpty() || listed.files.isNotEmpty() || onDisk(context, path).isDirectory) {
+            cursor.addDirectory(documentId, path.substringAfterLast('/'))
+            return cursor
+        }
+        throw FileNotFoundException("$path is not in qurb")
     }
 
     /**
-     * The files directly under `parentDocumentId`.
+     * The folders and files directly under `parentDocumentId`, from the index.
      *
-     * Read from the filesystem rather than the index, because the index is
-     * flat: it stores `album/photo.jpg` as one path, and a picker needs to see
-     * `album` as a folder it can open. The two agree — the engine writes what
-     * it indexes — and the tree is what a person expects to navigate.
+     * The index is flat -- it stores `album/photo.jpg` as one path -- and the
+     * engine turns that into the folders a person expects to open. Folders
+     * first, then files, each by name.
      */
     override fun queryChildDocuments(
         parentDocumentId: String,
@@ -110,27 +132,21 @@ class QurbDocumentsProvider : DocumentsProvider() {
         val cursor = MatrixCursor(projection ?: DOCUMENT_COLUMNS)
         val context = context ?: return cursor
 
-        val root = Engine.root(context)
-        val dir = if (parentDocumentId == ROOT_ID) {
-            root
-        } else {
-            File(root, parentDocumentId.removePrefix("$ROOT_ID/"))
-        }
+        val dir = if (parentDocumentId == ROOT_ID) "" else pathOf(parentDocumentId)
+        val listed = engine().browse(dir)
+        val prefix = if (dir.isEmpty()) "" else "$dir/"
 
-        dir.listFiles()
-            // The store lives inside the synced root and is not a document.
-            // Showing it would invite someone to open, move or delete the index
-            // and the encrypted chunks from a file manager.
-            ?.filter { it.name != ".qurb" }
-            ?.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
-            ?.forEach { child ->
-                val id = documentId(root, child)
-                if (child.isDirectory) {
-                    cursor.addDirectory(id, child.name)
-                } else {
-                    cursor.addFile(id, child.name, child.length(), child.lastModified())
-                }
-            }
+        // Directories created here that nothing has been saved into yet: on
+        // disk and not in the index, which holds files. One directory read,
+        // not a walk.
+        val empty = onDisk(context, dir).listFiles { f -> f.isDirectory && f.name != ".qurb" }
+            ?.map { it.name }.orEmpty()
+        (listed.folders + empty).distinct().sortedBy { it.lowercase() }.forEach { name ->
+            cursor.addDirectory("$ROOT_ID/$prefix$name", name)
+        }
+        listed.files.sortedBy { it.path.substringAfterLast('/').lowercase() }.forEach { entry ->
+            cursor.addFile("$ROOT_ID/${entry.path}", entry, onDisk(context, entry.path))
+        }
         return cursor
     }
 
@@ -141,19 +157,10 @@ class QurbDocumentsProvider : DocumentsProvider() {
     ): Cursor {
         val cursor = MatrixCursor(projection ?: DOCUMENT_COLUMNS)
         val context = context ?: return cursor
-        val root = Engine.root(context)
-
-        // Searched against the index rather than by walking the tree: the index
-        // already holds every live path and a walk would stat the whole library
-        // while someone waits.
-        val engine = runCatching { blocking { Engine.open(context) } }.getOrNull() ?: return cursor
-        runCatching { engine.list() }.getOrDefault(emptyList())
-            .filter { it.path.contains(query, ignoreCase = true) }
-            .take(SEARCH_LIMIT)
-            .forEach { entry ->
-                val file = File(root, entry.path)
-                cursor.addFile("$ROOT_ID/${entry.path}", entry.path, entry.size.toLong(), file.lastModified())
-            }
+        // The index's own search: every file in the folder, freed ones
+        // included, without a walk of the library while someone waits.
+        runCatching { engine().search(query, SEARCH_LIMIT.toUInt()) }.getOrDefault(emptyList())
+            .forEach { entry -> cursor.addFile("$ROOT_ID/${entry.path}", entry, onDisk(context, entry.path)) }
         return cursor
     }
 
@@ -162,34 +169,61 @@ class QurbDocumentsProvider : DocumentsProvider() {
     /**
      * Hand back a descriptor onto the file's contents.
      *
-     * Read-only. Writing through the picker would mean deciding what a partial
-     * write means to a sync engine mid-transfer, and "read `r` only" is a
-     * smaller promise that can actually be kept.
+     * A file on this phone is opened where it lies, and nothing is copied. A
+     * file freed from this phone is downloaded first: asked for, and a sync
+     * run for up to [OPEN_WAIT] seconds while the opening app shows its own
+     * spinner. If no device that has it answers, the open fails and says so;
+     * the request stands, and it arrives at the next sync.
+     *
+     * Writing is allowed onto a file that is on this phone -- which is what a
+     * "Save to qurb" from another app needs, having just made one with
+     * [createDocument]. When the writer closes it, the folder is scanned and
+     * synced, so the new file is indexed and on its way without waiting for
+     * the app to be opened.
      */
     override fun openDocument(
         documentId: String,
         mode: String,
         signal: CancellationSignal?,
     ): ParcelFileDescriptor {
-        require(mode == "r") { "qurb documents are read-only" }
         val context = context ?: throw IllegalStateException("no context")
+        val path = pathOf(documentId)
+        val file = onDisk(context, path)
 
-        val path = documentId.removePrefix("$ROOT_ID/")
-        val direct = File(Engine.root(context), path)
-
-        // The common case: the file is materialised on disk exactly where the
-        // engine put it, so the descriptor points straight at it and nothing is
-        // copied at all.
-        if (direct.isFile) {
-            return ParcelFileDescriptor.open(direct, ParcelFileDescriptor.MODE_READ_ONLY)
+        if (mode != "r") {
+            if (!file.isFile) throw FileNotFoundException("$path is not on this phone to write to")
+            val closed = ParcelFileDescriptor.OnCloseListener { SyncWorker.runNow(context) }
+            return ParcelFileDescriptor.open(
+                file,
+                ParcelFileDescriptor.parseMode(mode),
+                Handler(Looper.getMainLooper()),
+                closed,
+            )
         }
 
-        // The fallback, for content the index holds without a file beside it.
-        // Exported a chunk at a time -- see the class comment about memory.
-        val staging = File(context.cacheDir, "open-${path.hashCode()}-${direct.name}")
-        val engine = blocking { Engine.open(context) }
-        engine.export(path, staging.absolutePath)
-        return ParcelFileDescriptor.open(staging, ParcelFileDescriptor.MODE_READ_ONLY)
+        if (!file.isFile) {
+            val engine = engine()
+            val entry = engine.entry(path) ?: throw FileNotFoundException("$path is not in qurb")
+            if (entry.available != Available.ELSEWHERE) {
+                // The bytes are here without a copy in the folder -- a file
+                // removed from it that the next scan has not noticed yet.
+                // Exported a chunk at a time; see the class comment on memory.
+                val staging = File(context.cacheDir, "open-${path.hashCode()}-${file.name}")
+                engine.export(path, staging.absolutePath)
+                return ParcelFileDescriptor.open(staging, ParcelFileDescriptor.MODE_READ_ONLY)
+            }
+            signal?.throwIfCanceled()
+            engine.fetch(path)
+            blocking { Engine.hearingTheNetwork(context) { engine.syncWithin(OPEN_WAIT) } }
+            signal?.throwIfCanceled()
+        }
+        if (!file.isFile) {
+            throw FileNotFoundException(
+                "${path.substringAfterLast('/')} is not on this phone, and no device that has " +
+                    "it answered. It will download at the next sync."
+            )
+        }
+        return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
     }
 
     override fun openDocumentThumbnail(
@@ -203,8 +237,8 @@ class QurbDocumentsProvider : DocumentsProvider() {
     /**
      * Save a file into the synced tree from another app.
      *
-     * The only write this provider allows. `deleteDocument` and `renameDocument`
-     * are deliberately absent: a deletion here becomes a tombstone that
+     * With writing into what it creates, the only change this provider allows.
+     * `deleteDocument` and `renameDocument` are deliberately absent: a deletion here becomes a tombstone that
      * propagates to every device, and letting a file manager do that by accident
      * is not a risk worth taking before there is any undo.
      */
@@ -213,18 +247,42 @@ class QurbDocumentsProvider : DocumentsProvider() {
         val parent = if (parentDocumentId == ROOT_ID) "" else
             parentDocumentId.removePrefix("$ROOT_ID/") + "/"
 
-        val path = parent + displayName
-        val file = File(Engine.root(context), path)
+        val path = freePath(context, parent, displayName.substringAfterLast('/'))
+        val file = onDisk(context, path)
         file.parentFile?.mkdirs()
 
         if (mimeType == Document.MIME_TYPE_DIR) {
             file.mkdirs()
         } else {
             file.createNewFile()
-            // Empty for now. The writing app opens it next and fills it in;
-            // the engine notices at the next scan.
+            // Empty for now. The writing app opens it next and fills it in,
+            // and closing it asks for a scan and a sync; see openDocument.
         }
         return "$ROOT_ID/$path"
+    }
+
+    /**
+     * A name nothing in the folder is using, on disk or in the index.
+     *
+     * Android leaves this to the provider, and it matters more now that a
+     * created file can be written: returning the name of a file that already
+     * exists would have the saving app overwrite it, and a freed file with that
+     * name has no bytes on disk to collide with. Suffixed the way the app's
+     * own imports are, `photo (2).jpg`.
+     */
+    private fun freePath(context: android.content.Context, parent: String, name: String): String {
+        val engine = engine()
+        val taken = { candidate: String ->
+            onDisk(context, parent + candidate).exists() || engine.entry(parent + candidate) != null
+        }
+        if (!taken(name)) return parent + name
+        val stem = name.substringBeforeLast('.', name)
+        val extension = name.substringAfterLast('.', "").let { if (it.isEmpty()) "" else ".$it" }
+        for (n in 2..999) {
+            val candidate = "$stem ($n)$extension"
+            if (!taken(candidate)) return parent + candidate
+        }
+        return parent + "$stem-${System.currentTimeMillis()}$extension"
     }
 
     override fun isChildDocument(parentDocumentId: String, documentId: String): Boolean =
@@ -232,8 +290,26 @@ class QurbDocumentsProvider : DocumentsProvider() {
 
     // -- helpers -------------------------------------------------------------
 
-    private fun documentId(root: File, file: File): String =
-        "$ROOT_ID/${file.absolutePath.removePrefix(root.absolutePath).trimStart('/')}"
+    private fun pathOf(documentId: String): String = documentId.removePrefix("$ROOT_ID/").trim('/')
+
+    /**
+     * Where a path is on disk, refusing anything that would land outside the
+     * folder or inside the store. Document IDs arrive from other processes;
+     * one with `..` in it must not become a way out of the folder, nor one
+     * starting `.qurb` a way into the index and the encrypted chunks.
+     */
+    private fun onDisk(context: android.content.Context, path: String): File {
+        val root = Engine.root(context).canonicalFile
+        val file = File(root, path).canonicalFile
+        val inside = file == root || file.path.startsWith(root.path + File.separator)
+        val store = File(root, ".qurb").path
+        if (!inside || file.path == store || file.path.startsWith(store + File.separator)) {
+            throw SecurityException("$path is outside qurb's folder")
+        }
+        return file
+    }
+
+    private fun engine(): Qurb = blocking { Engine.open(context!!) }
 
     private fun MatrixCursor.addDirectory(id: String, name: String) {
         newRow().apply {
@@ -244,14 +320,19 @@ class QurbDocumentsProvider : DocumentsProvider() {
         }
     }
 
-    private fun MatrixCursor.addFile(id: String, name: String, size: Long, modified: Long) {
+    private fun MatrixCursor.addFile(id: String, entry: FileEntry, onDisk: File) {
+        val here = onDisk.isFile
         newRow().apply {
             add(Document.COLUMN_DOCUMENT_ID, id)
-            add(Document.COLUMN_DISPLAY_NAME, name.substringAfterLast('/'))
-            add(Document.COLUMN_MIME_TYPE, mimeType(name))
-            add(Document.COLUMN_SIZE, size)
-            add(Document.COLUMN_LAST_MODIFIED, modified)
-            add(Document.COLUMN_FLAGS, 0)
+            add(Document.COLUMN_DISPLAY_NAME, entry.path.substringAfterLast('/'))
+            add(Document.COLUMN_MIME_TYPE, mimeType(entry.path))
+            add(Document.COLUMN_SIZE, entry.size.toLong())
+            // Nanoseconds in the index, milliseconds here.
+            add(Document.COLUMN_LAST_MODIFIED, entry.modifiedAt / 1_000_000)
+            add(Document.COLUMN_FLAGS, if (here) Document.FLAG_SUPPORTS_WRITE else 0)
+            if (entry.available == Available.ELSEWHERE) {
+                add(Document.COLUMN_SUMMARY, "Not on this phone — downloads when opened")
+            }
         }
     }
 
@@ -283,6 +364,14 @@ class QurbDocumentsProvider : DocumentsProvider() {
         val DOCUMENT_COLUMNS = arrayOf(
             Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME, Document.COLUMN_MIME_TYPE,
             Document.COLUMN_SIZE, Document.COLUMN_LAST_MODIFIED, Document.COLUMN_FLAGS,
+            Document.COLUMN_SUMMARY,
         )
+
+        /**
+         * How long opening a freed file waits for a device that has it:
+         * enough to reach one on the same network and fetch a photo, short
+         * enough that the opening app is not left spinning.
+         */
+        val OPEN_WAIT = 25u
     }
 }
