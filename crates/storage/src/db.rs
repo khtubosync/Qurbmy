@@ -24,7 +24,7 @@ use std::path::Path;
 ///
 /// Migrations are append-only. Editing one that has already shipped would leave
 /// databases in the field at a schema nobody can reproduce.
-const MIGRATIONS: &[&str] = &[V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11];
+const MIGRATIONS: &[&str] = &[V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12];
 
 const V1: &str = r#"
 CREATE TABLE IF NOT EXISTS chunks (
@@ -373,6 +373,24 @@ SELECT content_hash, modified_by, updated_at, path FROM files
    AND content_hash != zeroblob(32);
 "#;
 
+const V12: &str = r#"
+-- Holding another device's vault for it (decision 0036).
+--
+-- On the holder, a row in another device's vault is one of two things: a
+-- file this device sent there, waiting to be collected, or that device's own
+-- file, which this device keeps for it. Scope alone cannot tell them apart,
+-- and the difference is whether the bytes may be released once the owner has
+-- them -- right for a send, and the loss of the backup for a held file.
+ALTER TABLE files ADD COLUMN held INTEGER NOT NULL DEFAULT 0;
+
+-- On the owner: the devices allowed to hold this device's vault, and so to
+-- be shown it. Nothing else is shown another device's vault.
+CREATE TABLE IF NOT EXISTS holders (
+    device_id BLOB PRIMARY KEY,
+    since     INTEGER NOT NULL
+) STRICT;
+"#;
+
 pub struct Db {
     conn: Connection,
 }
@@ -605,7 +623,7 @@ impl Db {
     pub fn live_bytes(&self) -> Result<u64> {
         let total: i64 = self.conn.query_row(
             "SELECT coalesce(sum(size), 0) FROM files
-              WHERE deleted_at IS NULL AND scope IS NULL",
+              WHERE deleted_at IS NULL AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))",
             [],
             |r| r.get(0),
         )?;
@@ -665,7 +683,7 @@ impl Db {
     /// Note that a path was just read or written here.
     pub fn touch(&self, path: &str) -> Result<()> {
         self.conn.execute(
-            "UPDATE files SET touched_at = unixepoch() WHERE path = ?1 AND scope IS NULL",
+            "UPDATE files SET touched_at = unixepoch() WHERE path = ?1 AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))",
             params![path],
         )?;
         Ok(())
@@ -756,7 +774,7 @@ impl Db {
                FROM files f
               WHERE f.deleted_at IS NULL
                 AND f.materialised = 1
-                AND f.scope IS NULL
+                AND (f.scope IS NULL OR f.scope = (SELECT device_id FROM local WHERE id = 1))
                 AND EXISTS (
                       SELECT 1 FROM replicas r
                        WHERE r.content_hash = f.content_hash AND r.private = 0
@@ -774,7 +792,7 @@ impl Db {
     pub fn set_materialised(&self, path: &str, held: bool) -> Result<bool> {
         let changed = self.conn.execute(
             "UPDATE files SET materialised = ?2
-             WHERE path = ?1 AND deleted_at IS NULL AND scope IS NULL",
+             WHERE path = ?1 AND deleted_at IS NULL AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))",
             params![path, held as i64],
         )?;
         Ok(changed > 0)
@@ -788,7 +806,7 @@ impl Db {
         self.conn
             .query_row(
                 "SELECT materialised FROM files
-                  WHERE path = ?1 AND deleted_at IS NULL AND scope IS NULL",
+                  WHERE path = ?1 AND deleted_at IS NULL AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))",
                 params![path],
                 |r| Ok(r.get::<_, i64>(0)? != 0),
             )
@@ -800,7 +818,7 @@ impl Db {
     pub fn evicted_paths(&self) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare(
             "SELECT path FROM files
-              WHERE deleted_at IS NULL AND materialised = 0 AND scope IS NULL
+              WHERE deleted_at IS NULL AND materialised = 0 AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))
               ORDER BY path",
         )?;
         let rows = stmt.query_map([], |r| r.get(0))?;
@@ -811,7 +829,7 @@ impl Db {
     pub fn materialised_bytes(&self) -> Result<u64> {
         let n: i64 = self.conn.query_row(
             "SELECT coalesce(sum(size), 0) FROM files
-              WHERE deleted_at IS NULL AND materialised = 1 AND scope IS NULL",
+              WHERE deleted_at IS NULL AND materialised = 1 AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))",
             [],
             |r| r.get(0),
         )?;
@@ -822,7 +840,7 @@ impl Db {
     pub fn want(&self, path: &str) -> Result<bool> {
         let changed = self.conn.execute(
             "UPDATE files SET wanted = 1
-             WHERE path = ?1 AND deleted_at IS NULL AND scope IS NULL",
+             WHERE path = ?1 AND deleted_at IS NULL AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))",
             params![path],
         )?;
         Ok(changed > 0)
@@ -832,7 +850,7 @@ impl Db {
     pub fn wanted_paths(&self) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare(
             "SELECT path FROM files
-              WHERE wanted = 1 AND materialised = 0 AND deleted_at IS NULL AND scope IS NULL
+              WHERE wanted = 1 AND materialised = 0 AND deleted_at IS NULL AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))
               ORDER BY path",
         )?;
         let rows = stmt.query_map([], |r| r.get(0))?;
@@ -858,7 +876,7 @@ impl Db {
             "SELECT f.path, f.size
                FROM files f
               WHERE f.deleted_at IS NULL
-                AND f.scope IS NULL
+                AND (f.scope IS NULL OR f.scope = (SELECT device_id FROM local WHERE id = 1))
                 AND f.modified_by = (SELECT device_id FROM local WHERE id = 1)
                 AND NOT EXISTS (
                       SELECT 1 FROM replicas r WHERE r.content_hash = f.content_hash
@@ -1175,6 +1193,8 @@ impl Db {
                FROM files f
               WHERE f.deleted_at IS NULL
                 AND f.scope IS NOT NULL
+                AND f.held = 0
+                AND f.scope != (SELECT device_id FROM local WHERE id = 1)
                 AND NOT EXISTS (
                       SELECT 1 FROM replicas r
                        WHERE r.content_hash = f.content_hash
@@ -1200,6 +1220,8 @@ impl Db {
                FROM files f
               WHERE f.deleted_at IS NULL
                 AND f.scope IS NOT NULL
+                AND f.held = 0
+                AND f.scope != (SELECT device_id FROM local WHERE id = 1)
                 AND NOT EXISTS (
                       SELECT 1 FROM replicas r
                        WHERE r.content_hash = f.content_hash
@@ -1386,6 +1408,57 @@ impl Db {
             .map_err(Into::into)
     }
 
+    /// Let `device` hold this device's own vault, and so be shown it.
+    pub fn add_holder(&self, device: &DeviceId) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO holders (device_id, since) VALUES (?1, unixepoch())",
+            params![device.as_bytes().as_slice()],
+        )?;
+        Ok(())
+    }
+
+    /// Stop letting `device` hold this device's vault. What it already holds
+    /// it keeps -- nothing here reaches into another device -- but it is shown
+    /// nothing more.
+    pub fn remove_holder(&self, device: &DeviceId) -> Result<bool> {
+        let n = self.conn.execute(
+            "DELETE FROM holders WHERE device_id = ?1",
+            params![device.as_bytes().as_slice()],
+        )?;
+        Ok(n > 0)
+    }
+
+    /// The devices allowed to hold this device's vault.
+    pub fn holders(&self) -> Result<Vec<DeviceId>> {
+        let mut stmt = self.conn.prepare("SELECT device_id FROM holders ORDER BY since")?;
+        let rows = stmt.query_map([], |r| {
+            let raw: Vec<u8> = r.get(0)?;
+            Ok(to_device(raw))
+        })?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?.into_iter().flatten().collect())
+    }
+
+    /// Whether `device` may hold this device's vault.
+    pub fn is_holder(&self, device: &DeviceId) -> Result<bool> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM holders WHERE device_id = ?1)",
+            params![device.as_bytes().as_slice()],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Mark a row in `owner`'s vault as kept for it rather than sent to it.
+    ///
+    /// Sticky on purpose: once this device holds a file for its owner, nothing
+    /// short of the owner deleting it makes the bytes releasable again.
+    pub fn mark_held(&self, path: &str, owner: &DeviceId) -> Result<()> {
+        self.conn.execute(
+            "UPDATE files SET held = 1 WHERE path = ?1 AND scope = ?2",
+            params![path, owner.as_bytes().as_slice()],
+        )?;
+        Ok(())
+    }
+
     /// Remember, for good, that this device took a delivery of these bytes.
     ///
     /// The first record stands: a delivery is taken once, so a second call for
@@ -1528,6 +1601,8 @@ impl Db {
                JOIN files f ON f.id = fc.file_id
               WHERE f.deleted_at IS NULL
                 AND f.scope IS NOT NULL
+                AND f.held = 0
+                AND f.scope != (SELECT device_id FROM local WHERE id = 1)
                 AND EXISTS (
                       SELECT 1 FROM replicas r
                        WHERE r.content_hash = f.content_hash

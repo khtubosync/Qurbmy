@@ -31,6 +31,13 @@ pub struct Store {
     /// keep every payload itself. That is not a special case bolted on: a
     /// replica is precisely the device whose content is not materialised.
     tree: Option<PathBuf>,
+    /// Whether a file this device adds, that the index has never seen, goes
+    /// into this device's own vault rather than the shared area. Set on a
+    /// phone, where a person's own files are theirs until they send them
+    /// somewhere ([decision 0036]); left off on a desktop.
+    ///
+    /// [decision 0036]: ../../docs/decisions/0036-a-phone-keeps-its-own-files.md
+    new_files_private: bool,
 }
 
 /// Whose change this is.
@@ -70,22 +77,35 @@ struct Placement<'a> {
     /// Whose vault this belongs in. `None` is the shared area — everything the
     /// product had before vaults existed.
     vault: Option<&'a DeviceId>,
+    /// Kept for the vault's owner rather than sent to it. See [`Store::hold_file`].
+    held: bool,
 }
 
 impl<'a> Placement<'a> {
     /// A change made on this device, in the shared area.
     fn local() -> Self {
-        Self { stamp: Stamp::Local, payloads: Payloads::TrustIndex, vault: None }
+        Self { stamp: Stamp::Local, payloads: Payloads::TrustIndex, vault: None, held: false }
     }
 
     /// A version decided elsewhere, in the shared area.
     fn remote(version: &'a FileVersion) -> Self {
-        Self { stamp: Stamp::Remote(version), payloads: Payloads::TrustIndex, vault: None }
+        Self {
+            stamp: Stamp::Remote(version),
+            payloads: Payloads::TrustIndex,
+            vault: None,
+            held: false,
+        }
     }
 
     /// The same, but into a vault rather than the shared area.
     fn in_vault(mut self, owner: Option<&'a DeviceId>) -> Self {
         self.vault = owner;
+        self
+    }
+
+    /// Kept for the vault's owner, never released.
+    fn held(mut self) -> Self {
+        self.held = true;
         self
     }
 
@@ -116,7 +136,7 @@ impl Store {
         std::fs::create_dir_all(root).map_err(|e| Error::io(root, e))?;
         let cas = Cas::open(root.join("chunks"))?;
         let db = Db::open(&root.join("index.db"))?;
-        Ok(Self { cas, db, key, tree: None })
+        Ok(Self { cas, db, key, tree: None, new_files_private: false })
     }
 
     /// Tell the store where materialised files live.
@@ -131,6 +151,11 @@ impl Store {
     pub fn in_tree(mut self, root: impl Into<PathBuf>) -> Self {
         self.tree = Some(root.into());
         self
+    }
+
+    /// File new local files in this device's own vault. See the field.
+    pub fn set_new_files_private(&mut self, private: bool) {
+        self.new_files_private = private;
     }
 
     /// Whether this store materialises files.
@@ -389,7 +414,7 @@ impl Store {
         mtime_ns: i64,
         placement: Placement<'_>,
     ) -> Result<PutStats> {
-        let Placement { stamp, payloads, vault } = placement;
+        let Placement { stamp, payloads, vault, held } = placement;
         let mut stats = PutStats { chunks_total: manifest.chunks.len(), ..Default::default() };
 
         // A path that is already this device's own private content stays
@@ -411,11 +436,22 @@ impl Store {
         // re-filed as private because a received file happens to share its
         // name -- that would quietly take it out of the shared area here while
         // every other device still has it there.
+        //
+        // And on a device that keeps its own files private, a file the index
+        // has never seen goes into this device's vault. A path already in the
+        // shared area stays there: an edit does not move a file between areas
+        // in either direction.
         let vault = match vault {
             Some(owner) => Some(*owner),
-            None if matches!(stamp, Stamp::Local) => {
-                self.db.folder_row(logical_path)?.and_then(|(_, scope)| scope)
-            }
+            None if matches!(stamp, Stamp::Local) => match self.db.folder_row(logical_path)? {
+                Some((_, scope)) => scope,
+                None if self.new_files_private
+                    && self.db.file_by_path(logical_path)?.is_none_or(|f| f.deleted_at.is_some()) =>
+                {
+                    Some(self.db.local_device()?)
+                }
+                None => None,
+            },
             None => None,
         };
         let vault = vault.as_ref();
@@ -450,6 +486,11 @@ impl Store {
                           WHERE id = ?2",
                         rusqlite::params![mtime_ns, existing.id, holding as i64],
                     )?;
+                    // A send the owner has collected, now kept for it: the same
+                    // bytes, and from here on never released.
+                    if let (true, Some(owner)) = (held, vault) {
+                        self.db.mark_held(logical_path, owner)?;
+                    }
                     // A local write of identical bytes is not a change and must
                     // not advance the clock. A version adopted from a peer still
                     // has to record the history it arrived with, even though no
@@ -631,9 +672,10 @@ impl Store {
             &format!(
             "INSERT INTO files
                  (path, size, content_hash, mtime_ns, created_at, updated_at, deleted_at,
-                  vector, modified_by, materialised, touched_at, wanted, scope)
-             VALUES (?1, ?2, ?3, ?4, unixepoch(), ?5, NULL, ?6, ?7, ?8, unixepoch(), 0, ?9)
+                  vector, modified_by, materialised, touched_at, wanted, scope, held)
+             VALUES (?1, ?2, ?3, ?4, unixepoch(), ?5, NULL, ?6, ?7, ?8, unixepoch(), 0, ?9, ?10)
              {conflict}
+                 held = max(held, excluded.held),
                  size = excluded.size,
                  content_hash = excluded.content_hash,
                  mtime_ns = excluded.mtime_ns,
@@ -656,6 +698,7 @@ impl Store {
                 modified_by.as_bytes().as_slice(),
                 holding as i64,
                 vault.map(|d| d.as_bytes().to_vec()),
+                held as i64,
             ],
             |r| r.get(0),
         )?;
@@ -1047,6 +1090,49 @@ impl Store {
         Ok(stats)
     }
 
+    /// Keep another device's own file for it (decision 0036).
+    ///
+    /// `source` holds the bytes, somewhere outside the folder: this device
+    /// never shows what it holds, so the content goes into the chunk store and
+    /// nowhere else. The row sits in the owner's vault, marked held, and is
+    /// never released -- that is the whole difference from a send.
+    pub fn hold_file(
+        &mut self,
+        version: &FileVersion,
+        owner: &DeviceId,
+        source: &Path,
+    ) -> Result<PutStats> {
+        let file = std::fs::File::open(source).map_err(|e| Error::io(source, e))?;
+        let meta = file.metadata().map_err(|e| Error::io(source, e))?;
+        // SAFETY: as for every other write -- mapped once, chunked and stored
+        // from the map. An empty file cannot be mapped and has nothing to map.
+        let mapped = match meta.len() {
+            0 => None,
+            _ => Some(unsafe { memmap2::Mmap::map(&file) }.map_err(|e| Error::io(source, e))?),
+        };
+        let data: &[u8] = mapped.as_deref().unwrap_or(&[]);
+        let manifest = chunker::chunk_bytes(data);
+        self.put_manifest(
+            &version.path,
+            &manifest,
+            data,
+            0,
+            Placement::remote(version).in_vault(Some(owner)).held(),
+        )
+    }
+
+    /// The owner deleted a file this device holds for it.
+    ///
+    /// Only ever on the owner's say-so, carried as a tombstone. A file simply
+    /// absent from the owner's list is left alone: a wiped phone must not
+    /// delete its own backup. See decision 0036.
+    pub fn unhold(&mut self, version: &FileVersion, owner: &DeviceId) -> Result<()> {
+        if self.db.live_row_in(&version.path, Some(owner))?.is_none() {
+            return Ok(());
+        }
+        self.tombstone(&version.path, Stamp::Remote(version), Some(*owner))
+    }
+
     /// Take back a send the other device has not collected yet.
     ///
     /// The entry becomes a tombstone in that device's vault. A recipient never
@@ -1244,12 +1330,12 @@ impl Store {
             });
         };
 
-        let Some(row) = self.db.file_by_path(logical_path)? else {
+        // The shared area or this device's own vault: both are in the folder,
+        // and on a phone that keeps its own files private the second is most
+        // of what there is to free.
+        let Some(row) = self.db.in_folder(logical_path)? else {
             return Err(Error::NotFound { path: logical_path.to_string() });
         };
-        if row.deleted_at.is_some() {
-            return Err(Error::NotFound { path: logical_path.to_string() });
-        }
 
         if self.db.replica_count(&row.content_hash)? == 0 {
             return Err(Error::CannotEvict {

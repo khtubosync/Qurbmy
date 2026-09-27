@@ -228,11 +228,18 @@ fn upgrading_remembers_every_delivery_already_taken() {
     std::fs::write(&landed, &contents).unwrap();
     store.adopt_file_privately(&version, &landed, 0).unwrap();
 
-    // Put the index back the way a build before the record left it.
+    // Put the index back the way a build before the record left it: without
+    // what V11 and every later migration added, since they all run again.
+    // A migration added after V12 has to be undone here too.
     store
         .db()
         .conn()
-        .execute_batch("DELETE FROM taken; PRAGMA user_version = 10;")
+        .execute_batch(
+            "DELETE FROM taken;
+             ALTER TABLE files DROP COLUMN held;
+             DROP TABLE holders;
+             PRAGMA user_version = 10;",
+        )
         .unwrap();
     drop(store);
 

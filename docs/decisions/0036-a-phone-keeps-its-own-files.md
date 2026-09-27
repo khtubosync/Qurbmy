@@ -187,6 +187,23 @@ for one works as for the shared area, from the holder's *held* entries.
 - **Renames are a deletion and an addition.** The holder re-files the content
   under the new name without moving it again, because it already has the bytes.
 
+## Progress
+
+- **2026-09-27 — the four areas and `qurb/2`.** On the wire; nothing produced
+  or acted on them yet.
+- **2026-09-27 — storage.** Index schema V12: `files.held` and the `holders`
+  list. A store can be told to file new local files in its own vault; a holder
+  can keep a file for its owner (`hold_file`) and drop it only on the owner's
+  tombstone (`unhold`); freeing space covers a device's own vault. Held rows
+  are left out of everything that releases or lists sends. Ten tests in
+  `crates/storage/tests/holding.rs`; the two guards that keep a backup from
+  being released were each removed and their tests seen to fail.
+  Found on the way: the list of sends waiting to be collected included every
+  row in this device's *own* vault, so a device keeping received files in its
+  folder would have listed them as waiting for itself.
+- **Not yet:** the server showing a vault to its holders, the engine holding
+  and fetching back, and anything on the phone.
+
 ## Reversing it
 
 Moderate before anybody has used it and expensive after. Once phones hold
