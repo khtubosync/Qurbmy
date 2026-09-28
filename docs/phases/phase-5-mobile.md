@@ -1160,6 +1160,31 @@ index knows files, not folders.
 
 Built and compiled; **not yet run on the phone**.
 
+## Run on the emulator, and what that found
+
+**2026-09-28.** The new screens run on the `qurb-test` emulator, headless,
+upgraded in place over the previous build — so the index migrations from
+schema 12 to 15 ran on a real phone's data. Walked through: the Vault by
+folder (new folder, into it and out with Back, moving a shared file into it
+and seeing it stay shared), the three ways to connect, the phone showing a
+code — its QR decoded with `zbarimg` to exactly the code printed under it —
+Settings' new rows and Version, choosing which devices have a folder, and
+deleting a file then restoring it from Recently deleted.
+
+It found a fault the engine tests had not, because they all ran as desktops:
+**on a phone, a file qurb writes itself went into the phone's own vault.** A
+phone files new things privately (decision 0036), and the sharing rule, a
+restored file, and the results of settling a conflict are all new paths — so
+a sharing rule made on a phone was invisible to every other device, and a
+shared file restored or kept there would have vanished from them. The store
+now writes those in the area already decided (`put_file_in`), retiring a row
+left in the wrong area by the earlier build. Four engine tests with a phone
+fail without it. And two small things: a file's size was shown twice in the
+Vault, and the rule file was counted in "of files".
+
+Not on the emulator: anything needing a second device to answer — a conflict
+arriving, a removal, the share sheet sending — and the real phone.
+
 ## Deliberately left undone
 
 - **Keychain, on iOS.** The Android half is done and verified on a device —

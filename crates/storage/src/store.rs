@@ -1342,7 +1342,9 @@ impl Store {
                 std::fs::create_dir_all(&dir).map_err(|e| Error::io(&dir, e))?;
                 std::fs::write(&disk, qurb_sync::sharing::encode_members(members))
                     .map_err(|e| Error::io(&disk, e))?;
-                self.put_file(&path, &disk)?;
+                // Always the shared area: a rule every device must see, even
+                // made on a phone that files new things privately.
+                self.put_file_in(&path, &disk, None)?;
             }
             None => {
                 if self.db.folder_row(&path)?.is_some() {
@@ -1406,9 +1408,9 @@ impl Store {
         let Some(root) = self.tree.clone() else {
             return Err(Error::NotFound { path: copy.to_string() });
         };
-        if self.db.folder_row(copy)?.is_none() {
+        let Some((_, copy_scope)) = self.db.folder_row(copy)? else {
             return Err(Error::NotFound { path: copy.to_string() });
-        }
+        };
         let not_kept = "the version not kept when a conflict was settled";
         let needs_copy_here = |store: &Self| -> Result<()> {
             match store.db.is_materialised(copy)? == Some(true) && root.join(copy).is_file() {
@@ -1424,16 +1426,22 @@ impl Store {
             }
             Keep::Copy => {
                 needs_copy_here(self)?;
-                if self.db.folder_row(&name.original)?.is_some() {
-                    self.delete_to_trash(&name.original, Some(not_kept))?;
-                }
-                self.rename_in_folder(&root, copy, &name.original)?;
+                // Into the area the name was in -- or the copy's, if the
+                // name has gone.
+                let area = match self.db.folder_row(&name.original)? {
+                    Some((_, scope)) => {
+                        self.delete_to_trash(&name.original, Some(not_kept))?;
+                        scope
+                    }
+                    None => copy_scope,
+                };
+                self.rename_in_folder(&root, copy, &name.original, area)?;
                 Ok(name.original)
             }
             Keep::Both => {
                 needs_copy_here(self)?;
                 let target = self.free_path_labelled(&root, &name.original, label)?;
-                self.rename_in_folder(&root, copy, &target)?;
+                self.rename_in_folder(&root, copy, &target, copy_scope)?;
                 Ok(target)
             }
         }
@@ -1463,23 +1471,60 @@ impl Store {
         if self.db.is_materialised(from)? != Some(true) || !root.join(from).is_file() {
             return Err(Error::NotHere { path: from.to_string() });
         }
-        self.rename_in_folder(&root, from, to)?;
-        if self.db.scope_of(to)? != scope {
-            self.db.set_scope(to, scope.as_ref())?;
-        }
-        Ok(())
+        self.rename_in_folder(&root, from, to, scope)
     }
 
     /// Move a file in the folder from one path to another, recording both
-    /// sides as changes made here.
-    fn rename_in_folder(&mut self, root: &Path, from: &str, to: &str) -> Result<()> {
+    /// sides as changes made here, and keeping it in `scope`'s area.
+    fn rename_in_folder(
+        &mut self,
+        root: &Path,
+        from: &str,
+        to: &str,
+        scope: Option<DeviceId>,
+    ) -> Result<()> {
         let (source, target) = (root.join(from), root.join(to));
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent).map_err(|e| Error::io(parent, e))?;
         }
         std::fs::rename(&source, &target).map_err(|e| Error::io(&source, e))?;
-        self.put_file(to, &target)?;
+        self.put_file_in(to, &target, scope)?;
         self.delete_file(from)
+    }
+
+    /// Store a file from the folder as a change made here, in the area given:
+    /// the shared area for `None`, this device's own vault for its own id.
+    ///
+    /// For qurb writing a file itself -- a sharing rule, a restore, a rename,
+    /// a settled conflict -- where the file's area is already decided. A plain
+    /// [`put_file`](Self::put_file) of a path the index has no live row for
+    /// files it the way a *new* file goes, which on a phone is its own vault:
+    /// a shared file restored or renamed there became private, and so to
+    /// every other device looked deleted. Decided before the write, because
+    /// moving the row afterwards collides with a shared tombstone at the path.
+    fn put_file_in(&mut self, logical: &str, disk: &Path, scope: Option<DeviceId>) -> Result<PutStats> {
+        let private = match scope {
+            None => false,
+            Some(owner) if owner == self.device_id()? => true,
+            Some(_) => {
+                return Err(Error::Sharing {
+                    why: "another device's vault is not written through this device's folder".into(),
+                })
+            }
+        };
+        // A live row at the path in the other area is retired first: an
+        // existing file keeps its area, so without this the write would land
+        // beside it in the wrong one. Found on the emulator, where a sharing
+        // rule written privately by an earlier build stayed private.
+        if let Some((_, current)) = self.db.folder_row(logical)? {
+            if current != scope {
+                self.tombstone(logical, Stamp::Local, current)?;
+            }
+        }
+        let was = std::mem::replace(&mut self.new_files_private, private);
+        let stored = self.put_file(logical, disk);
+        self.new_files_private = was;
+        stored
     }
 
     /// `name (label).ext` beside `path`, numbered if that is taken too.
@@ -1619,7 +1664,10 @@ impl Store {
             std::fs::create_dir_all(parent).map_err(|e| Error::io(parent, e))?;
         }
         move_file(&self.trash_file(id), &to).map_err(|e| Error::io(&to, e))?;
-        self.put_file(&target, &to)?;
+        // Back in the area it was deleted from.
+        let me = self.device_id()?;
+        let area = entry.scope.filter(|owner| *owner == me);
+        self.put_file_in(&target, &to, area)?;
         self.db.remove_trash(id)?;
         let _ = self.db.record(
             db::Event::Restored,

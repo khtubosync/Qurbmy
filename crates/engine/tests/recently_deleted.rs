@@ -19,11 +19,22 @@ struct Device {
 
 impl Device {
     fn new() -> Self {
+        Self::with_privacy(false)
+    }
+
+    /// A phone: files new things privately (decision 0036), which is what
+    /// qurb writing a file itself must not fall into.
+    fn phone() -> Self {
+        Self::with_privacy(true)
+    }
+
+    fn with_privacy(private: bool) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("sync");
         fs::create_dir_all(&root).unwrap();
         let store_dir = root.join(".qurb");
-        let store = Store::open(&store_dir, ChunkKey::from_bytes([42; 32])).unwrap().in_tree(&root);
+        let mut store = Store::open(&store_dir, ChunkKey::from_bytes([42; 32])).unwrap().in_tree(&root);
+        store.set_new_files_private(private);
         let ignore = IgnoreRules::new().with_store_dir(&store_dir);
         Self { _dir: dir, root: root.clone(), engine: Engine::new(root, store, ignore) }
     }
@@ -182,4 +193,20 @@ fn content_deleted_here_can_arrive_again() {
     phone.write("b.txt", "the same bytes");
     sync(&mut laptop, &mut phone);
     assert_eq!(laptop.read("b.txt").as_deref(), Some("the same bytes"));
+}
+
+/// Restored on a phone, a shared file comes back shared -- not into the
+/// phone's own vault, which to the laptop would look like it never returned.
+#[test]
+fn a_shared_file_restored_on_a_phone_comes_back_shared() {
+    let (mut laptop, mut phone) = (Device::new(), Device::phone());
+    laptop.write("notes.txt", "for everyone");
+    sync(&mut laptop, &mut phone);
+    laptop.remove("notes.txt");
+    sync(&mut laptop, &mut phone);
+
+    let id = phone.deleted()[0].id;
+    phone.engine.store_mut().restore_from_trash(id).unwrap();
+    sync(&mut laptop, &mut phone);
+    assert_eq!(laptop.read("notes.txt").as_deref(), Some("for everyone"));
 }

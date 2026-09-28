@@ -356,7 +356,8 @@ class VaultScreen(app: MainActivity) : Screen(app) {
                         entry,
                         if (entry.private) ownKeeper else sharedKeeper,
                     )
-                    row.where.text = "$where · ${Words.size(entry.size)}"
+                    // `where` already begins with the size.
+                    row.where.text = where
                     row.dot.visibility = View.VISIBLE
                     row.dot.imageTintList = ColorStateList.valueOf(colour)
                 }

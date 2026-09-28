@@ -86,7 +86,7 @@ class SettingsScreen(app: MainActivity) : Screen(app) {
 
         page.heading("Folders")
         page.setting(
-            "Folders",
+            "Who has each folder",
             "Which devices each is on, and whether it is kept on this phone",
         ) { chooseFolder() }
 

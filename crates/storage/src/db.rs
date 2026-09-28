@@ -733,9 +733,13 @@ impl Db {
     /// is exactly what deduplication saved.
     pub fn live_bytes(&self) -> Result<u64> {
         let total: i64 = self.conn.query_row(
-            "SELECT coalesce(sum(size), 0) FROM files
-              WHERE deleted_at IS NULL
-                AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))",
+            // Not the sharing rules: bookkeeping, not a person's files.
+            &format!(
+                "SELECT coalesce(sum(size), 0) FROM files
+                  WHERE deleted_at IS NULL
+                    AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))
+                    AND {NOT_RULES}"
+            ),
             [],
             |r| r.get(0),
         )?;

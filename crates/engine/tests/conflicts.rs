@@ -19,11 +19,22 @@ struct Device {
 
 impl Device {
     fn new() -> Self {
+        Self::with_privacy(false)
+    }
+
+    /// A phone: files new things privately (decision 0036), which is what
+    /// qurb writing a file itself must not fall into.
+    fn phone() -> Self {
+        Self::with_privacy(true)
+    }
+
+    fn with_privacy(private: bool) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("sync");
         fs::create_dir_all(&root).unwrap();
         let store_dir = root.join(".qurb");
-        let store = Store::open(&store_dir, ChunkKey::from_bytes([42; 32])).unwrap().in_tree(&root);
+        let mut store = Store::open(&store_dir, ChunkKey::from_bytes([42; 32])).unwrap().in_tree(&root);
+        store.set_new_files_private(private);
         let ignore = IgnoreRules::new().with_store_dir(&store_dir);
         Self { _dir: dir, root: root.clone(), engine: Engine::new(root, store, ignore) }
     }
@@ -65,8 +76,9 @@ fn sync(a: &mut Device, b: &mut Device) {
 }
 
 /// A laptop and a phone that both changed `plan.txt`, synced: one conflict.
+/// The phone files new things privately, as a real one does.
 fn conflicted() -> (Device, Device) {
-    let (mut laptop, mut phone) = (Device::new(), Device::new());
+    let (mut laptop, mut phone) = (Device::new(), Device::phone());
     laptop.write("plan.txt", "the first plan");
     sync(&mut laptop, &mut phone);
     laptop.write("plan.txt", "the laptop's plan");

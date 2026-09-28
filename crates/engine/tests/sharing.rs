@@ -23,11 +23,22 @@ struct Device {
 
 impl Device {
     fn new() -> Self {
+        Self::with_privacy(false)
+    }
+
+    /// A phone: files new things privately (decision 0036), which is what
+    /// qurb writing a file itself must not fall into.
+    fn phone() -> Self {
+        Self::with_privacy(true)
+    }
+
+    fn with_privacy(private: bool) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("sync");
         fs::create_dir_all(&root).unwrap();
         let store_dir = root.join(".qurb");
-        let store = Store::open(&store_dir, ChunkKey::from_bytes([42; 32])).unwrap().in_tree(&root);
+        let mut store = Store::open(&store_dir, ChunkKey::from_bytes([42; 32])).unwrap().in_tree(&root);
+        store.set_new_files_private(private);
         let ignore = IgnoreRules::new().with_store_dir(&store_dir);
         Self { _dir: dir, root: root.clone(), engine: Engine::new(root, store, ignore) }
     }
@@ -202,3 +213,39 @@ fn the_rules_are_not_listed_as_files() {
     assert!(db.evictable().unwrap().iter().all(|(p, _, _)| !p.starts_with(".qurb-sharing")));
 }
 
+
+/// Made on a phone, which files new things privately: the rule file is still
+/// the shared area's, or no other device would ever see it. Found on the
+/// emulator, where a phone's Save changed nothing anywhere.
+#[test]
+fn a_rule_made_on_a_phone_reaches_the_other_devices() {
+    let (mut laptop, mut phone, mut tablet) = (Device::new(), Device::phone(), Device::new());
+    laptop.write("Family/beach.jpg", "the beach");
+    everyone(&mut laptop, &mut phone, &mut tablet);
+
+    let (l, p) = (laptop.id(), phone.id());
+    phone.share("Family", &[&l, &p]);
+    laptop.write("Family/new.jpg", "after the rule");
+    everyone(&mut laptop, &mut phone, &mut tablet);
+
+    let t = tablet.id();
+    assert!(!laptop.engine.store().sharing().unwrap().allows("Family/new.jpg", &t));
+    assert_eq!(tablet.read("Family/new.jpg"), None);
+    assert_eq!(phone.read("Family/new.jpg").as_deref(), Some("after the rule"));
+}
+
+/// A rule file an earlier build filed privately on a phone is put right the
+/// next time the rule is saved, rather than staying invisible for ever.
+#[test]
+fn a_rule_left_private_by_an_earlier_build_is_put_right() {
+    let (laptop, mut phone) = (Device::new(), Device::phone());
+    let (l, p) = (laptop.id(), phone.id());
+    // As the earlier build left it: the rule file in the phone's own vault.
+    let rule = qurb_sync::sharing::rule_path("Trips");
+    phone.write(&rule, &qurb_sync::sharing::encode_members(&[l, p].into()));
+    assert!(phone.engine.store().db().folder_row(&rule).unwrap().unwrap().1.is_some());
+
+    phone.share("Trips", &[&p]);
+    assert!(phone.engine.store().db().folder_row(&rule).unwrap().unwrap().1.is_none(), "still private");
+    assert!(!phone.engine.store().sharing().unwrap().allows("Trips/x.jpg", &l));
+}
