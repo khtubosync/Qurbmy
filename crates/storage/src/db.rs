@@ -24,7 +24,7 @@ use std::path::Path;
 ///
 /// Migrations are append-only. Editing one that has already shipped would leave
 /// databases in the field at a schema nobody can reproduce.
-const MIGRATIONS: &[&str] = &[V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12];
+const MIGRATIONS: &[&str] = &[V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13];
 
 const V1: &str = r#"
 CREATE TABLE IF NOT EXISTS chunks (
@@ -388,6 +388,31 @@ ALTER TABLE files ADD COLUMN held INTEGER NOT NULL DEFAULT 0;
 CREATE TABLE IF NOT EXISTS holders (
     device_id BLOB PRIMARY KEY,
     since     INTEGER NOT NULL
+) STRICT;
+"#;
+
+const V13: &str = r#"
+-- Recently deleted: files this device took out of the folder because they were
+-- deleted -- on another device, or here through qurb -- kept in `trash/` in
+-- the store directory for a while instead of unlinked.
+--
+-- Under single-copy storage the file in the folder is the only copy of its
+-- bytes on this device, so before this a deletion anywhere removed every copy
+-- everywhere the moment it synced. A row here is one file's worth of second
+-- chance; see decision 0042.
+CREATE TABLE IF NOT EXISTS trash (
+    id           INTEGER PRIMARY KEY,
+    path         TEXT NOT NULL,
+    -- NULL for the shared area, a device id for that device's vault.
+    scope        BLOB,
+    content_hash BLOB NOT NULL,
+    size         INTEGER NOT NULL,
+    deleted_at   INTEGER NOT NULL,
+    -- The device whose deletion this was, where there is one.
+    deleted_by   BLOB,
+    -- Why, where "deleted" is not the whole story: the other version of a
+    -- conflict somebody settled.
+    why          TEXT
 ) STRICT;
 "#;
 
@@ -1858,11 +1883,21 @@ impl Db {
     /// happened to allow — which for content lookups is the wrong question
     /// entirely. Whether this device *holds the bytes* has nothing to do with
     /// which namespace they sit in.
+    ///
+    /// Only a row whose chunk list is complete -- its chunks add up to its
+    /// size. A file deleted from the folder keeps its row as a tombstone but
+    /// loses the references to payloads that left with it, and an empty or
+    /// partial list read back as this content assembles the wrong bytes: found
+    /// when a deleted file came back with the same content, and the device
+    /// that had deleted it failed to take it, every sync, as "corrupt".
     pub fn any_file_with_content(&self, hash: &blake3::Hash) -> Result<Option<i64>> {
         self.conn
             .query_row(
-                "SELECT id FROM files
+                "SELECT id FROM files f
                   WHERE content_hash = ?1
+                    AND size = (SELECT coalesce(sum(c.size), 0)
+                                  FROM file_chunks fc JOIN chunks c ON c.hash = fc.chunk_hash
+                                 WHERE fc.file_id = f.id)
                   ORDER BY deleted_at IS NOT NULL, id
                   LIMIT 1",
                 params![hash.as_bytes().as_slice()],
@@ -1978,6 +2013,83 @@ impl Db {
         tx.execute("DELETE FROM reported WHERE device_id = ?1", params![id])?;
         tx.commit()?;
         Ok(n > 0)
+    }
+
+        /// Live paths in the folder -- the shared area and this device's own
+    /// vault -- containing `text`, in path order.
+    pub fn folder_paths_containing(&self, text: &str) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT path FROM files
+              WHERE deleted_at IS NULL
+                AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))
+                AND instr(path, ?1) > 0
+              ORDER BY path",
+        )?;
+        let rows = stmt.query_map(params![text], |r| r.get(0))?;
+        rows.collect::<std::result::Result<_, _>>().map_err(Into::into)
+    }
+
+    /// Remember a file just moved to the trash, and return its id -- which is
+    /// also its name under `trash/`.
+    pub fn add_trash(&self, entry: &NewTrash<'_>) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO trash (path, scope, content_hash, size, deleted_at, deleted_by, why)
+             VALUES (?1, ?2, ?3, ?4, unixepoch(), ?5, ?6)",
+            params![
+                entry.path,
+                entry.scope.map(|d| d.as_bytes().to_vec()),
+                entry.content.as_bytes().as_slice(),
+                entry.size as i64,
+                entry.by.map(|d| d.as_bytes().to_vec()),
+                entry.why,
+            ],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Everything in the trash, most recently deleted first.
+    pub fn trash(&self) -> Result<Vec<Trashed>> {
+        self.trash_where("1", [])
+    }
+
+    pub fn trash_entry(&self, id: i64) -> Result<Option<Trashed>> {
+        Ok(self.trash_where("id = ?1", [id])?.into_iter().next())
+    }
+
+    /// Entries deleted before `cutoff` (unix seconds).
+    pub fn trash_before(&self, cutoff: i64) -> Result<Vec<Trashed>> {
+        self.trash_where("deleted_at < ?1", [cutoff])
+    }
+
+    fn trash_where<P: rusqlite::Params>(&self, condition: &str, values: P) -> Result<Vec<Trashed>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT id, path, scope, content_hash, size, deleted_at, deleted_by, why
+               FROM trash WHERE {condition} ORDER BY deleted_at DESC, id DESC"
+        ))?;
+        let rows = stmt.query_map(values, |r| {
+            let hash: Vec<u8> = r.get(3)?;
+            Ok(Trashed {
+                id: r.get(0)?,
+                path: r.get(1)?,
+                scope: r.get::<_, Option<Vec<u8>>>(2)?.and_then(to_device),
+                content: blake3::Hash::from(<[u8; 32]>::try_from(hash).unwrap_or([0; 32])),
+                size: r.get::<_, i64>(4)? as u64,
+                deleted_at: r.get(5)?,
+                deleted_by: r.get::<_, Option<Vec<u8>>>(6)?.and_then(to_device),
+                why: r.get(7)?,
+            })
+        })?;
+        rows.collect::<std::result::Result<_, _>>().map_err(Into::into)
+    }
+
+    pub fn remove_trash(&self, id: i64) -> Result<bool> {
+        Ok(self.conn.execute("DELETE FROM trash WHERE id = ?1", params![id])? > 0)
+    }
+
+    /// What the trash is costing on disk.
+    pub fn trash_bytes(&self) -> Result<u64> {
+        let n: i64 = self.conn.query_row("SELECT coalesce(sum(size), 0) FROM trash", [], |r| r.get(0))?;
+        Ok(n as u64)
     }
 
     /// A name for every device this one has known: a trusted one by the name
@@ -2251,6 +2363,35 @@ fn activity_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Activity> {
         device: device.and_then(to_device),
         detail: r.get(6)?,
     })
+}
+
+/// A file about to go into the trash. See [`Db::add_trash`].
+#[derive(Debug, Clone)]
+pub struct NewTrash<'a> {
+    pub path: &'a str,
+    pub scope: Option<&'a DeviceId>,
+    pub content: &'a blake3::Hash,
+    pub size: u64,
+    pub by: Option<&'a DeviceId>,
+    pub why: Option<&'a str>,
+}
+
+/// A file in the trash: recently deleted, and still restorable here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Trashed {
+    /// Also its file name under `trash/` in the store directory.
+    pub id: i64,
+    /// Where it was.
+    pub path: String,
+    pub scope: Option<DeviceId>,
+    pub content: blake3::Hash,
+    pub size: u64,
+    /// Unix seconds.
+    pub deleted_at: i64,
+    /// The device whose deletion this was, where known.
+    pub deleted_by: Option<DeviceId>,
+    /// Why, where "deleted" is not the whole story.
+    pub why: Option<String>,
 }
 
 fn to_device(raw: Vec<u8>) -> Option<DeviceId> {

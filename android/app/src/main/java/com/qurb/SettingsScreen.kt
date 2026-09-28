@@ -7,6 +7,7 @@ import com.qurb.databinding.ScreenPageBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import uniffi.qurb_mobile.DeletedFile
 import uniffi.qurb_mobile.Usage
 
 /**
@@ -26,12 +27,12 @@ class SettingsScreen(app: MainActivity) : Screen(app) {
     override fun refresh() {
         scope.launch {
             try {
-                val (usage, background) = withContext(Dispatchers.IO) {
+                val (usage, background, deleted) = withContext(Dispatchers.IO) {
                     // `state` waits on WorkManager's own database; off the main
                     // thread like everything else.
-                    engine().usage() to SyncWorker.state(app)
+                    Triple(engine().usage(), SyncWorker.state(app), engine().recentlyDeleted())
                 }
-                show(usage, background)
+                show(usage, background, deleted)
             } catch (e: Exception) {
                 app.fail("Could not read the settings", e)
             } finally {
@@ -40,7 +41,7 @@ class SettingsScreen(app: MainActivity) : Screen(app) {
         }
     }
 
-    private fun show(usage: Usage, background: String) {
+    private fun show(usage: Usage, background: String, deleted: List<DeletedFile>) {
         val page = views.sections
         page.removeAllViews()
 
@@ -70,7 +71,16 @@ class SettingsScreen(app: MainActivity) : Screen(app) {
         page.heading("Space")
         page.setting("Your files", Words.size(usage.logical))
         page.setting("qurb on this phone", Words.size(usage.onDisk))
-        page.setting("Free unused space", "Deleted files are kept 7 days, then cleared") { tidy() }
+        page.setting(
+            "Recently deleted",
+            if (deleted.isEmpty()) {
+                "Nothing. Files deleted here or on another device are kept 30 days"
+            } else {
+                "${Words.files(deleted.size)}, ${Words.size(deleted.sumOf { it.size })} — " +
+                    "kept 30 days, and restorable"
+            },
+        ) { if (deleted.isNotEmpty()) showDeleted(deleted) }
+        page.setting("Free unused space", "Clears what nothing needs any more") { tidy() }
 
         page.heading("Syncing")
         page.setting("Background sync", background) { explainBackground() }
@@ -131,6 +141,63 @@ class SettingsScreen(app: MainActivity) : Screen(app) {
                 app.say(if (on) "New files stay private" else "New files go to all your devices")
             } catch (e: Exception) {
                 app.fail("Could not change that", e)
+            } finally {
+                refresh()
+            }
+        }
+    }
+
+    /**
+     * Recently deleted (decision 0042): files deleted on this phone or on
+     * another device, kept here for thirty days. Restoring one puts it back
+     * on every device, the way any change travels.
+     */
+    private fun showDeleted(deleted: List<DeletedFile>) {
+        val lines = deleted.map { d ->
+            val by = d.deletedBy?.let { " on $it" } ?: ""
+            "${d.path.substringAfterLast('/')}\n${Words.size(d.size)} · deleted$by ${Words.ago(d.deletedAt)}"
+        }
+        MaterialAlertDialogBuilder(app)
+            .setTitle("Recently deleted")
+            .setItems(lines.toTypedArray()) { _, which -> chooseDeleted(deleted[which]) }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun chooseDeleted(d: DeletedFile) {
+        MaterialAlertDialogBuilder(app)
+            .setTitle(d.path.substringAfterLast('/'))
+            .setMessage(
+                "Restoring puts it back in qurb on this phone, and it returns on your other " +
+                    "devices at their next sync." + (d.why?.let { "\n\n$it." } ?: "")
+            )
+            .setPositiveButton("Restore") { _, _ -> restoreDeleted(d) }
+            .setNeutralButton("Delete for good") { _, _ -> forgetDeleted(d) }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun restoreDeleted(d: DeletedFile) {
+        scope.launch {
+            try {
+                val at = withContext(Dispatchers.IO) { engine().restoreDeleted(d.id) }
+                app.say(if (at == d.path) "Restored" else "Restored as ${at.substringAfterLast('/')}")
+                SyncWorker.runNow(app)
+            } catch (e: Exception) {
+                app.fail("Could not restore it", e)
+            } finally {
+                app.changed()
+            }
+        }
+    }
+
+    private fun forgetDeleted(d: DeletedFile) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { engine().forgetDeleted(d.id) }
+                app.say("Deleted for good")
+            } catch (e: Exception) {
+                app.fail("Could not delete it", e)
             } finally {
                 refresh()
             }

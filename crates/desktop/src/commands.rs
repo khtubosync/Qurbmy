@@ -904,6 +904,129 @@ pub fn cancel_send(hosted: Host<'_>, path: String, to: String) -> Answer<()> {
         .map_err(failed)
 }
 
+/// One side of a conflict, as the window shows it.
+#[derive(Serialize)]
+pub struct Side {
+    path: String,
+    size: String,
+    here: bool,
+    /// The name of the device that made this version.
+    by: String,
+    at: i64,
+}
+
+/// Two versions of one file (brief §24).
+#[derive(Serialize)]
+pub struct Conflicted {
+    path: String,
+    /// The version under the file's own name, unless that has since gone.
+    this: Option<Side>,
+    other: Side,
+}
+
+#[tauri::command]
+pub fn conflicts(hosted: Host<'_>) -> Answer<Vec<Conflicted>> {
+    hosted
+        .with_store(|store| {
+            let names = store.db().device_names()?;
+            let side = |v: qurb_storage::ConflictVersion| Side {
+                by: v
+                    .modified_by
+                    .map(|id| names.get(&id).cloned().unwrap_or_else(|| id.short()))
+                    .unwrap_or_else(|| "another device".into()),
+                size: big(v.size),
+                here: v.here,
+                at: v.updated_at,
+                path: v.path,
+            };
+            Ok(store
+                .conflicts()?
+                .into_iter()
+                .map(|c| Conflicted { path: c.original_path, this: c.original.map(side), other: side(c.copy) })
+                .collect())
+        })
+        .map_err(failed)
+}
+
+/// Settle a conflict: keep "this" version, the "other", or "both". Returns
+/// the path of what was kept.
+#[tauri::command]
+pub fn settle_conflict(hosted: Host<'_>, other: String, keep: String) -> Answer<String> {
+    let keep = match keep.as_str() {
+        "this" => qurb_storage::Keep::Original,
+        "other" => qurb_storage::Keep::Copy,
+        "both" => qurb_storage::Keep::Both,
+        _ => return Err(format!("keep this, other or both, not {keep}")),
+    };
+    let kept = hosted
+        .with_store_mut(|store| {
+            let names = store.db().device_names()?;
+            let label = store
+                .db()
+                .folder_row(&other)?
+                .and_then(|(row, _)| row.modified_by)
+                .and_then(|id| names.get(&id).cloned())
+                .unwrap_or_else(|| "other version".into());
+            Ok(store.settle_conflict(&other, keep, &label)?)
+        })
+        .map_err(failed)?;
+    hosted.nudge();
+    Ok(kept)
+}
+
+/// A file in Recently deleted (decision 0042).
+#[derive(Serialize)]
+pub struct Deleted {
+    id: i64,
+    path: String,
+    size: String,
+    /// Unix seconds.
+    at: i64,
+    /// "this computer", or the name of the device whose deletion it was.
+    by: Option<String>,
+    why: Option<String>,
+}
+
+#[tauri::command]
+pub fn recently_deleted(hosted: Host<'_>) -> Answer<Vec<Deleted>> {
+    hosted
+        .with_store(|store| {
+            let names = store.db().device_names()?;
+            let me = store.device_id()?;
+            Ok(store
+                .recently_deleted()?
+                .into_iter()
+                .map(|entry| Deleted {
+                    id: entry.id,
+                    path: entry.path,
+                    size: big(entry.size),
+                    at: entry.deleted_at,
+                    by: entry.deleted_by.map(|id| match id == me {
+                        true => "this computer".to_string(),
+                        false => names.get(&id).cloned().unwrap_or_else(|| id.short()),
+                    }),
+                    why: entry.why,
+                })
+                .collect())
+        })
+        .map_err(failed)
+}
+
+/// Put a file back from Recently deleted. Returns where it went, which is
+/// beside its old path when something is there now.
+#[tauri::command]
+pub fn restore_deleted(hosted: Host<'_>, id: i64) -> Answer<String> {
+    let at = hosted.with_store_mut(|store| Ok(store.restore_from_trash(id)?)).map_err(failed)?;
+    hosted.nudge();
+    Ok(at)
+}
+
+/// Delete a file in Recently deleted for good.
+#[tauri::command]
+pub fn forget_deleted(hosted: Host<'_>, id: i64) -> Answer<()> {
+    hosted.with_store_mut(|store| Ok(store.forget_deleted(id)?)).map_err(failed)
+}
+
 /// What removing a device would do, for the question asked before doing it.
 #[derive(Serialize)]
 pub struct Removal {

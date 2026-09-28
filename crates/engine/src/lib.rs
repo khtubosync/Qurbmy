@@ -374,7 +374,8 @@ impl Engine {
     pub fn housekeep(&mut self, retention: std::time::Duration) -> Result<Housekeeping> {
         let collected = self.store.gc(retention)?;
         let reclaimed = self.store.reclaim()?;
-        Ok(Housekeeping { collected, reclaimed })
+        let expired = self.store.empty_trash(qurb_storage::TRASH_RETENTION)?;
+        Ok(Housekeeping { collected, reclaimed, expired })
     }
 
     pub fn enforce_limit(&mut self, limit: u64) -> Result<CapStats> {
@@ -408,6 +409,21 @@ impl Engine {
             }
             Ok(_) => {}
             Err(e) => tracing::warn!(error = %e, "releasing held content failed"),
+        }
+
+        // Then Recently deleted, oldest first: files somebody already chose to
+        // delete go before local copies of files nobody has.
+        if over > 0 {
+            match self.store.empty_trash_by(over) {
+                Ok(emptied) if emptied > 0 => {
+                    tracing::info!(freed = emptied, "emptied recently deleted files to stay under the limit");
+                    stats.emptied += emptied;
+                    stats.freed += emptied;
+                    over = over.saturating_sub(emptied);
+                }
+                Ok(_) => {}
+                Err(e) => tracing::warn!(error = %e, "emptying recently deleted files failed"),
+            }
         }
 
         for (path, size, _) in self.store.evictable()? {
@@ -726,11 +742,13 @@ pub struct Housekeeping {
     pub collected: qurb_storage::GcStats,
     /// Chunk-store copies of bytes the folder already holds.
     pub reclaimed: qurb_storage::GcStats,
+    /// Files and bytes that had been in Recently deleted past its retention.
+    pub expired: (usize, u64),
 }
 
 impl Housekeeping {
     pub fn bytes_freed(&self) -> u64 {
-        self.collected.bytes_reclaimed + self.reclaimed.bytes_reclaimed
+        self.collected.bytes_reclaimed + self.reclaimed.bytes_reclaimed + self.expired.1
     }
 }
 
@@ -748,6 +766,9 @@ pub struct CapStats {
     /// Chunks dropped that were held only for another device, which has them.
     /// Released before any of this device's own files.
     pub released: usize,
+    /// Bytes of Recently deleted emptied early, after held content and before
+    /// any live file.
+    pub emptied: u64,
     /// Bytes still over the limit after doing everything permitted. Non-zero
     /// means the device holds content nothing else has, and is keeping it.
     pub still_over: u64,

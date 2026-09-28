@@ -5,6 +5,9 @@ import com.qurb.databinding.ScreenHomeBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import uniffi.qurb_mobile.ConflictInfo
+import uniffi.qurb_mobile.ConflictSide
 import uniffi.qurb_mobile.Happening
 import uniffi.qurb_mobile.Outstanding
 import uniffi.qurb_mobile.PeerInfo
@@ -47,6 +50,7 @@ class HomeScreen(app: MainActivity) : Screen(app) {
         val outstanding: Outstanding,
         val usage: Usage,
         val recent: List<Happening>,
+        val conflicts: List<ConflictInfo>,
     )
 
     override fun refresh() {
@@ -62,6 +66,7 @@ class HomeScreen(app: MainActivity) : Screen(app) {
                         engine.outstanding(),
                         engine.usage(),
                         engine.history(RECENT.toUInt(), null),
+                        engine.conflicts(),
                     )
                 }
                 show(state)
@@ -85,6 +90,7 @@ class HomeScreen(app: MainActivity) : Screen(app) {
         buttons()
 
         showOnlyHere(state)
+        showConflicts(state.conflicts)
 
         views.recent.removeAllViews()
         if (state.recent.isEmpty()) {
@@ -143,6 +149,87 @@ class HomeScreen(app: MainActivity) : Screen(app) {
                         "switched on at the same time."
                 views.keepAction.text = "Sync now"
                 views.keepAction.setOnClickListener { app.sync() }
+            }
+        }
+    }
+
+    /** Files two devices changed at once (brief §24). */
+    private fun showConflicts(conflicts: List<ConflictInfo>) {
+        views.conflictCard.visibility = if (conflicts.isEmpty()) View.GONE else View.VISIBLE
+        if (conflicts.isEmpty()) return
+        views.conflictTitle.text = if (conflicts.size == 1) {
+            "Two devices changed ${conflicts[0].path.substringAfterLast('/')}"
+        } else {
+            "Two devices changed ${conflicts.size} files"
+        }
+        views.conflictAction.setOnClickListener {
+            if (conflicts.size == 1) {
+                choose(conflicts[0])
+            } else {
+                MaterialAlertDialogBuilder(app)
+                    .setTitle("Changed on two devices")
+                    .setItems(conflicts.map { it.path }.toTypedArray()) { _, which -> choose(conflicts[which]) }
+                    .setNegativeButton("Close", null)
+                    .show()
+            }
+        }
+    }
+
+    /**
+     * One conflict: both versions described, three choices. Whichever is not
+     * kept goes to Recently deleted, so no choice here loses anything.
+     */
+    private fun choose(c: ConflictInfo) {
+        fun describe(s: ConflictSide) = "${s.by}, ${Words.ago(s.changedAt)} · ${Words.size(s.size)}" +
+            if (s.here) "" else " · not on this phone yet"
+        val text = "This version: " + (c.`this`?.let { describe(it) } ?: "since deleted or renamed") +
+            "\nThe other: " + describe(c.other) +
+            "\n\nEach device changed it without having seen the other's change, so neither " +
+            "replaced the other. Whichever you do not keep goes to Recently deleted."
+
+        // Keeping the other one, or both, needs its bytes here.
+        val choices = buildList {
+            add("Keep this version" to "this")
+            if (c.other.here) {
+                add("Keep the other" to "other")
+                add("Keep both" to "both")
+            }
+        }
+        MaterialAlertDialogBuilder(app)
+            .setCustomTitle(explained(c.path.substringAfterLast('/'), text))
+            .setItems(choices.map { it.first }.toTypedArray()) { _, which -> settle(c, choices[which].second) }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** A title with an explanation under it, for a dialog whose body is a list. */
+    private fun explained(title: String, text: String): View {
+        val pad = (20 * app.resources.displayMetrics.density).toInt()
+        return android.widget.LinearLayout(app).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, 0)
+            addView(android.widget.TextView(app).apply {
+                this.text = title
+                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_HeadlineSmall)
+            })
+            addView(android.widget.TextView(app).apply {
+                this.text = text
+                setPadding(0, pad / 2, 0, 0)
+                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
+            })
+        }
+    }
+
+    private fun settle(c: ConflictInfo, keep: String) {
+        scope.launch {
+            try {
+                val kept = withContext(Dispatchers.IO) { engine().settleConflict(c.other.path, keep) }
+                app.say(if (keep == "both") "Kept both" else "Kept ${kept.substringAfterLast('/')}")
+                SyncWorker.runNow(app)
+            } catch (e: Exception) {
+                app.fail("Could not settle that", e)
+            } finally {
+                app.changed()
             }
         }
     }

@@ -40,6 +40,13 @@ pub struct Store {
     new_files_private: bool,
 }
 
+/// How long a deleted file stays in Recently deleted before it goes for good.
+///
+/// Thirty days: long enough to notice something is missing after a holiday,
+/// short enough that a deletion made on purpose is really gone within a month.
+/// Under storage pressure the trash goes sooner -- it is the first thing freed.
+pub const TRASH_RETENTION: std::time::Duration = std::time::Duration::from_secs(30 * 24 * 3600);
+
 /// Whose change this is.
 ///
 /// The distinction matters because a version vector records *who* saw what. A
@@ -1162,6 +1169,289 @@ impl Store {
         Ok(())
     }
 
+    fn trash_file(&self, id: i64) -> PathBuf {
+        self.root().join("trash").join(id.to_string())
+    }
+
+    /// Take a file out of the folder into the trash, instead of deleting it.
+    ///
+    /// `disk` is where the file is now; `entry` describes it for the list. Its
+    /// size is read from the file, which is what the trash will cost. Returns
+    /// the entry's id, or `None` when there was no regular file there to keep.
+    pub fn move_to_trash(&mut self, disk: &Path, entry: &db::NewTrash<'_>) -> Result<Option<i64>> {
+        let meta = match std::fs::symlink_metadata(disk) {
+            Ok(meta) if meta.is_file() => meta,
+            Ok(_) => return Ok(None),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(Error::io(disk, e)),
+        };
+        let dir = self.root().join("trash");
+        std::fs::create_dir_all(&dir).map_err(|e| Error::io(&dir, e))?;
+        let id = self.db.add_trash(&db::NewTrash { size: meta.len(), ..entry.clone() })?;
+        let into = self.trash_file(id);
+        if let Err(e) = move_file(disk, &into) {
+            self.db.remove_trash(id)?;
+            return Err(Error::io(disk, e));
+        }
+        Ok(Some(id))
+    }
+
+    /// Delete a file in the folder, as a change made here, keeping its bytes
+    /// in Recently deleted: the deletion reaches every other device as usual,
+    /// and this device can still put it back. `why` is for when "deleted" is
+    /// not the whole story. Returns the trash entry, if there was a file on
+    /// disk to keep.
+    pub fn delete_to_trash(&mut self, logical_path: &str, why: Option<&str>) -> Result<Option<i64>> {
+        let Some((row, scope)) = self.db.folder_row(logical_path)? else {
+            return Err(Error::NotFound { path: logical_path.to_string() });
+        };
+        let me = self.device_id()?;
+        let trashed = match self.tree.clone() {
+            Some(root) => self.move_to_trash(
+                &root.join(logical_path),
+                &db::NewTrash {
+                    path: logical_path,
+                    scope: scope.as_ref(),
+                    content: &row.content_hash,
+                    size: 0,
+                    by: Some(&me),
+                    why,
+                },
+            )?,
+            None => None,
+        };
+        self.delete_file(logical_path)?;
+        Ok(trashed)
+    }
+
+    /// Every conflict waiting for somebody to say which version they want.
+    ///
+    /// Found by name -- a conflict copy's name says what it is a version of
+    /// (see [`qurb_sync::conflict_origin`]) -- because only the device that
+    /// noticed a conflict records it; every other device just receives the
+    /// copy, and has to recognise it all the same.
+    pub fn conflicts(&self) -> Result<Vec<Conflict>> {
+        let mut found = Vec::new();
+        for path in self.db.folder_paths_containing(".conflict-")? {
+            let Some(name) = qurb_sync::conflict_origin(&path) else { continue };
+            let Some(copy) = self.conflict_version(&path)? else { continue };
+            found.push(Conflict {
+                original: self.conflict_version(&name.original)?,
+                original_path: name.original,
+                copy,
+                copy_device: name.device,
+            });
+        }
+        Ok(found)
+    }
+
+    fn conflict_version(&self, path: &str) -> Result<Option<ConflictVersion>> {
+        let Some((row, _)) = self.db.folder_row(path)? else { return Ok(None) };
+        Ok(Some(ConflictVersion {
+            path: row.path,
+            size: row.size,
+            here: self.db.is_materialised(path)?.unwrap_or(false),
+            modified_by: row.modified_by,
+            updated_at: row.updated_at,
+        }))
+    }
+
+    /// Settle a conflict the way somebody chose: keep the version under the
+    /// file's own name, keep the other one in its place, or keep both under
+    /// names a person can read. `label` names the other version when both are
+    /// kept -- usually the device it came from.
+    ///
+    /// Every choice is an ordinary change here, so it reaches the other devices
+    /// the way any change does, and the choice is made once for all of them.
+    /// Nothing is lost by choosing: the version not kept goes to Recently
+    /// deleted (decision 0042). Returns the path of what was kept.
+    pub fn settle_conflict(&mut self, copy: &str, keep: Keep, label: &str) -> Result<String> {
+        let name = qurb_sync::conflict_origin(copy)
+            .ok_or_else(|| Error::NotAConflict { path: copy.to_string() })?;
+        let Some(root) = self.tree.clone() else {
+            return Err(Error::NotFound { path: copy.to_string() });
+        };
+        if self.db.folder_row(copy)?.is_none() {
+            return Err(Error::NotFound { path: copy.to_string() });
+        }
+        let not_kept = "the version not kept when a conflict was settled";
+        let needs_copy_here = |store: &Self| -> Result<()> {
+            match store.db.is_materialised(copy)? == Some(true) && root.join(copy).is_file() {
+                true => Ok(()),
+                false => Err(Error::NotHere { path: copy.to_string() }),
+            }
+        };
+
+        match keep {
+            Keep::Original => {
+                self.delete_to_trash(copy, Some(not_kept))?;
+                Ok(name.original)
+            }
+            Keep::Copy => {
+                needs_copy_here(self)?;
+                if self.db.folder_row(&name.original)?.is_some() {
+                    self.delete_to_trash(&name.original, Some(not_kept))?;
+                }
+                self.rename_in_folder(&root, copy, &name.original)?;
+                Ok(name.original)
+            }
+            Keep::Both => {
+                needs_copy_here(self)?;
+                let target = self.free_path_labelled(&root, &name.original, label)?;
+                self.rename_in_folder(&root, copy, &target)?;
+                Ok(target)
+            }
+        }
+    }
+
+    /// Move a file in the folder from one path to another, recording both
+    /// sides as changes made here.
+    fn rename_in_folder(&mut self, root: &Path, from: &str, to: &str) -> Result<()> {
+        let (source, target) = (root.join(from), root.join(to));
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| Error::io(parent, e))?;
+        }
+        std::fs::rename(&source, &target).map_err(|e| Error::io(&source, e))?;
+        self.put_file(to, &target)?;
+        self.delete_file(from)
+    }
+
+    /// `name (label).ext` beside `path`, numbered if that is taken too.
+    fn free_path_labelled(&self, root: &Path, path: &str, label: &str) -> Result<String> {
+        let (dir, file) = match path.rfind('/') {
+            Some(i) => (&path[..=i], &path[i + 1..]),
+            None => ("", path),
+        };
+        let split = file.get(1..).and_then(|rest| rest.rfind('.')).map(|i| i + 1);
+        let (stem, ext) = match split {
+            Some(i) => (&file[..i], &file[i..]),
+            None => (file, ""),
+        };
+        // A device name is chosen by that device: nothing in it may make a
+        // path of it.
+        let label: String =
+            label.chars().filter(|c| !matches!(c, '/' | '\\' | '\0') && !c.is_control()).collect();
+        let label = if label.trim().is_empty() { "other version".to_string() } else { label };
+        for n in 1.. {
+            let candidate = match n {
+                1 => format!("{dir}{stem} ({label}){ext}"),
+                n => format!("{dir}{stem} ({label} {n}){ext}"),
+            };
+            if self.db.folder_row(&candidate)?.is_none() && !root.join(&candidate).exists() {
+                return Ok(candidate);
+            }
+        }
+        unreachable!("an unbounded search ends")
+    }
+
+    /// What is in the trash, most recently deleted first.
+    pub fn recently_deleted(&self) -> Result<Vec<db::Trashed>> {
+        self.db.trash()
+    }
+
+    /// Put a file from the trash back in the folder, as a change made here:
+    /// a new version, which reaches every other device the way any change
+    /// does, and so undoes the deletion everywhere and not only here.
+    ///
+    /// Returns where it went -- its old path, or beside it when that is taken
+    /// now, because a restore must never overwrite something.
+    pub fn restore_from_trash(&mut self, id: i64) -> Result<String> {
+        let Some(root) = self.tree.clone() else {
+            return Err(Error::NotFound { path: format!("trash/{id} (a replica has no folder)") });
+        };
+        let entry = self.db.trash_entry(id)?.ok_or_else(|| Error::NotFound { path: format!("trash/{id}") })?;
+        let target = self.free_path_near(&root, &entry.path)?;
+        let to = root.join(&target);
+        if let Some(parent) = to.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| Error::io(parent, e))?;
+        }
+        move_file(&self.trash_file(id), &to).map_err(|e| Error::io(&to, e))?;
+        self.put_file(&target, &to)?;
+        self.db.remove_trash(id)?;
+        let _ = self.db.record(
+            db::Event::Restored,
+            Some(&target),
+            Some(entry.size),
+            None,
+            Some("from Recently deleted"),
+        );
+        Ok(target)
+    }
+
+    /// Delete a file in the trash for good, now.
+    pub fn forget_deleted(&mut self, id: i64) -> Result<()> {
+        match std::fs::remove_file(self.trash_file(id)) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                return Err(Error::io(self.trash_file(id), e))
+            }
+            _ => {}
+        }
+        self.db.remove_trash(id)?;
+        Ok(())
+    }
+
+    /// Delete for good what has been in the trash longer than `retention`,
+    /// or everything when `retention` is zero. Returns how many files and
+    /// bytes went.
+    pub fn empty_trash(&mut self, retention: std::time::Duration) -> Result<(usize, u64)> {
+        let cutoff = db::now() - retention.as_secs() as i64;
+        let old = match retention.is_zero() {
+            true => self.db.trash()?,
+            false => self.db.trash_before(cutoff)?,
+        };
+        let mut freed = (0, 0);
+        for entry in old {
+            self.forget_deleted(entry.id)?;
+            freed.0 += 1;
+            freed.1 += entry.size;
+        }
+        Ok(freed)
+    }
+
+    /// Free at least `bytes` from the trash, oldest first. Returns how much
+    /// went, which is less when the trash holds less.
+    pub fn empty_trash_by(&mut self, bytes: u64) -> Result<u64> {
+        let mut entries = self.db.trash()?;
+        entries.reverse();
+        let mut freed = 0;
+        for entry in entries {
+            if freed >= bytes {
+                break;
+            }
+            self.forget_deleted(entry.id)?;
+            freed += entry.size;
+        }
+        Ok(freed)
+    }
+
+    /// `path` if nothing is there -- in the index or on disk -- or the first
+    /// free `name (restored).ext`, `name (restored 2).ext` beside it.
+    fn free_path_near(&self, root: &Path, path: &str) -> Result<String> {
+        let taken = |candidate: &str| -> Result<bool> {
+            Ok(self.db.folder_row(candidate)?.is_some() || root.join(candidate).exists())
+        };
+        if !taken(path)? {
+            return Ok(path.to_string());
+        }
+        let (dir, name) = match path.rfind('/') {
+            Some(i) => (&path[..=i], &path[i + 1..]),
+            None => ("", path),
+        };
+        let split = name.get(1..).and_then(|rest| rest.rfind('.')).map(|i| i + 1);
+        let (stem, ext) = match split {
+            Some(i) => (&name[..i], &name[i..]),
+            None => (name, ""),
+        };
+        for n in 1.. {
+            let label = if n == 1 { "restored".to_string() } else { format!("restored {n}") };
+            let candidate = format!("{dir}{stem} ({label}){ext}");
+            if !taken(&candidate)? {
+                return Ok(candidate);
+            }
+        }
+        unreachable!("an unbounded search ends")
+    }
+
     /// What removing `device` would do here, worked out before anything is
     /// done, so that the question put to a person can say it.
     pub fn removal_plan(&self, device: &DeviceId) -> Result<RemovalPlan> {
@@ -1369,6 +1659,7 @@ impl Store {
                 None => 0,
             },
             chunks: self.db.size_totals()?.1,
+            trash: self.db.trash_bytes()?,
         })
     }
 
@@ -1608,6 +1899,44 @@ impl Store {
 }
 
 /// The outcome of [`Store::verify`].
+/// Two versions of one file made on two devices without either seeing the
+/// other, both kept (decision 0005). See [`Store::conflicts`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Conflict {
+    /// The path the file has, and the version under it -- `None` if that has
+    /// since been deleted or renamed.
+    pub original_path: String,
+    pub original: Option<ConflictVersion>,
+    /// The other version, under its conflict name.
+    pub copy: ConflictVersion,
+    /// The short id of the device that made the other version, from its name.
+    pub copy_device: String,
+}
+
+/// One side of a [`Conflict`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConflictVersion {
+    pub path: String,
+    pub size: u64,
+    /// Whether its bytes are on this device.
+    pub here: bool,
+    /// The device that made this version, where known.
+    pub modified_by: Option<DeviceId>,
+    /// Unix seconds.
+    pub updated_at: i64,
+}
+
+/// Which version of a conflict to keep. See [`Store::settle_conflict`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Keep {
+    /// The one under the file's own name.
+    Original,
+    /// The other one, which takes the file's name.
+    Copy,
+    /// Both, the other under a readable name.
+    Both,
+}
+
 /// What removing a device does here. See [`Store::removal_plan`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RemovalPlan {
@@ -1660,10 +1989,28 @@ pub struct Usage {
     /// folder cannot supply: remote content not yet materialised, superseded
     /// versions, and anything indexed from outside the folder.
     pub chunks: u64,
+    /// Recently deleted files, kept for a while in case they are wanted back.
+    pub trash: u64,
 }
 
 impl Usage {
     pub fn total(&self) -> u64 {
-        self.files + self.chunks
+        self.files + self.chunks + self.trash
+    }
+}
+
+/// Move a file, across filesystems if it has to.
+///
+/// A rename where it can be -- instant, and atomic -- and a copy then a delete
+/// where it cannot: on a phone the store directory and the folder need not be
+/// on the same filesystem.
+fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    match std::fs::rename(from, to) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
+            std::fs::copy(from, to)?;
+            std::fs::remove_file(from)
+        }
+        Err(e) => Err(e),
     }
 }

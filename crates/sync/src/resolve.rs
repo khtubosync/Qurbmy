@@ -141,6 +141,56 @@ pub fn conflict_path(version: &FileVersion) -> String {
     decorate(version, "conflict")
 }
 
+/// What a conflict copy's name says: the path it is a version of, which device
+/// made this version, and when -- the inverse of [`conflict_path`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConflictName {
+    /// The path the other version kept.
+    pub original: String,
+    /// The short id of the device that made this version.
+    pub device: String,
+    /// `YYYY-MM-DD-HHMMSS`, UTC, as it appears in the name.
+    pub when: String,
+}
+
+/// Read a conflict copy's name back, or `None` if `path` is not one.
+///
+/// Strict, because the answer decides what a screen offers to delete: only
+/// exactly the shape [`conflict_path`] writes -- eight hex digits, a UTC
+/// timestamp, then the extension or nothing. A file somebody named
+/// `plan.conflict-notes.md` is theirs, not a conflict.
+///
+/// Conflicts are found by name rather than from the history because only the
+/// device that noticed one records it. Every other device simply receives the
+/// copy, and has to be able to recognise it too.
+pub fn conflict_origin(path: &str) -> Option<ConflictName> {
+    let (dir, name) = match path.rfind('/') {
+        Some(i) => (&path[..=i], &path[i + 1..]),
+        None => ("", path),
+    };
+    let at = name.rfind(".conflict-")?;
+    let (stem, rest) = (&name[..at], &name[at + ".conflict-".len()..]);
+    // 8 hex, '-', 17 of timestamp: 26 characters before the extension.
+    let (device, rest) = (rest.get(..8)?, rest.get(8..)?);
+    let (dash, rest) = (rest.get(..1)?, rest.get(1..)?);
+    let (when, ext) = (rest.get(..17)?, rest.get(17..)?);
+
+    let hex = device.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase());
+    let shaped = when.bytes().enumerate().all(|(i, b)| match i {
+        4 | 7 | 10 => b == b'-',
+        _ => b.is_ascii_digit(),
+    });
+    let extension = ext.is_empty() || (ext.starts_with('.') && !ext[1..].contains('.'));
+    if stem.is_empty() || dash != "-" || !hex || !shaped || !extension {
+        return None;
+    }
+    Some(ConflictName {
+        original: format!("{dir}{stem}{ext}"),
+        device: device.to_string(),
+        when: when.to_string(),
+    })
+}
+
 /// Where content sent into this device's vault is written when its path is
 /// already taken: `name.from-<device>-<when>.ext`.
 ///
@@ -385,6 +435,32 @@ mod tests {
     fn a_leading_dot_is_part_of_the_name_not_an_extension() {
         let v = file(".bashrc", 1, VersionVector::new(), A);
         assert_eq!(conflict_path(&v), ".bashrc.conflict-a1a1a1a1-2025-09-10-000000");
+    }
+
+    #[test]
+    fn a_conflict_name_reads_back_to_what_it_came_from() {
+        for path in ["report.docx", "work/notes/plan.md", "README", "archive.tar.gz", ".bashrc"] {
+            let v = file(path, 1, VersionVector::new(), A);
+            let read = conflict_origin(&conflict_path(&v)).expect(path);
+            assert_eq!(read.original, path);
+            assert_eq!(read.device, "a1a1a1a1");
+            assert_eq!(read.when, "2025-09-10-000000");
+        }
+    }
+
+    #[test]
+    fn a_name_that_only_looks_like_a_conflict_is_not_one() {
+        for path in [
+            "plan.conflict-notes.md",
+            "plan.conflict-a1a1a1a1.md",
+            "plan.conflict-A1A1A1A1-2025-09-10-000000.md",
+            "plan.conflict-a1a1a1a1-2025-09-10-00000x.md",
+            ".conflict-a1a1a1a1-2025-09-10-000000.md",
+            "plan.conflict-a1a1a1a1-2025-09-10-000000.md.bak",
+            "plan.md",
+        ] {
+            assert_eq!(conflict_origin(path), None, "{path}");
+        }
     }
 
     // -- date formatting -----------------------------------------------------

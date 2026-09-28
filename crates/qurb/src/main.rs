@@ -33,6 +33,11 @@ qurb — private cloud storage
                                       take back a send not yet collected
   qurb free [dir] <path>              free the local copy of a file another
                                         device keeps; `fetch` brings it back
+  qurb conflicts [dir] [keep <copy> this|other|both]
+                                      files two devices changed at once, and
+                                        settling one: nothing is lost either way
+  qurb deleted [dir]                  recently deleted files, restorable for 30 days
+  qurb restore [dir] <#n or path>     put a recently deleted file back, everywhere
   qurb holders [dir] [add|remove <device>]
                                       the devices that keep this one's own files
   qurb remove-device [dir] <device> [--delete-kept] [--yes]
@@ -160,6 +165,24 @@ fn run() -> Result<()> {
             }
             let picked: Vec<PathBuf> = picked.iter().map(PathBuf::from).collect();
             send(&root, &picked, recipient)
+        }
+        "conflicts" => {
+            let rest = &args[1..];
+            let (root, rest) = match rest.first() {
+                Some(first) if PathBuf::from(first).join(".qurb").is_dir() => {
+                    (PathBuf::from(first), &rest[1..])
+                }
+                _ => (qurb_cli::profiles::current().context("no folder is set up yet")?, rest),
+            };
+            conflicts(&root, rest)
+        }
+        "deleted" => {
+            let (root, _) = split_path(&args)?;
+            deleted(&root)
+        }
+        "restore" => {
+            let (root, which) = split_path(&args)?;
+            restore(&root, &which.context("say which: qurb restore <#n or path> — see `qurb deleted`")?)
         }
         "free" => {
             let (root, path) = split_path(&args)?;
@@ -728,6 +751,113 @@ fn free(root: &Path, logical: &str) -> Result<()> {
         Err(qurb_storage::Error::NotFound { .. }) => bail!("{logical} is not a file here"),
         Err(e) => Err(e.into()),
     }
+}
+
+/// Files two devices changed without either seeing the other (brief §24).
+fn conflicts(root: &Path, rest: &[String]) -> Result<()> {
+    let (_, _, mut store, _) = open(root)?;
+    let names = store.db().device_names()?;
+    let who = |id: Option<qurb_sync::DeviceId>| -> String {
+        id.map(|id| names.get(&id).cloned().unwrap_or_else(|| id.short()))
+            .unwrap_or_else(|| "another device".into())
+    };
+    match rest {
+        [] => {
+            let found = store.conflicts()?;
+            if found.is_empty() {
+                println!("no conflicts");
+                return Ok(());
+            }
+            for c in &found {
+                println!("{}: two devices changed it. Nothing was lost.", c.original_path);
+                match &c.original {
+                    Some(v) => println!(
+                        "  this:  {}  {}, by {} {}",
+                        v.path,
+                        human(v.size),
+                        who(v.modified_by),
+                        ago(v.updated_at)
+                    ),
+                    None => println!("  this:  (since deleted or renamed)"),
+                }
+                println!(
+                    "  other: {}  {}, by {} {}{}",
+                    c.copy.path,
+                    human(c.copy.size),
+                    who(c.copy.modified_by),
+                    ago(c.copy.updated_at),
+                    if c.copy.here { "" } else { "  (not on this device)" }
+                );
+            }
+            println!("\n`qurb conflicts keep <other> this|other|both` settles one, on every device.");
+            println!("The version not kept goes to Recently deleted.");
+            Ok(())
+        }
+        [verb, copy, choice] if verb == "keep" => {
+            let keep = match choice.as_str() {
+                "this" => qurb_storage::Keep::Original,
+                "other" => qurb_storage::Keep::Copy,
+                "both" => qurb_storage::Keep::Both,
+                _ => bail!("keep this, other, or both"),
+            };
+            let copy = copy.trim_start_matches("./");
+            let maker = store.db().folder_row(copy)?.and_then(|(row, _)| row.modified_by);
+            let kept = store.settle_conflict(copy, keep, &who(maker))?;
+            println!("kept {kept}");
+            if keep != qurb_storage::Keep::Both {
+                println!("  the other version is in Recently deleted — `qurb deleted`");
+            }
+            Ok(())
+        }
+        _ => bail!("qurb conflicts [dir] [keep <copy> this|other|both]"),
+    }
+}
+
+/// What is in Recently deleted here (decision 0042).
+fn deleted(root: &Path) -> Result<()> {
+    let (_, _, store, _) = open(root)?;
+    let entries = store.recently_deleted()?;
+    if entries.is_empty() {
+        println!("nothing recently deleted here");
+        return Ok(());
+    }
+    let names = store.db().device_names()?;
+    let me = store.device_id()?;
+    for entry in &entries {
+        let by = match entry.deleted_by {
+            Some(id) if id == me => "here".to_string(),
+            Some(id) => format!("on {}", names.get(&id).cloned().unwrap_or_else(|| id.short())),
+            None => String::new(),
+        };
+        let why = entry.why.as_deref().map(|w| format!("  ({w})")).unwrap_or_default();
+        println!(
+            "  #{:<5} {:>12}  {:>9}  {}  deleted {by}{why}",
+            entry.id,
+            ago(entry.deleted_at),
+            human(entry.size),
+            entry.path
+        );
+    }
+    println!("\n`qurb restore #n` puts one back, on every device. Kept for 30 days.");
+    Ok(())
+}
+
+fn restore(root: &Path, which: &str) -> Result<()> {
+    let (_, _, mut store, _) = open(root)?;
+    let entries = store.recently_deleted()?;
+    let entry = match which.strip_prefix('#').and_then(|n| n.parse::<i64>().ok()) {
+        Some(id) => entries.iter().find(|e| e.id == id),
+        // The most recent deletion of that path.
+        None => entries.iter().find(|e| e.path == which.trim_start_matches("./")),
+    }
+    .with_context(|| format!("{which} is not in Recently deleted here — see `qurb deleted`"))?;
+    let at = store.restore_from_trash(entry.id)?;
+    match at == entry.path {
+        true => println!("restored {at}"),
+        false => println!("restored {} as {at}: something is at its old path now", entry.path),
+    }
+    println!("  it returns on your other devices at their next sync");
+    Ok(())
 }
 
 /// The devices that keep this device's own files for it (decision 0036).

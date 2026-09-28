@@ -493,3 +493,18 @@ button.primary:disabled { opacity: .45; cursor: default; filter: none; }
 .confirm .strong { font-weight: 600; }
 .confirm .check { display: block; margin: 8px 0; }
 button.primary.danger { background: var(--warn); border-color: var(--warn); }
+
+/* Something to decide, not something wrong: a conflict kept both versions. */
+.notice {
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  border-radius: var(--radius);
+  background: var(--panel);
+  cursor: pointer;
+  max-width: 70ch;
+}
+#conflict-box { margin-bottom: 18px; }
+.rows.conflicts li.conflict { display: block; }
+.rows.conflicts dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 6px 0; }
+.rows.conflicts dd { margin: 0; }
+.rows.conflicts .strong { font-weight: 600; margin: 0 0 4px; }

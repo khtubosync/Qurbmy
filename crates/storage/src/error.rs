@@ -45,6 +45,15 @@ pub enum Error {
     /// other device's now, and nothing this device does reaches into it.
     #[error("{path} has already been collected, and cannot be taken back")]
     AlreadyCollected { path: String },
+
+    /// Settling a conflict needs the bytes of the version being kept, and
+    /// this device does not have them.
+    #[error("{path} is not on this device yet; download it first")]
+    NotHere { path: String },
+
+    /// A path that is not a conflict copy was given as one.
+    #[error("{path} is not a conflict copy")]
+    NotAConflict { path: String },
 }
 
 impl Error {

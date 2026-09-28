@@ -19,6 +19,7 @@ a device up in the first place:
 |---|---|
 | Home | is it working, how many devices, what moved lately, what is still on its way |
 | Files | what is in the folder and **where each file's contents actually are** |
+| Files, conflicts | a file two devices changed at once is shown at the top of Files, with both versions and three choices ([0043](../../docs/decisions/0043-settling-a-conflict.md)); Recently deleted is under the list ([0042](../../docs/decisions/0042-recently-deleted.md)) |
 | Devices | who is paired, whether each is connected now — directly or through the encrypted relay — pairing with another (show a code or enter one), and removing one, after saying what that does ([0041](../../docs/decisions/0041-removing-a-device.md)) |
 | Activity | what this device did — the answer to "why is my file not here?" |
 | Storage | what qurb costs on this disk, and the allowance |

@@ -811,15 +811,10 @@ impl Qurb {
     /// Remove a file from the synced tree.
     ///
     /// Tombstoned rather than erased, so the deletion reaches other devices
-    /// instead of looking to them like a file they should send back.
+    /// instead of looking to them like a file they should send back -- and
+    /// kept in Recently deleted here, so it can be put back (decision 0042).
     pub fn remove(&self, path: String) -> Result<(), QurbError> {
-        let destination = self.root.join(&path);
-        match std::fs::remove_file(&destination) {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(QurbError::Storage { detail: e.to_string() }),
-        }
-        self.engine()?.store_mut().delete_file(&qurb_watcher::normalize(&path))?;
+        self.engine()?.store_mut().delete_to_trash(&qurb_watcher::normalize(&path), None)?;
         Ok(())
     }
 
@@ -1047,6 +1042,85 @@ impl Qurb {
         let device = self.device_of(&fingerprint)?;
         self.engine()?.store().db().remove_holder(&device)?;
         Ok(())
+    }
+
+    /// Files two devices changed without either seeing the other (brief §24).
+    pub fn conflicts(&self) -> Result<Vec<ConflictInfo>, QurbError> {
+        let engine = self.engine()?;
+        let store = engine.store();
+        let names = store.db().device_names()?;
+        let side = |v: qurb_storage::ConflictVersion| ConflictSide {
+            by: v
+                .modified_by
+                .map(|id| names.get(&id).cloned().unwrap_or_else(|| id.short()))
+                .unwrap_or_else(|| "another device".into()),
+            size: v.size,
+            here: v.here,
+            changed_at: v.updated_at,
+            path: v.path,
+        };
+        Ok(store
+            .conflicts()?
+            .into_iter()
+            .map(|c| ConflictInfo { path: c.original_path, this: c.original.map(side), other: side(c.copy) })
+            .collect())
+    }
+
+    /// Settle a conflict. `keep` is "this", "other" or "both". Returns the path
+    /// of what was kept; the version not kept goes to Recently deleted.
+    pub fn settle_conflict(&self, other: String, keep: String) -> Result<String, QurbError> {
+        let keep = match keep.as_str() {
+            "this" => qurb_storage::Keep::Original,
+            "other" => qurb_storage::Keep::Copy,
+            "both" => qurb_storage::Keep::Both,
+            _ => return Err(QurbError::NotFound { detail: format!("keep this, other or both, not {keep}") }),
+        };
+        let mut engine = self.engine()?;
+        let names = engine.store().db().device_names()?;
+        let label = engine
+            .store()
+            .db()
+            .folder_row(&other)?
+            .and_then(|(row, _)| row.modified_by)
+            .and_then(|id| names.get(&id).cloned())
+            .unwrap_or_else(|| "other version".into());
+        Ok(engine.store_mut().settle_conflict(&other, keep, &label)?)
+    }
+
+    /// What is in Recently deleted on this phone, most recent first
+    /// (decision 0042).
+    pub fn recently_deleted(&self) -> Result<Vec<DeletedFile>, QurbError> {
+        let engine = self.engine()?;
+        let store = engine.store();
+        let names = store.db().device_names()?;
+        let me = store.device_id()?;
+        Ok(store
+            .recently_deleted()?
+            .into_iter()
+            .map(|entry| DeletedFile {
+                id: entry.id,
+                path: entry.path,
+                size: entry.size,
+                deleted_at: entry.deleted_at,
+                deleted_by: entry.deleted_by.map(|id| match id == me {
+                    true => "this phone".to_string(),
+                    false => names.get(&id).cloned().unwrap_or_else(|| id.short()),
+                }),
+                why: entry.why,
+            })
+            .collect())
+    }
+
+    /// Put a recently deleted file back, as a change made here, so it returns
+    /// on every device. Returns where it went: its old path, or beside it when
+    /// something is there now.
+    pub fn restore_deleted(&self, id: i64) -> Result<String, QurbError> {
+        Ok(self.engine()?.store_mut().restore_from_trash(id)?)
+    }
+
+    /// Delete a file in Recently deleted for good.
+    pub fn forget_deleted(&self, id: i64) -> Result<(), QurbError> {
+        Ok(self.engine()?.store_mut().forget_deleted(id)?)
     }
 
     /// What removing a paired device would do here, for the question asked
@@ -1679,6 +1753,44 @@ pub struct PeerInfo {
     /// Unix seconds.
     pub paired_at: i64,
     pub last_seen: Option<i64>,
+}
+
+/// One side of a conflict. See [`Qurb::conflicts`].
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ConflictSide {
+    pub path: String,
+    pub size: u64,
+    /// Whether its bytes are on this phone.
+    pub here: bool,
+    /// The name of the device that made this version.
+    pub by: String,
+    /// Unix seconds.
+    pub changed_at: i64,
+}
+
+/// Two versions of one file, both kept. See [`Qurb::conflicts`].
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ConflictInfo {
+    /// The file's own name.
+    pub path: String,
+    /// The version under it, unless that has since gone.
+    pub this: Option<ConflictSide>,
+    pub other: ConflictSide,
+}
+
+/// A file in Recently deleted. See [`Qurb::recently_deleted`].
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct DeletedFile {
+    pub id: i64,
+    /// Where it was.
+    pub path: String,
+    pub size: u64,
+    /// Unix seconds.
+    pub deleted_at: i64,
+    /// "this phone", or the name of the device whose deletion it was.
+    pub deleted_by: Option<String>,
+    /// Why, where "deleted" is not the whole story.
+    pub why: Option<String>,
 }
 
 /// What removing a device would do. See [`Qurb::removal_plan`].

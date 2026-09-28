@@ -248,8 +248,14 @@ Since 2026-09-28:
   `qurb remove-device`, saying first what it does and does not do —
   [0041](decisions/0041-removing-a-device.md). Two faults found building it
   would have left a removed device syncing; both fixed and tested.
+- **Conflicts** (§24): found on every device, shown with both versions, and
+  settled by keeping one, the other, or both —
+  [0043](decisions/0043-settling-a-conflict.md).
+- **Recovering a deleted file**: Recently deleted on every device, 30 days,
+  restored everywhere — [0042](decisions/0042-recently-deleted.md). Building it
+  found a device unable ever to take back bytes it had deleted.
 
-Still as the inventory says: conflicts, a passphrase in the
+Still as the inventory says: a passphrase in the
 window, selective sync, a replica freeing space, sharing, vault operations
 beyond delivery, a query for conflicts, and everything in §2.4–§2.6.
 

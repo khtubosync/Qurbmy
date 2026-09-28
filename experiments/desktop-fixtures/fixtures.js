@@ -177,6 +177,40 @@ const ANSWERS = {
     { path: "tickets.pdf", size: "700416", to: "phone", to_id: "a1b2c3d4" },
   ],
   cancel_send: () => null,
+
+  // Removing a device: the question has something in each part.
+  removal_plan: () => ({
+    name: "phone",
+    waiting: 2,
+    kept: 12,
+    kept_bytes: String(340 * 1024 * 1024),
+    only_there: ["photos/IMG_0041.jpg", "photos/IMG_0042.jpg", "notes/trip.md"],
+    holds_ours: false,
+  }),
+  remove_device: () => null,
+
+  // One conflict, whose other version is here, so every choice is offered.
+  conflicts: () => [
+    {
+      path: "notes/plan.md",
+      this: { path: "notes/plan.md", size: "4210", here: true, by: "laptop", at: now - 3600 },
+      other: {
+        path: "notes/plan.conflict-a1b2c3d4-2026-09-28-101502.md",
+        size: "3977", here: true, by: "phone", at: now - 3500,
+      },
+    },
+  ],
+  settle_conflict: ({ keep }) => (keep === "both" ? "notes/plan (phone).md" : "notes/plan.md"),
+
+  recently_deleted: () => [
+    { id: 2, path: "photos/IMG_0007.jpg", size: "2311043", at: now - 7200, by: "phone", why: null },
+    {
+      id: 1, path: "notes/plan.md", size: "3977", at: now - 90000, by: "this computer",
+      why: "the version not kept when a conflict was settled",
+    },
+  ],
+  restore_deleted: () => "photos/IMG_0007.jpg",
+  forget_deleted: () => null,
   open_downloads: () => null,
   show_received: () => null,
 

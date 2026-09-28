@@ -68,3 +68,5 @@ is worth more than a tidy directory.
 | [0039](0039-a-light-android-app.md) | A light Android app, on the platform's own views | Accepted |
 | [0040](0040-the-menu-opens-the-window.md) | The applications menu opens the window | Accepted |
 | [0041](0041-removing-a-device.md) | Removing a device | Accepted — built on the desktop, the phone and the command line |
+| [0042](0042-recently-deleted.md) | Recently deleted | Accepted — built on the desktop, the phone and the command line |
+| [0043](0043-settling-a-conflict.md) | Settling a conflict | Accepted — built on the desktop, the phone and the command line |

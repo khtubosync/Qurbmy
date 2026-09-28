@@ -36,5 +36,7 @@ pub use clock::{Causality, VersionVector};
 pub use device::DeviceId;
 pub use path::is_safe_path;
 pub use reconcile::{reconcile, Action};
-pub use resolve::{conflict_path, received_path, resolve, Outcome, Resolution, Side};
+pub use resolve::{
+    conflict_origin, conflict_path, received_path, resolve, ConflictName, Outcome, Resolution, Side,
+};
 pub use version::{Area, Content, FileVersion};

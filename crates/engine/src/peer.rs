@@ -500,10 +500,33 @@ impl Engine {
                 // not a reason to delete the `notes.txt` somebody sent here.
                 let removes = !self.role().is_replica() && !private_here;
                 if removes {
-                    match std::fs::remove_file(&path) {
-                        Ok(()) => {}
-                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                        Err(e) => return Err(Error::Io { path: path.clone(), source: e }),
+                    // Into Recently deleted rather than unlinked. The file in
+                    // the folder is the only copy of its bytes here, and the
+                    // deletion is somebody else's: if it was a mistake, this
+                    // is where it gets put right (decision 0042).
+                    let was = self.store().db().folder_row(&version.path)?;
+                    let content = was.as_ref().map(|(row, _)| row.content_hash);
+                    let trashed = self.store_mut().move_to_trash(
+                        &path,
+                        &qurb_storage::db::NewTrash {
+                            path: &version.path,
+                            scope: None,
+                            content: &content.unwrap_or(blake3::Hash::from([0; 32])),
+                            size: 0,
+                            by: Some(&version.modified_by),
+                            why: None,
+                        },
+                    );
+                    if let Err(e) = trashed {
+                        // Kept is better than lost, and deleted is what was
+                        // asked: fall back to removing it rather than refusing
+                        // the deletion and diverging from every other device.
+                        tracing::warn!(path = %path.display(), error = %e, "could not keep a deleted file; removing it");
+                        match std::fs::remove_file(&path) {
+                            Ok(()) => {}
+                            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                            Err(e) => return Err(Error::Io { path: path.clone(), source: e }),
+                        }
                     }
                 }
                 self.store_mut().adopt(version, None, 0)?;

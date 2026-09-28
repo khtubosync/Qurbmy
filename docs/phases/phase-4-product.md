@@ -808,6 +808,35 @@ desktop smoke test, which now removes the device it paired through the window �
 question, cancelled send and all. The Android screen is built and compiles; it
 has **not yet been run on the phone**.
 
+## Recently deleted, and conflicts settled
+
+**2026-09-28.** Two pieces of the brief that turned out to be one problem:
+where the bytes of something deleted go.
+
+Under single-copy storage the file in the folder is the only copy of its bytes
+on a device, and a deletion arriving from another device unlinked it. So one
+deletion removed every copy everywhere, and neither "recover a deleted file"
+nor "nothing was lost" when settling a conflict had anything to stand on.
+Now a file taken out of the folder by a deletion goes to `trash/` in the store
+directory for thirty days — [decision 0042](../decisions/0042-recently-deleted.md) —
+and restoring it writes it back as a new version, which reaches every device.
+Conflicts are found by name on every device and settled by keeping one version,
+the other, or both, with the version not kept going to Recently deleted —
+[decision 0043](../decisions/0043-settling-a-conflict.md).
+
+Building the restore found an older fault: a device that had deleted a file
+could never take the same bytes back, under any name. Its own tombstone
+answered "that content is here" with an empty chunk list, which assembled to
+the wrong bytes, and the file failed as corrupt on every sync. Fixed in
+`any_file_with_content`; the regression test fails without the fix.
+
+How it was checked: engine tests with two devices for each case
+(`crates/engine/tests/recently_deleted.rs`, seven, and `conflicts.rs`, six —
+among them a device name `../../evil` given as a label), the fixture page for
+the window's new panels in WebKitGTK, and the desktop smoke test for
+regressions. Not yet: either on the phone, and a real conflict between the
+laptop and the phone.
+
 ## Still to do
 
 - **Running the *daemon* as a service** — a user unit, a launch agent, a

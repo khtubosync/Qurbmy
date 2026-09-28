@@ -28,6 +28,8 @@ Five places under a tab bar, plus setup, scanning and the share sheet:
 |---|---|
 | Home | which devices this phone knows; a card, shown only while it is true, saying how many files exist on this phone and nowhere else and what to do about it; what happened lately. The big button is *Connect a device* until one is connected, and *Sync now* after |
 | Vault | every file, and where its bytes are: on this phone and another device, only on this phone, or on another device and not here. Tapping one offers what that allows — open, save a copy, send to a device, free phone space, download, delete |
+| Home, conflicts | a card when two devices changed a file, with both versions and the choices ([0043](../docs/decisions/0043-settling-a-conflict.md)) |
+| Settings, Recently deleted | files deleted here or elsewhere, kept 30 days, restorable ([0042](../docs/decisions/0042-recently-deleted.md)) |
 | Devices | the connected devices, which of them keep this phone's files, a way to send one files, and removing one after saying what that does ([0041](../docs/decisions/0041-removing-a-device.md)) |
 | Transfers | what this phone has sent that has not been collected, with a way to stop it, and the history |
 | Settings | this phone's name, *Keep new files private*, the recovery phrase shown again, what qurb takes in space and a way to free what nothing needs, background sync, the rendezvous service, the version |
@@ -244,8 +246,6 @@ next sync further and further away. See
   the device that sent them still has them. Builds before then did not record
   where a received file came from, and a phone cannot learn it afterwards
   without asking; it errs the safe way, never offering to free such a file.
-- **Nothing for conflicts.** They arrive as extra files with long names and no
-  explanation.
 - **Sharing into qurb only adds.** The share sheet puts a file in the Vault; it
   does not offer to send it straight to one device, which the Devices screen
   does.

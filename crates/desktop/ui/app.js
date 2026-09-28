@@ -431,6 +431,25 @@ document.querySelectorAll("nav button").forEach((button) => {
 
 // --------------------------------------------------------------------- home
 
+/**
+ * A line on Home when files were changed on two devices. Asked when Home is
+ * opened rather than on its fast beat: finding them reads every path.
+ */
+async function drawConflictNotice() {
+  const notice = $("conflicted");
+  try {
+    const found = await invoke("conflicts");
+    notice.classList.toggle("hidden", found.length === 0);
+    notice.textContent = found.length === 1
+      ? `${found[0].path} was changed on two devices. Nothing was lost — choose a version in Files.`
+      : `${found.length} files were changed on two devices. Nothing was lost — choose versions in Files.`;
+  } catch (e) {
+    notice.classList.add("hidden");
+  }
+}
+
+$("conflicted").addEventListener("click", () => showScreen("files"));
+
 async function drawHome() {
   try {
     const s = await invoke("summary");
@@ -506,6 +525,132 @@ function fileRow(f) {
     row.append(get);
   }
   return row;
+}
+
+/** Files two devices changed at once, at the top of the Files screen. */
+async function drawConflicts() {
+  const box = $("conflict-box");
+  const list = $("conflict-list");
+  let found;
+  try {
+    found = await invoke("conflicts");
+  } catch (e) {
+    box.classList.add("hidden");
+    return;
+  }
+  box.classList.toggle("hidden", found.length === 0);
+  list.replaceChildren();
+  for (const c of found) {
+    const row = el("li", "conflict");
+    row.append(el("p", "strong", `Two devices changed ${c.path}.`));
+    const versions = el("dl");
+    const describe = (s) =>
+      `${s.by}, ${when(s.at)} · ${size(s.size)}${s.here ? "" : " · not on this computer yet"}`;
+    versions.append(el("dt", null, "This version"),
+                    el("dd", null, c.this ? describe(c.this) : "since deleted or renamed"));
+    versions.append(el("dt", null, "The other"), el("dd", null, describe(c.other)));
+    row.append(versions);
+
+    const buttons = el("div", "buttons");
+    const choose = (label, keep, needsOther) => {
+      const b = el("button", "act small", label);
+      b.disabled = needsOther && !c.other.here;
+      if (b.disabled) b.title = "Its contents are not on this computer yet";
+      b.addEventListener("click", async () => {
+        buttons.querySelectorAll("button").forEach((x) => (x.disabled = true));
+        try {
+          const kept = await invoke("settle_conflict", { other: c.other.path, keep });
+          row.replaceWith(el("li", "quiet",
+            keep === "both" ? `Kept both: the other is now ${kept}`
+                            : `Kept ${kept}. The other version is in Recently deleted.`));
+          drawFiles();
+          drawDeleted();
+        } catch (e) {
+          buttons.querySelectorAll("button").forEach((x) => (x.disabled = false));
+          row.append(el("p", "warn", String(e)));
+        }
+      });
+      return b;
+    };
+    buttons.append(
+      choose("Keep this version", "this", false),
+      choose("Keep the other", "other", true),
+      choose("Keep both", "both", true),
+    );
+    row.append(buttons);
+
+    const more = el("details", "detail");
+    more.append(el("summary", null, "Details"));
+    const facts = el("dl");
+    for (const [term, value] of [
+      ["This version's name", c.this?.path ?? c.path],
+      ["The other's name", c.other.path],
+      ["Why", "Each device changed the file without having seen the other's change, so neither " +
+              "replaced the other. Which one kept the name was decided the same way on every " +
+              "device, and says nothing about which is newer."],
+    ]) {
+      facts.append(el("dt", null, term), el("dd", null, value));
+    }
+    more.append(facts);
+    row.append(more);
+    list.append(row);
+  }
+}
+
+/** Recently deleted, under the file list: only when there is something. */
+async function drawDeleted() {
+  const box = $("deleted-box");
+  const list = $("deleted-list");
+  let entries;
+  try {
+    entries = await invoke("recently_deleted");
+  } catch (e) {
+    box.classList.add("hidden");
+    return;
+  }
+  box.classList.toggle("hidden", entries.length === 0);
+  $("deleted-summary").textContent = `Recently deleted (${entries.length})`;
+  list.replaceChildren();
+  for (const d of entries) {
+    const row = el("li");
+    row.append(el("span", "name", d.path));
+    row.append(el("span", "size", size(d.size)));
+    const by = d.by ? ` on ${d.by}` : "";
+    row.append(el("span", "when", `deleted${by} ${when(d.at)}`));
+    if (d.why) row.append(el("span", "detail", d.why));
+
+    const restore = el("button", "act small", "Restore");
+    restore.addEventListener("click", async () => {
+      restore.disabled = true;
+      try {
+        const at = await invoke("restore_deleted", { id: d.id });
+        row.replaceWith(el("li", "quiet",
+          at === d.path ? `${at} is back, and returns on your other devices`
+                        : `Restored as ${at}: something is at ${d.path} now`));
+        drawFiles();
+      } catch (e) {
+        restore.disabled = false;
+        row.append(el("span", "detail warn", String(e)));
+      }
+    });
+    // Twice, like cancelling a send: the second press is the decision.
+    const forget = el("button", "act small", "Delete now");
+    forget.addEventListener("click", async () => {
+      if (forget.dataset.armed !== "yes") {
+        forget.dataset.armed = "yes";
+        forget.textContent = "Delete for good?";
+        return;
+      }
+      try {
+        await invoke("forget_deleted", { id: d.id });
+        drawDeleted();
+      } catch (e) {
+        row.append(el("span", "detail warn", String(e)));
+      }
+    });
+    row.append(restore, forget);
+    list.append(row);
+  }
 }
 
 async function drawFiles(append = false) {
@@ -1373,8 +1518,8 @@ async function save(bytes) {
 // -------------------------------------------------------------------- pulse
 
 function refreshScreen() {
-  if (screen === "home") drawHome();
-  if (screen === "files") drawFiles();
+  if (screen === "home") { drawHome(); drawConflictNotice(); }
+  if (screen === "files") { drawConflicts(); drawFiles(); drawDeleted(); }
   if (screen === "devices") drawDevices();
   if (screen === "activity") drawActivity();
   if (screen === "storage") drawStorage();

@@ -138,6 +138,7 @@
         <p id="where" class="quiet"></p>
       </header>
       <p id="problem" class="problem hidden"></p>
+      <p id="conflicted" class="notice hidden"></p>
 
       <div class="cards">
         <div class="card">
@@ -170,10 +171,29 @@
         <h1>Files</h1>
         <p class="quiet">Where each file's contents actually are.</p>
       </header>
+      <!-- Files two devices changed at once (brief §24). Only when there are
+           any, and above everything else on this screen: nothing was lost,
+           but somebody has a decision to make. -->
+      <div id="conflict-box" class="hidden">
+        <h2>Changed on two devices</h2>
+        <p class="quiet">Nothing was lost: both versions are kept. Choose which you want.</p>
+        <ul id="conflict-list" class="rows conflicts"></ul>
+      </div>
       <input id="find" type="search" placeholder="Search names…" autocomplete="off" spellcheck="false">
       <p id="crumbs" class="quiet"></p>
       <ul id="file-list" class="rows"></ul>
       <button id="more" class="hidden">Show more</button>
+
+      <!-- Only when there is something in it. Kept for 30 days, and put back
+           on every device when restored here (decision 0042). -->
+      <details id="deleted-box" class="hidden">
+        <summary id="deleted-summary">Recently deleted</summary>
+        <p class="quiet">
+          Deleted on this computer or another, and kept here for 30 days.
+          Restoring one puts it back on every device.
+        </p>
+        <ul id="deleted-list" class="rows"></ul>
+      </details>
     </section>
 
     <section id="devices" class="screen">
