@@ -1286,6 +1286,8 @@ async function drawSettings() {
     `Now: ${at.Ok}`;
   $("open-downloads").classList.toggle("hidden", !("Ok" in at) || at.Ok === null);
 
+  $("at-login").checked = await invoke("starts_at_login");
+
   const facts = $("facts");
   facts.replaceChildren();
   for (const [term, value] of [
@@ -1297,6 +1299,19 @@ async function drawSettings() {
     facts.append(el("dd", null, value));
   }
 }
+
+$("at-login").addEventListener("change", async (event) => {
+  const on = event.target.checked;
+  try {
+    await invoke("set_starts_at_login", { on });
+    $("settings-says").textContent = on ? "qurb will start when you log in" : "qurb will not start by itself";
+  } catch (e) {
+    event.target.checked = !on;
+    $("settings-says").textContent = String(e);
+  }
+});
+
+$("quit").addEventListener("click", () => invoke("quit"));
 
 $("settings-save").addEventListener("click", async () => {
   const says = $("settings-says");

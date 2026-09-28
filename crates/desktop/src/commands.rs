@@ -995,3 +995,28 @@ mod tests {
         assert!(folder_to_show("", dir.path()).is_err());
     }
 }
+
+/// Stop qurb: the window and the syncing both, until it is opened again.
+/// Closing the window only hides it.
+#[tauri::command]
+pub fn quit(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
+/// Whether qurb starts, hidden, when this person logs in.
+#[tauri::command]
+pub fn starts_at_login() -> bool {
+    crate::autostart::config_dir().is_some_and(|dir| crate::autostart::is_enabled(&dir))
+}
+
+#[tauri::command]
+pub fn set_starts_at_login(on: bool) -> Answer<()> {
+    let dir = crate::autostart::config_dir().ok_or("there is no config directory to start from")?;
+    if on {
+        let program = std::env::current_exe().map_err(failed)?;
+        crate::autostart::enable(&dir, &program).map_err(failed)
+    } else {
+        crate::autostart::disable(&dir).map_err(failed)
+    }
+}
+

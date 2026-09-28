@@ -716,7 +716,7 @@ for the workspace as it stands.
 | Recovery, end to end | the phrase turns back into the user's files |
 | Key hygiene | redacted in `Debug`, wiped on drop, owner-only on disk |
 
-692 tests pass in 81 test binaries on Linux (2026-09-27, debug build, the
+696 tests pass in 81 test binaries on Linux (2026-09-28, debug build, the
 development laptop); clippy is clean. The last run on
 a Galaxy S23 was 426 of them, before this week's work — see
 [phases/phase-5-mobile.md](phases/phase-5-mobile.md).
@@ -988,8 +988,9 @@ folder, how much disk it may use, the 24 words shown and three typed back, or
 joining with the words from another device — pairs devices by code, browses
 what is synced and where each file's bytes are, sends to one device, and shows
 activity, transfers and storage; the applications menu opens it
-([decisions/0040](decisions/0040-the-menu-opens-the-window.md)). What it cannot
-do is recover a deleted file, or keep syncing once it is closed.
+([decisions/0040](decisions/0040-the-menu-opens-the-window.md)). Closing it
+hides it and qurb keeps syncing; it starts at login without a window, and
+*Quit qurb* in Settings stops it. What it cannot do is recover a deleted file.
 
 Selective sync is half-built rather than unbuilt: a device drops local copies
 when it is over its storage limit and fetches them back on request, which is

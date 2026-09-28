@@ -18,7 +18,9 @@ use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+mod autostart;
 mod commands;
+mod instance;
 mod notify;
 mod session;
 
@@ -42,8 +44,27 @@ fn main() {
 }
 
 fn run() -> Result<()> {
+    // `--hidden` is how it starts at login: syncing, with no window until
+    // somebody opens one from the applications menu.
+    let hidden = std::env::args().any(|a| a == "--hidden");
+
+    // Already running: show that one's window, and leave.
+    let listener = match instance::claim(&instance::socket_path()) {
+        Ok(instance::Instance::AskedToShow) => return Ok(()),
+        Ok(instance::Instance::First(listener)) => Some(listener),
+        // No runtime directory to listen in, or it refused: run anyway,
+        // without being findable. Better than not running.
+        Err(e) => {
+            tracing::warn!(error = %e, "cannot listen for other launches");
+            None
+        }
+    };
+
     let root = directory();
     let hosted = Arc::new(Hosted::new(root.clone()));
+    // A device that is not set up yet has nothing to sync, and a window hidden
+    // at login would leave setting it up to nobody.
+    let show_now = !hidden || !qurb_cli::is_set_up(&root);
 
     // A device that already exists starts syncing immediately; the window is
     // showing something that is already true, not waiting to be told to begin.
@@ -63,6 +84,34 @@ fn run() -> Result<()> {
     notify::watch(Arc::clone(&hosted));
 
     tauri::Builder::default()
+        .setup(move |app| {
+            use tauri::Manager;
+            let window = app.get_webview_window("main").expect("the window in tauri.conf.json");
+            if show_now {
+                window.show()?;
+                window.set_focus()?;
+            }
+            if let Some(listener) = listener {
+                let handle = app.handle().clone();
+                instance::listen(listener, move || {
+                    if let Some(window) = handle.get_webview_window("main") {
+                        let _ = window.unminimize();
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                });
+            }
+            Ok(())
+        })
+        // Closing the window hides it; qurb keeps syncing. Quitting is a
+        // button in Settings, since on GNOME there is no tray to quit from.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+                notify::still_running();
+            }
+        })
         .plugin(tauri_plugin_dialog::init())
         .manage(Arc::clone(&hosted))
         .invoke_handler(tauri::generate_handler![
@@ -93,6 +142,9 @@ fn run() -> Result<()> {
             commands::outgoing,
             commands::fetch,
             commands::set_limit,
+            commands::quit,
+            commands::starts_at_login,
+            commands::set_starts_at_login,
         ])
         .run(tauri::generate_context!())
         .map_err(|e| anyhow::anyhow!("running the window: {e}"))
@@ -104,7 +156,7 @@ fn run() -> Result<()> {
 /// exactly what the setting-up screen is for, and refusing to open at all would
 /// mean the only way to make one is a command line.
 fn directory() -> PathBuf {
-    if let Some(given) = std::env::args().nth(1) {
+    if let Some(given) = std::env::args().skip(1).find(|a| !a.starts_with("--")) {
         return PathBuf::from(given);
     }
 

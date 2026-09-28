@@ -380,8 +380,24 @@
       </div>
       <p class="quiet note">
         The name, and where files sent here go, take effect at once. A changed
-        service, relay or port applies when qurb next starts.
+        service, relay or port applies when qurb next starts — after Quit
+        below, and opening it again.
       </p>
+
+      <h2>In the background</h2>
+      <p class="quiet note">
+        Closing this window keeps qurb syncing: your phone can only reach this
+        computer while qurb is running here. Open it again from the
+        applications menu.
+      </p>
+      <label class="check">
+        <input type="checkbox" id="at-login">
+        Start qurb when I log in, without opening this window
+      </label>
+      <div class="buttons">
+        <button class="act" id="quit">Quit qurb</button>
+        <span class="quiet">Stops syncing until you open it again.</span>
+      </div>
 
       <h2>Recovery phrase</h2>
       <p class="quiet note">

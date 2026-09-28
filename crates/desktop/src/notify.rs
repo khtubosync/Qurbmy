@@ -190,6 +190,20 @@ fn show(notice: &Notice) {
     }
 }
 
+/// Said once, the first time the window is closed: that closing it did not
+/// stop qurb, and how to stop it. Without this, a window that hides instead of
+/// closing looks like a program that ignored being closed.
+pub fn still_running() {
+    static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if SAID.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    show(&Notice {
+        title: "qurb is still syncing".into(),
+        body: "Open it again from the applications menu. To stop it, use Quit in Settings.".into(),
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

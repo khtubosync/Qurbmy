@@ -131,6 +131,16 @@ every file it moved would be switched off within a day.
 Raised from Rust rather than from the page, because a notification is most
 useful exactly when nobody is looking at the window.
 
+## Closing it does not stop it
+
+Closing the window hides it; qurb keeps syncing, because the other devices can
+only reach this one while it runs. Opening qurb from the applications menu again
+shows the same window: a second launch finds the first through a socket in the
+runtime directory (`src/instance.rs`), asks it to show itself and exits.
+*Quit qurb* in Settings stops it, and it starts at login with `--hidden`
+through an autostart entry (`src/autostart.rs`) that the installer writes and
+Settings turns off. See [decision 0040](../../docs/decisions/0040-the-menu-opens-the-window.md#closing-is-not-quitting).
+
 ## What it does not do yet
 
 - **No pause, and no stopping a transfer already moving.** A send nobody has

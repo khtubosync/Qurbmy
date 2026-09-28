@@ -35,7 +35,7 @@ warns is not the fun part and is a full quarter.
 | the services deployable | ✅ systemd units, TLS, ports written down |
 | garbage collection running | ✅ every 5 minutes, 7-day retention |
 
-692 tests pass in 81 test binaries on Linux (2026-09-27, debug build, the
+696 tests pass in 81 test binaries on Linux (2026-09-28, debug build, the
 development laptop); clippy is clean.
 
 ## The interface
@@ -704,8 +704,11 @@ syncing through the relay, and the churn of many phones connecting and leaving.
 ## Still to do
 
 - **Running the *daemon* as a service** — a user unit, a launch agent, a
-  Windows service. The two *server* services now have units; the thing a person
-  runs on their own laptop does not.
+  Windows service. The two *server* services have units. On the laptop, the
+  window now keeps syncing when closed and starts hidden at login
+  ([decision 0040](../decisions/0040-the-menu-opens-the-window.md#closing-is-not-quitting)),
+  which covers what a service was wanted for; a daemon with no window at all is
+  still `qurb run`.
 - **Installers**, and the update mechanism with rollback. `packaging/install.sh`
   puts qurb in one user's applications menu and is not a package.
 - **A replica that can free space.** It keeps every payload, because with no
