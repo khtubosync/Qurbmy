@@ -95,6 +95,22 @@ shows what is stored and who it is paired with.
 **Verified**: this exact sequence was run on one machine, with both daemons
 connecting through the rendezvous service over the real network stack.
 
+**The same, in the window.** `qurb-desktop` is the daemon with a window on it,
+and replaces `qurb run` on a computer with a screen. Installed with
+`packaging/install.sh` (or `makepkg -si` in `packaging/arch` on Arch), it is in
+the applications menu as qurb. On first launch it asks for the folder and how
+much disk qurb may use, shows the 24 words and has three typed back — or takes
+the words from another device. Devices → *Show a code* pairs another device;
+the other enters it or scans the QR. Closing the window keeps it syncing;
+Settings → *Quit qurb* stops it. Two windows on one machine need two users or
+two `HOME`s — it is one qurb per person.
+
+Then, on either device, the things worth trying: delete a file and restore it
+from Recently deleted, at the foot of Files, on the *other* device; edit one
+file on both while they are apart and settle the conflict at the top of Files;
+under *Folders, and which devices have them*, share a folder with only one
+device, or free its space on this one.
+
 ## 4. Two machines on two networks
 
 The one measurement the project still needs, and the only one that requires
@@ -104,11 +120,14 @@ Same as section 3, except the second device is a different computer and
 `qurb signal` has to be reachable from both. Making it reachable is
 [anywhere.md](anywhere.md), which includes a way to do it for nothing.
 
-**A phone on mobile data has since been verified** — a file crossed to a laptop
-at home with the phone's Wi-Fi off. But that path ran over an overlay network
-(Tailscale), which is WireGuard doing the traversal rather than qurb's own hole
-punching, so it answers "can somebody use this from a train" and **not** the
-kill criterion. The direct-connection rate is what determines the relay
+**A phone on mobile data has since been verified**, twice over. First through
+an overlay network (Tailscale), which is WireGuard doing the traversal. Then,
+on 2026-09-28, without one: only the rendezvous service was published (by
+Tailscale Funnel), and the Galaxy S23 on its mobile network and the laptop on
+home Wi-Fi connected **directly**, by qurb's own traversal, with no relay
+configured anywhere; a push woke the sleeping phone and it synced about five
+seconds after the change. That is one carrier and one home router — one data
+point, not a rate. The direct-connection rate is what determines the relay
 bandwidth bill, and it is still unmeasured.
 
 Start with the cheap version:
@@ -129,7 +148,18 @@ slower, or from a different manufacturer.
 
 On the phone: Settings → About → tap *Build number* seven times, then
 Developer options → **USB debugging**. Plug it in and accept the prompt on the
-screen. Check it is visible:
+screen. Or, with no cable, Developer options → **Wireless debugging** on the
+same Wi-Fi as the computer: *Pair device with pairing code* shows an address
+and a code for `adb pair`, and the Wireless debugging screen itself shows the
+address for `adb connect` (its port changes each time wireless debugging is
+turned on):
+
+```bash
+adb pair 192.168.1.2:37000        # the pairing address and code, once
+adb connect 192.168.1.2:42871     # the address on the main screen
+```
+
+Check it is visible:
 
 ```bash
 adb devices
@@ -165,26 +195,33 @@ measured.
 ./scripts/android-app.sh install
 ```
 
-Builds the native libraries, regenerates the Kotlin bindings, builds a 21 MB
-APK and installs it on a connected device. Needs the NDK and a JDK 17; the
-script says so if it cannot find them.
+Builds the native libraries, regenerates the Kotlin bindings, builds a debug
+APK (about 47 MB) and installs it on a connected device. Needs the NDK and a
+JDK 17; the script says so if it cannot find them. `release` instead builds the
+light one — arm64 only, about 11 MB installed — signed with the key named in
+`~/.config/qurb/signing.properties`; Android refuses to install an update
+signed with a different key than the installed app, so a phone moves from a
+debug build to a release one only by uninstalling, which deletes its key.
 
 On first launch it offers to create an identity or restore from 24 words. The
 key goes into the Android Keystore, where the app itself cannot read it.
 
-The synced files also appear in the Files app, under **qurb**. Menu →
-**Background sync** shows what the scheduler is doing and when it last ran.
+Five tabs: Home, Vault, Devices, Transfers, Settings. The synced files also
+appear in the Files app, under **qurb**. Settings → **Background sync** says
+what the scheduler does, and runs one now.
 
-To sync with a computer, the phone needs a rendezvous service to find it
-through. There is no hosted one, so run one:
+On the same Wi-Fi, a phone finds a computer with no server at all. From
+anywhere else it needs a rendezvous service to find it through. There is no
+hosted one, so run one:
 
 ```bash
 qurb signal 0.0.0.0:9000
 ```
 
-In the app: menu → **Rendezvous service** → `ws://<your computer's LAN IP>:9000`.
-Then `qurb pair <dir>` on the computer, and menu → **Pair a device** on the
-phone with the code it prints. Press **Sync** on both.
+In the app: Settings → **Rendezvous service** → `ws://<your computer's LAN IP>:9000`.
+Then Devices → **Connect a device**: scan the code the computer shows (Devices
+→ *Show a code* in the window, or `qurb pair`), type it, or show a code on the
+phone for the computer to enter. Then **Sync now** on Home.
 
 Both devices have to be awake and running at the same moment — a QUIC
 handshake's opening packets are the hole punch, so a device that is only
@@ -216,11 +253,13 @@ server and no port forwarding, and what it costs. For a host of your own,
   actually grants it, or what that costs in battery. If you try it, menu →
   **Background sync** records the last run. This is the single most useful
   thing left to measure.
-- **Raw NAT traversal between two networks.** A phone on cellular has now
-  synced with a laptop at home — but through an overlay network, which does the
-  traversal itself. What remains unmeasured is qurb punching through a carrier
-  NAT unaided, which is the hard case Phase 3's direct-connection rate is
-  actually about.
+- **NAT traversal across many networks.** A phone on cellular has connected
+  to a laptop at home directly, by qurb's own traversal — on one carrier and one
+  home router. How often that works across networks in general is Phase 3's
+  direct-connection rate, and still unmeasured.
+- **The relay on a server.** Built and tested, and not yet running anywhere, so
+  a network that blocks a direct path cannot sync at all. It is next after the
+  design pass.
 - **iOS, at all.** Building it needs Xcode, which needs a Mac. The Swift
   bindings generate and have never been compiled.
 - **Battery.** `syncWithin(seconds)` is built for short background windows and

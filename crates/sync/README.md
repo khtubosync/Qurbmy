@@ -92,4 +92,4 @@ it.
   per file.
 - **Bounded vector growth.** A vector gains an entry per device that has ever
   touched a file and never loses one. Fine for a person's own devices, and it
-  would need pruning before anything like shared folders.
+  would need pruning before folders are shared with other people's.

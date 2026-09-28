@@ -4,10 +4,18 @@ qurb's promise is that a phone with an internet connection can reach a laptop
 at home, from any network. This is how to actually get there, and what stands
 in the way.
 
-**Status: the code is ready; the deployment is not.** Everything below works,
-but it needs a rendezvous service somewhere both devices can reach, and by
-default there is no such thing — it runs wherever someone runs it, which to
-begin with is a laptop on a home network.
+**Status, 2026-09-28: working from mobile data, with no server.** The
+rendezvous service runs on the laptop as a user unit
+(`packaging/install-rendezvous.sh`, with push), published by Tailscale Funnel
+so the phone needs no Tailscale of its own. A Galaxy S23 on its mobile network
+reached the laptop directly and was woken by push about five seconds after a
+change — see [the server guide](../packaging/server/README.md#no-server-at-all).
+What is not deployed is the **relay**: a network that blocks a direct path
+cannot sync yet. A server of the owner's own, running both, is next after the
+design pass.
+
+Everything below needs a rendezvous service somewhere both devices can reach;
+by default there is no such thing — it runs wherever someone runs it.
 
 ## What has to be reachable, and what does not
 

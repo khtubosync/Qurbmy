@@ -166,11 +166,9 @@ Settings turns off. See [decision 0040](../../docs/decisions/0040-the-menu-opens
   One the other device is collecting may still finish, and a file arriving
   cannot be stopped from this end. A failed file is retried at the next sync
   on its own; there is no button for it.
-- **No passphrase prompt.** A passphrase-protected key is asked for on the
-  terminal the application was launched from. The window cannot ask, because
-  opening the key is what decides whether there is anything to show; launched
-  from a menu it says so on the first screen.
 - **No folder picker.** A text field with `~` expansion and a live description
   of what is already there.
 - **Linux only, in practice.** The Rust is portable and Tauri is
   cross-platform; this has never been built or run on Windows or macOS.
+- **A designed look.** Every screen works and none has been designed; the
+  design and UX pass is the next piece of work.

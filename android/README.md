@@ -6,7 +6,7 @@ Keystore, lists files, pairs with another device and syncs.
 ```bash
 ./scripts/android-app.sh            # debug APK, about 45 MB: two architectures, unshrunk
 ./scripts/android-app.sh install    # and install it on a connected device
-./scripts/android-app.sh release    # unsigned release APK, about 11 MB
+./scripts/android-app.sh release    # release APK, about 11 MB; signed if a key is set up
 ```
 
 **The app is meant to be light and snappy**, and the release build is where
@@ -31,12 +31,12 @@ Five places under a tab bar, plus setup, scanning and the share sheet:
 | Home, conflicts | a card when two devices changed a file, with both versions and the choices ([0043](../docs/decisions/0043-settling-a-conflict.md)) |
 | Settings, Folders | which devices each folder is on, and whether this phone keeps it or downloads each file when opened ([0044](../docs/decisions/0044-sharing-with-chosen-devices.md), [0045](../docs/decisions/0045-a-folder-kept-remotely.md)) |
 | Settings, Recently deleted | files deleted here or elsewhere, kept 30 days, restorable ([0042](../docs/decisions/0042-recently-deleted.md)) |
-| Devices | the connected devices, which of them keep this phone's files, a way to send one files, and removing one after saying what that does ([0041](../docs/decisions/0041-removing-a-device.md)) |
+| Devices | the connected devices, which of them keep this phone's files, a way to send one files, and removing one after saying what that does ([0041](../docs/decisions/0041-removing-a-device.md)). *Connect a device* scans another device's code, shows one on this phone for the other to scan or type, or takes one typed |
 | Transfers | what this phone has sent that has not been collected, with a way to stop it, and the history |
 | Settings | this phone's name, *Keep new files private*, the recovery phrase shown again, what qurb takes in space and a way to free what nothing needs, background sync, the rendezvous service, the version |
 | setup | create an identity, show the 24 words and have three of them typed back; or restore from them |
 | scan | the camera, reading the code another device shows when connecting |
-| share | anything on the phone, sent into qurb from the system share sheet |
+| share | anything on the phone, from the system share sheet: saved to My Vault, or sent to one paired device |
 
 **Files added on the phone are private by default** — decision
 [0036](../docs/decisions/0036-a-phone-keeps-its-own-files.md). They go to no
@@ -264,6 +264,13 @@ replaced by uninstalling — which deletes the phone's key and index. See
   the device that sent them still has them. Builds before then did not record
   where a received file came from, and a phone cannot learn it afterwards
   without asking; it errs the safe way, never offering to free such a file.
+- **A designed look.** Every screen works on the platform's own components
+  and none has been designed; that is the next piece of work.
+- **Not yet tried on the phone**, though built and run on the emulator:
+  removing a device, the share sheet sending to a device, showing a pairing
+  code to another device, and sharing a folder with chosen devices between
+  real ones. See
+  [phases/phase-5-mobile.md](../docs/phases/phase-5-mobile.md#checked-between-the-galaxy-s23-and-the-laptop).
 - **The development phone runs a debug build.** Android refuses an update
   signed by a different key, so moving it to a release build means
   uninstalling once, which deletes its key and index. Not done — see Signing.

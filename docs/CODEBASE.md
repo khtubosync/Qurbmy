@@ -8,13 +8,18 @@ goes deeper on one topic; this file is the map.
 It is a **living document**. Anything that changes how the system fits together
 should be reflected here in the same piece of work that changes it.
 
-**Last verified against the code:** 2026-09-23 — the whole file checked against
+**Last verified against the code:** 2026-09-28 — the whole file checked against
 the source, not just the sections that changed. Phases 0–2 are complete.
 Phase 3 is built and its kill criterion is unmeasured, for want of a second
-*network*. Phase 4 has a daemon, a window with the one setting people want to
-change, and no installer. Phase 5 has an Android app on a real phone that syncs
-with a laptop in both directions, shares into qurb from anywhere on the phone,
-and can be woken by push; iOS is untouched.
+*network*. Phase 4 has a daemon, a desktop window that does everything the
+command line does — setting up, pairing, sending, recently deleted, conflicts,
+sharing folders with chosen devices, the passphrase — and an Arch package; no
+automatic updater, by decision. Phase 5 has an Android app on a real phone that
+syncs with a laptop in both directions, shares into qurb from anywhere on the
+phone, and is woken by push; iOS is untouched. What comes next, in the owner's
+order: design and UX, then the relay on a server of the owner's own, then a
+formal release for Linux and Android. [features.md](features.md) lists
+everything that exists, by where a person meets it.
 
 ---
 
@@ -42,8 +47,8 @@ the second.
 
 ## 2. The mental model
 
-Five ideas carry most of the system. If you understand these, the code will make
-sense.
+A handful of ideas carry most of the system. If you understand these, the code
+will make sense.
 
 ### 2.1 Files are stored as chunks, addressed by their content
 
@@ -120,6 +125,17 @@ unlink, never after — and both the scan and the watcher skip a file that is
 missing on purpose. Without that, a device running low on disk would delete the
 user's files on every other device. See
 [decisions/0025](decisions/0025-a-storage-cap-that-cannot-lose-data.md).
+
+#### A deletion keeps a copy for thirty days
+
+Deleting a file — here, or on another device and synced — moves the file out
+of the folder into `.qurb/trash/` rather than unlinking it, and the `trash`
+table remembers where it came from. For thirty days it can be restored, which
+writes it back as a *new version*, so it returns on every device, not only
+this one. After that it goes, and a device over its storage limit empties the
+trash before it evicts anything. The same place receives the version a person
+did not keep when settling a conflict. See
+[decisions/0042](decisions/0042-recently-deleted.md).
 
 #### Nothing waits on the other device being awake
 
@@ -244,6 +260,15 @@ and its most important clause is: **never silently discard a user's edit.**
 Both versions are kept; only the question of which one keeps the original
 filename is decided automatically.
 
+A person settles it afterwards: keep the original, keep the other version, or
+keep both under their own names. Settling is an ordinary change that syncs like
+any other, and the version not kept goes to Recently deleted. A conflict is
+found by its *name* — `report.conflict-3f2a9c01-2026-09-28-141500.txt`, the
+device's short identifier and the time in UTC — parsed strictly by
+`qurb_sync::conflict_origin`, so there is no table of conflicts to drift out of
+step with the folder, and the window shows the device's name instead. See
+[decisions/0043](decisions/0043-settling-a-conflict.md).
+
 ### 2.6 A path lives in one of two places
 
 Everything above describes one namespace that every paired device converges on.
@@ -293,6 +318,24 @@ Android app, where files added on the phone are private by default and a device
 is chosen on the Devices screen to keep them — verified between a Galaxy S23 and
 a laptop: kept, freed, fetched back byte-identical, and let go on deletion. See
 [decisions/0036](decisions/0036-a-phone-keeps-its-own-files.md).
+
+**A folder in the shared area can be shared with chosen devices.** By default
+a folder goes to every device. Choosing devices writes a small rule file,
+`.qurb-sharing/<folder>`, which syncs like any other file — so every device
+learns the rule the ordinary way, and each derives its own `shares` tables from
+it. The server side enforces it: a device not chosen is not shown the folder's
+files in the tree and is refused their manifests and chunks, however it asks.
+Unticking a device stops new changes reaching it; what it already has, it
+keeps, and the window says so rather than pretending otherwise. See
+[decisions/0044](decisions/0044-sharing-with-chosen-devices.md).
+
+**A folder can be kept only remotely.** This is one device's own choice,
+recorded in `remote_folders` and never synced: the folder's files stay listed,
+new versions arriving from other devices are recorded without their bytes
+(`know_elsewhere`), and local copies are freed where another device is known
+to have them. Keeping it locally again fetches everything back. This is the
+*choosing* half of selective sync; the storage limit is the other half. See
+[decisions/0045](decisions/0045-a-folder-kept-remotely.md).
 
 ### 2.7 The index remembers what happened, not just what is
 
@@ -374,6 +417,13 @@ The important asymmetry: **thick clients, thin servers.** Almost all the
 difficulty lives on the device. The servers are a phone book and an emergency
 mail forwarder.
 
+The right-hand box is the target design. What runs today is two programs a
+person runs themselves — the rendezvous service (`qurb signal`) and the relay
+(`qurb relay`), on their own computer or server — with public STUN servers
+(Google's and Cloudflare's) answering "what is my address". There are no
+accounts, no billing and no device registry beyond each device's own list of
+the devices it trusts.
+
 ### What happens when you save a file
 
 This is the single most useful trace to have in your head.
@@ -447,12 +497,17 @@ qurb/
 │
 ├── docs/
 │   ├── CODEBASE.md        ← you are here
+│   ├── features.md        Everything that exists, by where a person meets it
 │   ├── product-plan.md    Turning the engine into a product: what exists
 │   │                      against the brief, and the decisions still open
 │   ├── glossary.md        Every term, defined plainly
 │   ├── trying-it.md       Running it yourself, from one machine to a phone
 │   ├── architecture.md    The target design, all subsystems
 │   ├── roadmap.md         Phases, timelines, honest risk assessment
+│   ├── anywhere.md        Syncing from outside the house: what must be
+│   │                      reachable, and a free way to get there
+│   ├── measuring-connectivity.md
+│   │                      how to measure the direct-connection rate
 │   ├── decisions/         Why each choice was made (one file per decision)
 │   └── phases/            What each phase produced, with measurements
 │
@@ -480,6 +535,7 @@ qurb/
 │   │   ├── src/peer.rs      compare with another device and act on it
 │   │   └── examples/        sync_once: one directory into a store
 │   │                        sync_pair: two directories against each other
+│   │                        peak_memory: what receiving a large file costs
 │   │
 │   ├── sync/              What to do when two devices disagree.
 │   │   └── src/           Pure logic: no disk, no network, no clock.
@@ -487,7 +543,10 @@ qurb/
 │   │       ├── version.rs   one device's view of one path
 │   │       ├── resolve.rs   deciding between two versions
 │   │       ├── reconcile.rs deciding about a whole tree
-│   │       └── path.rs      which paths another device may name
+│   │       ├── path.rs      which paths another device may name
+│   │       ├── sharing.rs   which devices a folder is shared with: the
+│   │       │                rule files, parsed and checked
+│   │       └── device.rs    a device's identity, and its short form
 │   │
 │   ├── peer/              Reaching another device, over QUIC.
 │   │   ├── src/wire.rs      the message format; bounded and hostile-input safe
@@ -509,7 +568,11 @@ qurb/
 │   ├── keys/              The root secret and the way back to it.
 │   │   ├── src/master.rs    HKDF derivation, one key per purpose
 │   │   ├── src/phrase.rs    the 24 words, via BIP-39
-│   │   └── src/vault.rs     where the master key lives, and its limits
+│   │   ├── src/vault.rs     where the master key lives: open, unlock,
+│   │   │                    protect, restore
+│   │   └── src/protection.rs  the three ways to keep it — a file, the
+│   │                        system keystore, a passphrase — and what each
+│   │                        defends against
 │   │
 │   ├── signal/            Finding the other device.
 │   │   ├── src/rendezvous.rs  identifiers the server cannot link to anyone
@@ -517,7 +580,8 @@ qurb/
 │   │   ├── src/server.rs      holds a channel open per device
 │   │   ├── src/client.rs      announce, ask, punch when told
 │   │   ├── src/wake.rs        the seam: how an absent device gets poked
-│   │   └── src/fcm.rs         that seam, filled in by Firebase (feature `push`)
+│   │   ├── src/fcm.rs         that seam, filled in by Firebase (feature `push`)
+│   │   └── src/tls.rs         a certificate of its own, for a bare IP address
 │   │
 │   ├── relay/             The fallback when no direct path exists.
 │   │   ├── src/frame.rs      opaque forwarding, binary and bounded
@@ -531,7 +595,8 @@ qurb/
 │   │   │                    verify, reclaim, fetch, free, send, cancel,
 │   │   │                    holders, remove-device, conflicts, share,
 │   │   │                    keep, deleted, restore, activity, ls, find,
-│   │   │                    config, protect
+│   │   │                    config, protect, version, signal, relay,
+│   │   │                    netcheck
 │   │   ├── src/daemon.rs    watch, apply, sync, collect, stay under the limit
 │   │   ├── src/lock.rs      one daemon per folder, enforced not assumed
 │   │   ├── src/profiles.rs  which folders exist, so commands need no path
@@ -549,9 +614,12 @@ qurb/
 │   │   ├── src/session.rs   unmade or running, and the phrase in between
 │   │   ├── src/notify.rs    the three things worth interrupting somebody about
 │   │   ├── src/commands.rs  every question the window may ask
+│   │   ├── src/autostart.rs starting at login, hidden
+│   │   ├── src/instance.rs  one qurb per person; a second launch shows the first
 │   │   └── ui/              the screens: HTML, one stylesheet, one script
 │   │
 │   └── tray/              An icon in the corner: the daemon with a face.
+│       ├── src/main.rs      the daemon, with an icon or a window to show
 │       ├── src/host.rs      whether a tray icon would be visible at all
 │       ├── src/icon.rs      the icon, drawn rather than shipped
 │       ├── src/ui.rs        the menu, and what to do when there is no tray
@@ -561,16 +629,26 @@ qurb/
 │   └── app/src/
 │       ├── main/java/com/qurb/
 │       │                  MainActivity.kt     the shell: five tabs, and what they share
-│       │                  Screen.kt           what a tab is: views and a refresh
-│       │                  HomeScreen.kt       devices, what is only here, lately
-│       │                  VaultScreen.kt      the files, and where their bytes are
-│       │                  DevicesScreen.kt    who keeps this phone's files
+│       │                  Screen.kt           what a tab is: views, a refresh, Back
+│       │                  Qurb.kt             the one handle on the engine, off
+│       │                                      the main thread
+│       │                  Errors.kt           an engine error, said for a screen
+│       │                  HomeScreen.kt       devices, what is only here, conflicts,
+│       │                                      lately
+│       │                  VaultScreen.kt      the files by folder, search, and where
+│       │                                      their bytes are
+│       │                  DevicesScreen.kt    pairing, who keeps this phone's files,
+│       │                                      removing a device
 │       │                  TransfersScreen.kt  sends waiting, and the history
-│       │                  SettingsScreen.kt   privacy default, space, syncing
+│       │                  SettingsScreen.kt   privacy default, space, syncing, who
+│       │                                      has each folder, version
+│       │                  RecentlyDeleted.kt  thirty days to change your mind
+│       │                  ShowCode.kt         this phone showing a pairing code
 │       │                  Words.kt            how the app says things, in one place
 │       │                  SetupActivity.kt    the 24 words, once
 │       │                  ScanActivity.kt     reading a pairing QR code
-│       │                  ShareActivity.kt    the share sheet's way in
+│       │                  ShareActivity.kt    the share sheet's way in: save it, or
+│       │                                      send it to one device
 │       │                  AndroidKeyStore.kt  the platform half of decision 0021
 │       │                  SyncWorker.kt       background sync, on WorkManager
 │       │                  QurbDocumentsProvider.kt
@@ -583,7 +661,8 @@ qurb/
 │
 ├── packaging/             Getting it onto a machine.
 │   ├── arch/PKGBUILD      a pacman package of this checkout (makepkg -si)
-│   ├── install.sh         qurb in this user's applications menu: the window
+│   ├── install.sh         qurb in this user's applications menu: the window,
+│   │                      with qurb and qurb-tray beside it
 │   ├── install-rendezvous.sh
 │   │                      the rendezvous service on your own computer, with
 │   │                      push, as a binary of its own name and the unit below
@@ -629,8 +708,10 @@ code gets written fresh, informed by the spike rather than copied from it.
 ## 5. What actually exists right now
 
 Being precise about this matters, because the architecture document describes a
-complete system and a good deal of it is still unbuilt. The engine is real; the
-product around it largely is not.
+complete system and a good deal of it is still unbuilt. The engine is real, and
+so, on Linux and Android, is a product around it that does what the brief asks
+of the features; what it does not have yet is a designed look, a relay on a
+server, and a release. The unbuilt parts are listed at the end of this section.
 
 ### Built and tested (`crates/storage`, Phase 1)
 
@@ -733,7 +814,8 @@ for the workspace as it stands.
 
 750 tests pass in 88 test binaries on Linux (2026-09-28, debug build, the
 development laptop); clippy is clean. The last run on
-a Galaxy S23 was 426 of them, before this week's work — see
+a Galaxy S23 was 426 of them, on 2026-09-17, and has not been repeated since —
+see
 [phases/phase-5-mobile.md](phases/phase-5-mobile.md).
 
 **The wire protocol is `qurb/2`.** It was `qurb/0` until tree entries gained a
@@ -872,8 +954,9 @@ Everything is in one process, which is the one thing about it that is not
 realistic. The sockets, handshakes, encryption, chunking and conflict resolution
 are all the real implementations.
 
-What is missing is everything a *person* needs: an interface, installers,
-updates, and an app on either phone.
+That was where Phase 2 ended: everything a *person* needs — an interface,
+installers, an app on a phone — was missing. The window, the Android app and
+the package came after, and are described below.
 
 ### Measured in the Phase 0 spike
 
@@ -933,15 +1016,21 @@ of about 175 ms — see [decisions/0039](decisions/0039-a-light-android-app.md).
 
 **There is an Android app** — [`android/`](../android/) — which installs, sets up
 an identity, keeps the key in the Android Keystore, pairs and syncs, in five
-tabs: Home, Vault, Devices, Transfers and Settings. The Vault says where each
-file's bytes are and frees or fetches them back; Devices chooses who keeps the
-phone's own files. See [android/README.md](../android/README.md). Building it found a bug nothing else could: UniFFI keeps only the *last*
+tabs: Home, Vault, Devices, Transfers and Settings. Home shows who is reachable,
+what only the phone has, and conflicts to settle. The Vault is browsed by
+folder and searched, says where each file's bytes are, and opens, frees,
+fetches, renames, moves, sends, saves out or deletes each. Devices pairs — scanning a code or
+showing one — chooses who keeps the phone's own files, and removes a device.
+Settings has who has each folder (sharing, and keeping it only remotely),
+Recently deleted, space, syncing and the version. See
+[android/README.md](../android/README.md). Building it found a bug nothing else could: UniFFI keeps only the *last*
 `#[uniffi::export] impl` block for an object and silently discards the others,
 so eight methods were missing from the generated Kotlin and Swift while every
 Rust test passed.
 
-The app syncs on its own through WorkManager, every fifteen minutes when
-Android allows it, and a `DocumentsProvider` puts the synced files in the
+The app syncs on its own through WorkManager — every fifteen minutes when
+Android allows it, or every hour once a push has arrived in the last week,
+since push then does the urgent part — and a `DocumentsProvider` puts the synced files in the
 system file picker and the Files app — listed from the index, so a freed file
 is shown and downloads when opened, and other apps can save into the folder. A device that has not answered when a
 window closes counts as *unreachable*, not as time running out: the second is
@@ -978,44 +1067,55 @@ network. iOS needs Xcode, which needs a Mac. See
 
 | thing | status |
 |---|---|
-| A window | Tauri 2, eight screens, no framework and no build step |
+| A window | Tauri 2, eight tabs — Home, Files, Devices, Activity, Storage, Send, Transfers, Settings — no framework and no build step |
 | It hosts the daemon | the same one `qurb run` starts, on its own threads |
-| Home | live state, recent files, what is still on its way |
-| Files | listing, paging, search, and three-way availability |
-| Devices | who is paired, whether each is connected now and whether directly or through the relay, when each was last reached |
+| Home | live state, recent files, what is still on its way, a notice when there are conflicts to settle |
+| Files | listing, paging, search, and three-way availability; conflicts to settle; which devices have each folder; Recently deleted |
+| Devices | who is paired, whether each is connected now and whether directly or through the relay, when each was last reached; removing one, with what that will and will not do said first |
 | Activity | what this device did, paged, with the reason where there is one |
 | Storage | usage, the allowance, and a control that can change it |
-| Settings | name, rendezvous, relay, port, where files sent here go, and the 24 words again |
-| Setting a device up | make a new one or join an existing, with the phrase shown and confirmed |
+| Settings | name, rendezvous, relay, port, where files sent here go, version, start at login, Quit, Security, the 24 words again |
+| Setting a device up | make a new one or join an existing, with the phrase shown and confirmed and the storage question asked |
+| Locked | a key protected by a passphrase is unlocked in the window; at login the window shows itself to ask |
 | Pairing | show a code — QR, typed or spoken — or enter one, with a countdown |
 | Sending | drop files or folders on the window or choose them, then pick a device |
 | Notifications | three things only: a file sent to you, one collected, one that failed |
 | Transfer progress | both directions, live, with a rate and time left |
 | Cancelling a send | before it is collected, from the window or `qurb cancel`; never after |
+| Conflicts | on Files: each shown with both versions, who made each and when; keep one, the other, or both |
+| Recently deleted | on Files: thirty days, restore or delete for good |
+| Who has each folder | on Files: share a folder with chosen devices; free its space here or keep it on this computer |
+| Security | this device's fingerprint, how the key is kept and changing it, pairings and removals |
+| One qurb per person | closing the window keeps it syncing; launching again shows the running one |
 
 ### Designed but not built
 
 An iOS app, per-file keys, key rotation, relay selection and quotas, accounts
-and billing, installers and updates.
+and billing, packages for anything but Arch, and an automatic updater — the
+last deliberately, until it can be built safely
+([decisions/0047](decisions/0047-versions-and-upgrades.md)).
 
-The desktop interface is built, with gaps. The window sets a device up — the
-folder, how much disk it may use, the 24 words shown and three typed back, or
-joining with the words from another device — pairs devices by code, browses
-what is synced and where each file's bytes are, sends to one device, and shows
-activity, transfers and storage; the applications menu opens it
-([decisions/0040](decisions/0040-the-menu-opens-the-window.md)). Closing it
-hides it and qurb keeps syncing; it starts at login without a window, and
-*Quit qurb* in Settings stops it. What it cannot do is recover a deleted file.
+The desktop interface does what the command line does. The window sets a
+device up — the folder, how much disk it may use, the 24 words shown and three
+typed back, or joining with the words from another device — unlocks a
+passphrase-protected key, pairs devices by code, browses what is synced and
+where each file's bytes are, sends to one device, settles conflicts, restores
+deleted files, chooses which devices each folder goes to and which folders stay
+only remote, and shows activity, transfers and storage; the applications menu
+opens it ([decisions/0040](decisions/0040-the-menu-opens-the-window.md)).
+Closing it hides it and qurb keeps syncing; it starts at login without a
+window, and *Quit qurb* in Settings stops it. Its look is plain and has not
+been designed: the design and UX pass is the next piece of work.
 
-Selective sync is half-built rather than unbuilt: a device drops local copies
-when it is over its storage limit and fetches them back on request, which is
-the mechanism. What is missing is the *choosing* — a person saying which
-folders they want kept locally, rather than the cap deciding by what is
-coldest.
+Selective sync is built in both halves: a device drops local copies when it is
+over its storage limit and fetches them back on request, and a person can say
+a folder is kept only remotely
+([decisions/0045](decisions/0045-a-folder-kept-remotely.md)). What Linux still
+lacks is a placeholder — see the first gap below.
 
 ### The gaps that matter most
 
-Five things are known-missing rather than merely unbuilt:
+Six things are known-missing rather than merely unbuilt:
 
 1. **An evicted file simply vanishes from the folder on Linux.** Windows and
    macOS both have an API for a placeholder that keeps its name and size and
@@ -1036,10 +1136,10 @@ Five things are known-missing rather than merely unbuilt:
    and what that costs in battery, is unmeasured. Everything verified on
    hardware so far was one phone and one laptop on one home network.
 
-4. **Two kill criteria remain unmeasured**, both for want of hardware rather
-   than for want of code: Phase 3's direct-connection rate needs a second
-   machine on a different network, and Phase 5's battery-and-survival test needs
-   a real phone. An emulator answers neither.
+4. **Two kill criteria remain unmeasured**, both for want of time and hardware
+   rather than for want of code: Phase 3's direct-connection rate needs a
+   second machine on a different network, and Phase 5's battery-and-survival
+   test needs the phone left alone for a day. An emulator answers neither.
 
 5. **A replica cannot free space under a storage cap.** Eviction works by
    deleting a file from a folder, and a replica has no folder — so a cap on one
@@ -1047,6 +1147,14 @@ Five things are known-missing rather than merely unbuilt:
    different operation and is not written. It matters for the small always-on
    box a replica is most useful on. See
    [decisions/0025](decisions/0025-a-storage-cap-that-cannot-lose-data.md).
+
+6. **The newest features have not crossed between real devices.** Sharing a
+   folder with chosen devices, keeping a folder only remotely and removing a
+   device are tested with several devices in one test process and in the
+   desktop window; recently deleted and settling a conflict are verified
+   between the Galaxy S23 and the laptop. On the phone, removing a device, the
+   share sheet's *send to a device* and the phone showing a pairing code have
+   not been tried. See [features.md](features.md) for which is which.
 
 Three earlier entries here have since been closed, and how they were closed is
 worth knowing:
@@ -1142,6 +1250,33 @@ introduce them, then `run` on both:
 ```
 
 ```bash
+# Files two devices changed at once, and settling one: keep this device's
+# version, the other, or both. Nothing is lost either way.
+./target/release/qurb conflicts ~/Sync
+./target/release/qurb conflicts ~/Sync keep "notes.conflict-3f2a9c01-2026-09-28-141500.txt" both
+```
+
+```bash
+# Recently deleted: thirty days to put a file back, on every device.
+./target/release/qurb deleted ~/Sync
+./target/release/qurb restore ~/Sync '#1'
+```
+
+```bash
+# Share a folder with chosen devices only, or with everyone again; keep a
+# folder only listed here, fetching each file when asked for.
+./target/release/qurb share ~/Sync work with this,laptop
+./target/release/qurb share ~/Sync work with everyone
+./target/release/qurb keep ~/Sync videos remote
+```
+
+```bash
+# Stop trusting a device. Says what that will do; --yes does it.
+./target/release/qurb remove-device ~/Sync old-phone
+./target/release/qurb version
+```
+
+```bash
 # A device that holds content so the others need not all be awake at once.
 # No folder, no files shown to anybody, nothing materialised.
 ./target/release/qurb enrol /srv/qurb "<the same 24 words>"
@@ -1202,16 +1337,17 @@ cargo test --workspace
 ```
 
 ```bash
-# The desktop application: the same daemon, in a window. Five screens over the
+# The desktop application: the same daemon, in a window. Eight tabs over the
 # same queries `qurb ls`, `qurb find` and `qurb activity` use.
 cargo build --release -p qurb-desktop
 ./target/release/qurb-desktop ~/Sync
 ```
 
 ```bash
-# Drive that window end to end -- set up, every tab, pairing by code, a send --
-# on a display of its own, failing on any command that errs. Needs broadwayd
-# and WebKitWebDriver.
+# Drive that window end to end -- set up, every tab, pairing by code, a send,
+# removing a device, a passphrase set, quit, refused and then unlocked on the
+# next start -- on a display of its own, failing on any command that errs.
+# Needs broadwayd and WebKitWebDriver.
 ./scripts/desktop-smoke.sh
 ```
 
@@ -1226,6 +1362,18 @@ cargo run --release -p qurb-tray -- ~/qurb
 # and qurb and qurb-tray are installed alongside. --uninstall undoes it.
 cargo build --release -p qurb-cli -p qurb-tray -p qurb-desktop
 ./packaging/install.sh
+```
+
+```bash
+# Or, on Arch and its derivatives, a pacman package of this checkout for every
+# user. Upgrade by building again; `pacman -R qurb` removes it.
+cd packaging/arch && makepkg -si
+```
+
+```bash
+# A release APK, signed with the key named in ~/.config/qurb/signing.properties.
+# An update must be signed with the same key, or Android refuses it.
+./scripts/android-app.sh release
 ```
 
 Syncing from outside the house needs the rendezvous service somewhere both
@@ -1252,55 +1400,57 @@ tmpfs that the 2 GiB synthetic corpus will fill.
 ## 7. Suggested reading order
 
 1. This file.
-2. [glossary.md](glossary.md) — skim it, then use it as a reference.
-3. [roadmap.md](roadmap.md) — what is being built when, and the honest risks.
-4. [phases/phase-0-spike.md](phases/phase-0-spike.md) — the measurements, and
+2. [features.md](features.md) — what a person can do with it today, on each
+   device.
+3. [glossary.md](glossary.md) — skim it, then use it as a reference.
+4. [roadmap.md](roadmap.md) — what is being built when, and the honest risks.
+5. [phases/phase-0-spike.md](phases/phase-0-spike.md) — the measurements, and
    the design error they caught.
-5. [architecture.md](architecture.md) — the full target design.
-6. [decisions/](decisions/) — read these when you want to know *why*, or when
+6. [architecture.md](architecture.md) — the full target design.
+7. [decisions/](decisions/) — read these when you want to know *why*, or when
    you are about to change something and want to know what it would break.
-7. [crates/qurb/README.md](../crates/qurb/README.md) — the commands, and what
+8. [crates/qurb/README.md](../crates/qurb/README.md) — the commands, and what
    the daemon does not do yet. The quickest way to see the shape of the whole
    thing is to run it.
 
 Then the layers, bottom to top:
 
-8. [crates/storage/README.md](../crates/storage/README.md) — the two invariants
+9. [crates/storage/README.md](../crates/storage/README.md) — the two invariants
    the storage layer is built around. Then its source, in this order:
    `store.rs`, `db.rs`, `gc.rs`.
-9. [crates/watcher/README.md](../crates/watcher/README.md) — the four silent
-   failure modes filesystem watching has to prevent.
-10. [crates/sync/README.md](../crates/sync/README.md) — why concurrency means
+10. [crates/watcher/README.md](../crates/watcher/README.md) — the four silent
+    failure modes filesystem watching has to prevent.
+11. [crates/sync/README.md](../crates/sync/README.md) — why concurrency means
     conflict, and why convergence is a different property from correctness.
-11. [crates/engine/README.md](../crates/engine/README.md) — how a change becomes
+12. [crates/engine/README.md](../crates/engine/README.md) — how a change becomes
     work, and the one heuristic the engine leans on.
-12. [crates/keys/README.md](../crates/keys/README.md) — why a lost phrase is
+13. [crates/keys/README.md](../crates/keys/README.md) — why a lost phrase is
     unrecoverable, and what the key file does and does not defend against.
-13. [crates/peer/README.md](../crates/peer/README.md) — what actually crosses
+14. [crates/peer/README.md](../crates/peer/README.md) — what actually crosses
     the wire, and what pinned identity does and does not protect.
-14. [crates/signal/README.md](../crates/signal/README.md) and
+15. [crates/signal/README.md](../crates/signal/README.md) and
     [crates/relay/README.md](../crates/relay/README.md) — the two services, and
     what each is deliberately unable to learn.
-15. [crates/mobile-ffi/README.md](../crates/mobile-ffi/README.md) — the surface
+16. [crates/mobile-ffi/README.md](../crates/mobile-ffi/README.md) — the surface
     a phone calls, and the four platform constraints that shaped it.
-16. [android/README.md](../android/README.md) — the app, and the three things
+17. [android/README.md](../android/README.md) — the app, and the three things
     about Android that dictated its shape: the keystore, the 16 KB page size,
     and a background scheduler that decides when you run.
 
 And when you want to run it for real, rather than on one machine:
 
-17. [anywhere.md](anywhere.md) — what has to be reachable for a phone to sync
+18. [anywhere.md](anywhere.md) — what has to be reachable for a phone to sync
     from a train, what does not, and a way to get there for nothing.
-18. [packaging/server/README.md](../packaging/server/README.md) — the two
+19. [packaging/server/README.md](../packaging/server/README.md) — the two
     services on a host of your own: unit files, ports, and which of them may
     face the internet.
 
 And when you want to close the measurements still outstanding:
 
-19. [measuring-connectivity.md](measuring-connectivity.md) — how to measure the
+20. [measuring-connectivity.md](measuring-connectivity.md) — how to measure the
     direct-connection rate, which is the number the relay bill depends on. The
     other open measurement, whether sync survives a phone's battery and its
-    platform's patience, needs a device — see
+    platform's patience, needs a phone left alone for a day — see
     [phases/phase-5-mobile.md](phases/phase-5-mobile.md).
 
 ---
@@ -1311,7 +1461,11 @@ And when you want to close the measurements still outstanding:
   includes the phones — [`crates/mobile-ffi`](../crates/mobile-ffi/) is the
   only place platform languages appear, and it is a seam rather than a second
   implementation.
-- **Go** for cloud services, when they exist.
+- **Rust for the services too.** The rendezvous service and the relay are
+  Rust, because they share wire types and key derivation with the devices — see
+  [decisions/0015](decisions/0015-control-plane-in-rust.md), which revised the
+  architecture's original choice of Go. Whether accounts and billing are Rust
+  as well is left open until that work starts.
 - Decisions go in `docs/decisions/`, numbered, never deleted. If a decision is
   reversed, the old file gets a status line pointing at its replacement. The
   record of what we believed and why is worth more than a tidy directory.

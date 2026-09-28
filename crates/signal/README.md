@@ -149,16 +149,15 @@ the dependency costs.
 
 ## Not yet built
 
-- **Serving TLS itself.** Termination is currently a reverse proxy's job.
 - **Abuse controls beyond the basics.** There are limits on connections, group
   size, message rate and message size, and none of them survive an attacker with
   many addresses. That needs infrastructure this service does not have.
-- **Persistence.** The directory is in memory, so a restart makes every device
-  re-announce — and forgets every wake-up token, so the first change after a
-  restart wakes nobody. Both heal themselves on the next connection, which is
-  what makes it acceptable for a rendezvous point and nothing else. Persisting
-  tokens means a database, which is the thing this service is valuable for not
-  having.
+- **Persistence of the directory.** Who is connected is in memory, so a
+  restart makes every device re-announce, which heals itself on the next
+  connection. Wake tokens are the exception: with push on they are kept in
+  `wake-tokens.json` in the state directory, readable only by the service's
+  user, because a forgotten token leaves a sleeping phone unreachable until it
+  next syncs on its own.
 - **APNs.** The Android half of waking a device is built and measured; iOS
   would use the same [`wake::Waker`](src/wake.rs) seam, and nothing has been
   written against it.

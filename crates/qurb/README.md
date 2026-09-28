@@ -21,10 +21,23 @@ qurb cancel [dir] <name> to <dev>
 qurb free [dir] <path>           free a file's local copy another device keeps
 qurb holders [dir] [add|remove <dev>]
                                  the devices that keep this one's own files
+qurb conflicts [dir] [keep <copy> this|other|both]
+                                 files two devices changed at once; settle one
+qurb share [dir] [<folder> with <dev>,... | <folder> with everyone]
+                                 which devices a folder is shared with
+qurb keep [dir] <folder> here|remote
+                                 keep a folder here, or only list it here
+qurb deleted [dir]               recently deleted, restorable for 30 days
+qurb restore [dir] <#n or path>  put one back, on every device
+qurb remove-device [dir] <dev> [--delete-kept] [--yes]
+                                 stop trusting a device; says what that does
 qurb activity <dir> [path]       what happened, newest first
 qurb ls <dir> [path]             what this folder holds, and where
 qurb find <dir> <text>           files whose name contains something
 qurb config <dir> [key=value]    show or change settings
+qurb protect [dir] <how>         keep the key in a file, the keystore, or
+                                 behind a passphrase
+qurb version                     the build, its protocol, its index schema
 
 qurb signal [addr] [--push <j>]  the rendezvous service
 qurb relay [addr]                the relay
@@ -259,9 +272,13 @@ nothing.
 ## What it does not do yet
 
 
-- **Choose what to keep.** The storage limit picks by what is coldest. There
-  is no way to say "always keep this folder here, never that one".
-- **Run as a service.** No unit file, no launch agent, no Windows service.
+- **Choose what to keep, automatically.** `qurb keep <folder> remote` says a
+  folder is only listed here; otherwise the storage limit picks by what is
+  coldest. Nothing chooses by folder on its own.
+- **Run `qurb run` as a service.** A replica has a unit
+  (`packaging/server/qurb-replica.service`); the daemon a person uses on a
+  desktop runs in the window, which starts at login. No launch agent or Windows
+  service.
 - **Anything graphical on its own.** The window is
   [`qurb-desktop`](../desktop/README.md), which runs this same daemon inside
   itself.

@@ -121,6 +121,48 @@ survive for up to twice the configured retention before the space comes back.
 That errs toward keeping data, which is the right direction here, but it is a
 real disk cost when choosing the window.
 
+### Recently deleted
+
+On a device with a folder, the file in the folder is the only copy of its
+bytes, so a tombstone alone keeps nothing to restore. A file taken out of the
+folder by a deletion — made here, or arriving from another device — is
+therefore *moved* into `trash/` in the store directory, and a row in `trash`
+remembers its path, size, who deleted it and when
+([decision 0042](../../docs/decisions/0042-recently-deleted.md)).
+`restore_from_trash` puts it back as a new version, which every device then
+takes; after `TRASH_RETENTION` (thirty days) `empty_trash` removes it. Over a
+storage cap the order is: released held content, then the trash, then
+eviction. Settling a conflict (`settle_conflict`) sends the version not kept
+here too.
+
+## Areas, sharing, and a folder kept remotely
+
+Every row has a `scope`: `NULL` for the shared area, a device id for that
+device's vault ([decision 0029](../../docs/decisions/0029-two-areas-shared-and-private.md)).
+`put_file_in` stores a file in an area already decided, which is how files qurb
+writes itself — a sharing rule, a restored file, a settled conflict — keep the
+area they belong in on a phone that files new things privately.
+
+Within the shared area, a folder can be shared with chosen devices. The rules
+are ordinary files under `.qurb-sharing/`; `refresh_shares` derives the
+`shares` and `share_members` tables from them, and the queries that decide what
+a peer may be shown — its tree, a chunk, a content hash — filter through
+`shared_with()`
+([decision 0044](../../docs/decisions/0044-sharing-with-chosen-devices.md)).
+`remote_folders`, never synced, lists folders this device only lists:
+`know_elsewhere` records a version without its bytes, and `keep_remotely`
+frees what another device has
+([decision 0045](../../docs/decisions/0045-a-folder-kept-remotely.md)).
+
+## Upgrading the index
+
+The schema is a list of migrations, appended and never edited, each applied in
+one transaction with the schema number it sets. Before any migration runs on an
+existing index, the index is copied with `VACUUM INTO` to
+`index.before-schema-<n>.db`; an index whose schema is newer than the build is
+refused ([decision 0047](../../docs/decisions/0047-versions-and-upgrades.md)).
+`tests/upgrading.rs` checks both.
+
 ## Testing
 
 ```bash

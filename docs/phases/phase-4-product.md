@@ -11,16 +11,16 @@ warns is not the fun part and is a full quarter.
 | area | status |
 |---|---|
 | a daemon that runs | ✅ [`qurb`](../../crates/qurb/) |
-| the commands around it | ✅ init, enrol, pair, join, run, status, verify, reclaim, fetch, send, activity, ls, find, config, protect |
+| the commands around it | ✅ init, enrol, pair, join, run, status, verify, reclaim, fetch, free, send, cancel, holders, remove-device, conflicts, share, keep, deleted, restore, activity, ls, find, config, protect, version |
 | running the services | ✅ `qurb signal`, `qurb relay` |
 | push, rather than polling | ✅ ~430ms, measured |
 | protecting the key at rest | ✅ keystore and passphrase |
 | storing files in parallel | ✅ 487 → 830-888 files/s |
-| onboarding and the recovery phrase | ◐ in the window, phrase shown and confirmed; the storage question is not asked yet ([0038](../decisions/0038-the-storage-question-during-setup.md)) |
-| installers | ⬜ not started |
-| signed updates with rollback | ⬜ not started |
+| onboarding and the recovery phrase | ✅ in the window: phrase shown and confirmed, the storage question asked ([0038](../decisions/0038-the-storage-question-during-setup.md)) |
+| installers | ◐ a pacman package for Arch and a per-user install script; no `.deb`, Flatpak or AppImage |
+| signed updates with rollback | ⬜ deliberately not built ([0047](../decisions/0047-versions-and-upgrades.md)); the index is copied before it migrates, and a newer one is refused |
 | observability | ◐ structured logs, nothing more |
-| the interface | ◐ a window: set up, pair, send, and where every file is — see *The window* |
+| the interface | ◐ a window that does what the command line does — see [features.md](../features.md); not yet designed, which is next |
 | one daemon per folder | ✅ an advisory lock, not a convention |
 | pairing | ✅ scan a QR code, once, and it stays paired |
 | a folder that needs no path | ✅ `~/qurb`, with a registry (it was `~/Downloads/qurb` until [0037](../decisions/0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md)) |
@@ -34,8 +34,15 @@ warns is not the fun part and is a full quarter.
 | changes crossing at once | ✅ ~1s between idle daemons, no polling |
 | the services deployable | ✅ systemd units, TLS, ports written down |
 | garbage collection running | ✅ every 5 minutes, 7-day retention |
+| removing a device | ✅ trust ends at once, open connections too ([0041](../decisions/0041-removing-a-device.md)) |
+| recently deleted | ✅ 30 days, restored on every device ([0042](../decisions/0042-recently-deleted.md)) |
+| settling a conflict | ✅ keep one, the other, or both ([0043](../decisions/0043-settling-a-conflict.md)) |
+| a folder shared with chosen devices | ✅ in tests with three devices; not yet between real ones ([0044](../decisions/0044-sharing-with-chosen-devices.md)) |
+| a folder kept only remotely | ✅ in tests with two devices ([0045](../decisions/0045-a-folder-kept-remotely.md)) |
+| the passphrase in the window | ✅ and a Security section ([0046](../decisions/0046-the-window-asks-for-the-passphrase.md)) |
+| versions | ✅ program, protocol and index schema, everywhere ([0047](../decisions/0047-versions-and-upgrades.md)) |
 
-696 tests pass in 81 test binaries on Linux (2026-09-28, debug build, the
+750 tests pass in 88 test binaries on Linux (2026-09-28, debug build, the
 development laptop); clippy is clean.
 
 ## The interface
@@ -950,7 +957,8 @@ No automatic updater: the decision says what one would need.
   deleting a file from a folder, so a cap on a replica reports the overrun
   rather than acting on it. Dropping chunk payloads is a different operation
   and is not written.
-- **The rest of the interface.** Recovering a deleted file. Progress, cancel,
-  several files per send, "Open folder", the `downloads` setting, the storage
-  question during setup and the menu opening the window were on this list and
-  are built — see the sections above and decision 0040. See [product-plan.md](../product-plan.md) for the order.
+- **The design and UX of the window**, which is next. Everything the brief
+  asks the window to *do* is built — recovering a deleted file was the last
+  item here — and [features.md](../features.md) lists it; how it looks and
+  reads has not been designed. After that, the relay on a server of the
+  owner's own, then a formal release. See [product-plan.md](../product-plan.md).

@@ -3,6 +3,19 @@
 Six phases. Each has an explicit **kill criterion**: the result that means stop
 and reconsider rather than push on.
 
+**Where it stands, 2026-09-28:** Phases 0–2 complete; Phase 3 built with its
+kill criterion unmeasured; Phases 4 and 5 working on Linux and Android. What
+comes next was set by the project owner, in this order:
+
+1. **Design and UX** of the desktop window and the Android app. Every feature
+   the product brief asks for is built — [features.md](features.md) lists them
+   — and none has been designed.
+2. **The relay on a server of the owner's own**, so the phone and the laptop
+   reach each other from any network, not only where a direct path exists.
+3. **A formal release for Linux and Android.**
+
+macOS, Windows and iOS come after Linux and Android are finished.
+
 ## Honest feasibility
 
 Stated plainly, because the plan is only useful if the estimates are:
@@ -102,17 +115,19 @@ Conflict semantics are settled here in code, per
 
 > **Kill criterion:** convergence failures that cannot be explained. If the
 > engine cannot reliably agree with itself across two devices, mobile will not
-> rescue it. — **Not met.** Every failure was explained, and four were defects
+> rescue it. — **Not met.** Every failure was explained, and five were defects
 > that are now fixed.
 
 ---
 
-## Phase 3 — Networking at scale 🔨 in progress
+## Phase 3 — Networking at scale 🔨 built — kill criterion unmeasured
 
 *Months 6–7.*
 
-The Go control plane, STUN, signalling, and DERP relay. Device pairing by QR
-code with out-of-band key verification.
+STUN, signalling, and a relay. Device pairing by QR code with out-of-band key
+verification. The plan said a Go control plane; the services are Rust instead
+([0015](decisions/0015-control-plane-in-rust.md)), and accounts and billing
+are left to Phase 6.
 
 **Pairing is built** — an invite carrying the inviter's full fingerprint across
 an out-of-band channel, a trust store binding device identity to network
@@ -132,21 +147,27 @@ prevention — and it is the component that costs money per byte forever.
 
 *Months 8–10.*
 
-The daemon runs: `qurb init`, `enrol`, `pair`, `join`, `run`, `replica`,
-`status`, `verify`, `reclaim`, `fetch` and `config`, plus `qurb signal` and
-`qurb relay` for the services. Running it kept finding bugs the whole test
+The daemon runs, with some two dozen commands around it, plus `qurb signal`
+and `qurb relay` for the services. Running it kept finding bugs the whole test
 suite had missed — which is the phase's real lesson rather than an aside. See
 [phases/phase-4-product.md](phases/phase-4-product.md).
 
-There is an interface, though not the one this plan imagined: a window showing
-what the daemon is doing, with a slider for how much disk it may use. GTK
-rather than Tauri, because the tray library already links it and a second
-toolkit for one window would double the dependency for nothing. Storage caps,
-single-copy storage and a replica anybody can run all landed here too, none of
-them planned.
+The interface went through two shapes. First a tray icon with a small GTK
+window — status and a storage slider — which GNOME, having no tray, could not
+show. Then the desktop window, in Tauri, which hosts the daemon
+([0032](decisions/0032-the-interface-hosts-the-daemon.md)) and does what the
+command line does: setting up with the recovery phrase shown and confirmed,
+pairing by QR code, files and where their bytes are, sending, transfers,
+recently deleted, settling conflicts, sharing folders with chosen devices, a
+passphrase on the key. Storage caps, single-copy storage and a replica anybody
+can run all landed here too, none of them planned.
 
-Still missing: installers, onboarding, the recovery-phrase flow, signed updates
-with rollback, and observability beyond a log.
+Installing is a pacman package on Arch and an install script elsewhere. Signed
+updates with rollback are deliberately not built
+([0047](decisions/0047-versions-and-upgrades.md)): the index is copied before
+it migrates, which is the rollback that matters most. Still missing: packages
+for other distributions, observability beyond a log and the activity history,
+and the design pass.
 
 Onboarding for a zero-knowledge product is uniquely hard: a non-technical person
 must be persuaded to write down a recovery phrase *before* they have any
@@ -157,7 +178,7 @@ will take many drafts.
 
 ---
 
-## Phase 5 — Mobile
+## Phase 5 — Mobile 🔨 Android working, iOS not started
 
 *Months 11–16. Six months, and that assumes it goes well.*
 
@@ -185,7 +206,11 @@ hardware.
 Since then it has become a **share target** — anything on the phone goes into
 qurb from the system share sheet, with no network and no other device switched
 on — and it can be **woken by push**, which took a change on a sleeping Galaxy
-S23 from a quarter of an hour to seven hundred milliseconds.
+S23 from a quarter of an hour to seven hundred milliseconds, and to about five
+seconds on mobile data through a rendezvous service on the laptop. The app now
+also browses by folder, settles conflicts, restores deleted files, shows a
+pairing code as well as scanning one, and chooses which devices have each
+folder.
 
 What does not exist is iOS, in any form. The prediction about `BGTaskScheduler`
 is answered on the Rust side by a sync that takes a deadline, and is untested on

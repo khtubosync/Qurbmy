@@ -114,9 +114,9 @@ cargo run -p qurb-keys --example enrol -- /tmp/device-a
   against a cross-platform library and tested here against the Secret Service on
   Linux. Keychain and the Credential Manager are exercised by nothing, and a
   claim about them would be a guess.
-- **Any real `SecretStore`.** `Protection::Platform` is tested against a fake,
-  which checks this side of the boundary and says nothing about whether the
-  Android Keystore or the iOS Keychain behave as documented.
+- **A `SecretStore` for iOS.** `Protection::Platform` is tested here against
+  a fake, and the Android app supplies the real one — the Android Keystore,
+  verified on a Galaxy S23. Nothing has been written for the iOS Keychain.
 - **Key rotation.** Changing the master key means re-encrypting every chunk, and
   there is no mechanism for it.
 - **Per-file keys.** The architecture describes deriving a key per file so that

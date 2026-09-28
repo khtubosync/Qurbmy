@@ -1,12 +1,47 @@
 # Architecture
 
-The target design, subsystem by subsystem. This describes where the project is
-going; [CODEBASE.md](CODEBASE.md) section 5 describes what actually exists
-today, which is much less.
+The target design, subsystem by subsystem, as first written. This describes
+where the project was going; [CODEBASE.md](CODEBASE.md) section 5 describes
+what actually exists today, and [features.md](features.md) what a person can
+do with it.
 
 Decisions with lasting consequences have their own records in
 [decisions/](decisions/); this document summarises and links rather than
 repeating the reasoning.
+
+## Where the built system departs from this
+
+Checked 2026-09-28. The sections below are left as they were planned; where
+building it chose differently, the decision record is the authority:
+
+| planned here | built | why |
+|---|---|---|
+| Go for the control plane (§3) | Rust for the rendezvous service and the relay; accounts and billing not built | [0015](decisions/0015-control-plane-in-rust.md) |
+| Jetpack Compose on Android (§2) | the platform's own Views | [0039](decisions/0039-a-light-android-app.md) |
+| Noise `IK` in transit (§7) | TLS 1.3 inside QUIC, each side pinning the other's certificate fingerprint | [0011](decisions/0011-peer-identity-pinning.md) |
+| ChaCha20-Poly1305 or AES-GCM at rest (§7) | XChaCha20-Poly1305 | [crates/storage](../crates/storage/README.md) |
+| per-file keys (§7) | keys per purpose from the master key; per-file keys not built | [0012](decisions/0012-key-hierarchy-and-recovery.md) |
+| a CAS holding every chunk (§4) | on a device with a folder, the file *is* its own payload; the CAS keeps only what the folder cannot | [0024](decisions/0024-the-file-is-the-payload-store.md) |
+| chunk GC "not yet designed" (§4) | built in Phase 1, two-stage, running every five minutes | [phases/phase-1-engine.md](phases/phase-1-engine.md) |
+| Merkle DAGs for tree comparison (§5) | the whole tree is exchanged and compared — 3.5 s to sync 1,000 changed files among 100,000 | [phases/phase-1-engine.md](phases/phase-1-engine.md) |
+| deletions undone from chunks kept a while (§5) | a deleted file kept whole for thirty days in *Recently deleted* | [0042](decisions/0042-recently-deleted.md) |
+| DERP on port 443 (§6) | qurb's own relay, TCP on 443, carrying a QUIC session it cannot read | [0017](decisions/0017-relay.md) |
+| gRPC for signalling (§10) | JSON over a WebSocket, because a readable capture matters more than bytes there | [crates/signal](../crates/signal/README.md) |
+| FTS5 and CLIP search (§8) | names only, by substring; nothing on contents or images | — |
+| a central device registry (§1, §7) | each device's own trust list, filled by pairing and emptied by removal | [0041](decisions/0041-removing-a-device.md) |
+| signed delta updates with rollback (§11) | no automatic updater; the index is copied before it migrates | [0047](decisions/0047-versions-and-upgrades.md) |
+| an OCI container for a NAS (§12) | `qurb replica` and a systemd unit; no container | [packaging/server](../packaging/server/README.md) |
+| aggregate metrics and crash reports (§13) | logs, and each device's own history of what happened; nothing leaves the device | [0031](decisions/0031-what-happened-is-written-down.md) |
+
+Not in this design at all, and built: private vaults and sending to one device
+([0029](decisions/0029-two-areas-shared-and-private.md),
+[0030](decisions/0030-sending-a-file-to-one-device.md)), a device keeping a
+phone's files for it ([0036](decisions/0036-a-phone-keeps-its-own-files.md)),
+a storage limit that cannot lose data
+([0025](decisions/0025-a-storage-cap-that-cannot-lose-data.md)), finding
+devices on one network with no server
+([0034](decisions/0034-finding-each-other-with-no-server.md)), sharing a folder
+with chosen devices ([0044](decisions/0044-sharing-with-chosen-devices.md)).
 
 ---
 

@@ -21,16 +21,24 @@ record](../roadmap.md).
 | a sync that fits a background window | ✅ `sync_within(seconds)` |
 | the key kept outside the app's files | ✅ Android Keystore, verified on a device |
 | **an Android app** | ✅ [`android/`](../../android/) — installs, sets up, syncs |
-| syncing unattended | ✅ WorkManager, every 15 minutes |
+| syncing unattended | ✅ WorkManager, every 15 minutes — hourly once push has worked in the last week |
 | the files visible to other apps | ✅ a DocumentsProvider, verified in Files |
 | sharing into qurb from any app | ✅ a share target, works with no network |
 | knowing what has not been delivered | ✅ asked of the index, not kept as a queue |
 | being woken by another device | ✅ push, when configured — 0.7s on hardware |
 | **a phone syncing with a laptop, both ways** | ✅ verified on hardware |
+| syncing from mobile data | ✅ directly, through a rendezvous service on the laptop |
+| recently deleted, and settling a conflict | ✅ verified between the S23 and the laptop |
+| the Vault by folder, search, rename, move | ✅ on the emulator; ◻ not yet on the phone |
+| showing a pairing code on the phone | ✅ on the emulator; ◻ not yet paired that way |
+| the share sheet sending to one device | ◻ built, not yet tried |
+| which devices have each folder, and keeping one only remotely | ✅ on the emulator; ◻ not yet between real devices |
+| removing a device | ◻ built; not tried on the phone, which would have removed the laptop |
 | iOS, at all | ⬜ blocked: needs Xcode, which needs a Mac |
 
-495 tests pass across eleven crates on Linux; the last run on a Galaxy S23 was
-426 of them, before this session's work. Clippy is clean.
+750 tests pass in 88 test binaries on Linux (2026-09-28); the last run on a
+Galaxy S23 was 426 of them, on 2026-09-17 — the suite has grown since and has
+not been run there again. Clippy is clean.
 
 ## What the library costs
 
@@ -1224,12 +1232,12 @@ phone showing the code (the laptop is already paired).
   the app supplies the keystore across the FFI, which is
   [decision 0021](../decisions/0021-the-platform-supplies-the-keystore.md). The
   same seam is what iOS would use, and nothing has been written against it.
-- **Selective sync.** A phone cannot hold a desktop's library, so it will need
-  to choose what to keep locally and fetch the rest on demand. That is a design
-  question, not a coding one, and it has not been answered. The machinery is
-  half there — a storage-only replica can already hold a subset via
-  `PinSet::under` — but deciding *what* a phone keeps, and what happens when a
-  user opens something it does not have, is untouched.
+- **Selective sync, automatically.** A phone cannot hold a desktop's library.
+  A person can now say a folder is kept only remotely
+  ([decision 0045](../decisions/0045-a-folder-kept-remotely.md)) — listed,
+  fetched when opened — and free single files; what is not built is the phone
+  deciding for itself, by space or by age, and nothing yet warns before a
+  large download on mobile data.
 - **Two phones that are both asleep.** Sync needs both devices awake and
   announced at the same moment, because a QUIC handshake's opening packets are
   the hole punch. Two desktops manage this by being on all the time. Two phones,
@@ -1251,6 +1259,8 @@ phone showing the code (the laptop is already paired).
   Since a per-pass connector is built fresh each time, the next pass does get a
   fresh chance — so on mobile this is less severe than on the desktop daemon,
   which holds one connector for hours.
-- **Conflict resolution on a small screen.** The engine never discards an edit,
-  so conflicts appear as extra files. On a desktop that is tolerable. On a phone
-  it is confusing, and nothing has been designed for it.
+- **Conflicts, designed for a small screen.** A conflict is now a card on Home
+  that settles it — keep this version, the other, or both
+  ([decision 0043](../decisions/0043-settling-a-conflict.md)) — verified on the
+  S23. What it lacks is a way to *compare* the two versions before choosing,
+  beyond their sizes and who made each when; that is for the design pass.

@@ -117,6 +117,10 @@ a setup step, the other is a network problem, and they want different actions.
 
 ## Not built
 
+The desktop window ([`qurb-desktop`](../desktop/README.md)) is where these
+were built instead; the tray stays for desktops that want only an icon, and
+none of the following is planned for it.
+
 - **A passphrase prompt.** A passphrase-protected store cannot be opened here;
   it says so and points at `qurb run` or `qurb protect`. A graphical prompt for
   a secret deserves more care than a text field.

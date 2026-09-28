@@ -64,6 +64,12 @@ plan_against()  qurb_sync::reconcile, given the peer's tree
 apply_plan()    do the local half, fetching content it does not already hold
 ```
 
+The plan is filtered twice before it is acted on. A folder shared with chosen
+devices is left out of what this device takes from a peer it is not shared
+with — its own rules, not the peer's, decide — and a folder kept only remotely
+has new versions recorded rather than fetched. A deletion arriving from a peer
+moves the file into Recently deleted rather than unlinking it.
+
 Content is requested **by hash, not by path**
 ([decision 0010](../../docs/decisions/0010-content-by-hash.md)). The content a
 plan calls for often lives under a different name on the device that has it —

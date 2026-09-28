@@ -102,6 +102,35 @@ qurb.cancelSend("photo.jpg", peer.fingerprint)
 qurb.history(50, null)                // newest first; pass the last id to page back
 ```
 
+Browsing by folder, as the Vault and the system file picker both do — one
+index query each, so the two cannot disagree:
+
+```kotlin
+qurb.browse("album")                  // Directory: its folders, and its files
+qurb.entry("album/photo.jpg")         // one file, or null
+qurb.search("beach", 100)             // anywhere in a path
+qurb.rename("a.jpg", "album/a.jpg")   // keeps the file's area: shared stays shared
+qurb.makeFolder("album/2026")
+```
+
+Deleting, conflicts, and who has what (decisions 0041–0045):
+
+```kotlin
+qurb.recentlyDeleted()                // 30 days; restoreDeleted(id), forgetDeleted(id)
+qurb.conflicts()                      // each with both sides, named by device
+qurb.settleConflict(copy, "both")     // "this", "other" or "both"
+qurb.sharing(); qurb.shareTargets()   // each folder's devices, and who could be chosen
+qurb.setSharing("work", listOf(me, laptop))   // device ids; an empty list is every device
+qurb.keepRemotely("videos")           // listed here, fetched when opened
+qurb.keepLocally("videos")
+qurb.removalPlan(peer.fingerprint)    // what removing it would do, before doing it
+qurb.removeDevice(peer.fingerprint, deleteKept = false)
+```
+
+And two free functions: `engineVersion()` — `qurb 0.1.0 · protocol qurb/2 ·
+index schema 15` — and `qrCode(text)`, the matrix a phone draws to show a
+pairing code, so the app needs no image library.
+
 `outstanding()` is the honest answer to "did it get there yet": live files this
 device made whose content no other device is known to hold. It is a question
 asked of the index each time, not a queue that could drift from it — and it
@@ -255,9 +284,9 @@ this app.
   against the same contract for iOS.
 - **`BGTaskScheduler`.** Android's background scheduling is built, on
   WorkManager; iOS's is not.
-- **Selective sync.** A phone cannot hold a desktop's library. Deciding what it
-  keeps, and what happens when someone opens a file it does not have, is
-  untouched.
+- **Selective sync, automatically.** A person can free a file, or keep a
+  folder only remotely (`keep_remotely`, decision 0045), and a freed file
+  downloads when opened. Nothing decides on its own what a phone keeps.
 - **iOS, at all.** The `staticlib` crate type is declared and the Swift bindings
   generate, but building for iOS needs Xcode, which needs a Mac. Nothing here
   about iOS is measured.

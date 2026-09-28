@@ -9,18 +9,15 @@ Section numbers such as §23 refer to the product brief this plan answers ("qurb
 2026-09-25 and the whole plan was checked against the code that day. Section 2
 is the result.
 
-**Status, 2026-09-27: steps 0–6 of the sequence are done**, with step 8's
-first-run question and step 10's choice of front end. The data model is
-settled and built — see
-[decisions/0029](decisions/0029-two-areas-shared-and-private.md) and
-[0036](decisions/0036-a-phone-keeps-its-own-files.md). The desktop window sets a
-device up, asks how much space it may use, pairs, sends, shows transfers and
-where every file's contents are, and is what the applications menu opens. The
-Android app is rebuilt as five tabs; a phone's own files are private and kept by
-a device it chooses, verified between a Galaxy S23 and a laptop; and the system
-file picker lists from the engine and downloads a freed file when it is opened.
-What remains is steps 7–10: cross-device flows beyond one phone and one laptop,
-selective availability and replica eviction, sharing, and the rest.
+**Status, 2026-09-28: every feature the brief asks of the two apps is built.**
+Steps 0–6, 8 and 9 of the sequence are done, except replica eviction; step 10
+is done for security, packaging and versions; step 7 is done between one phone
+and one laptop, over Wi-Fi and mobile data, and not between two phones or
+through a relay on a server. [features.md](features.md) is the inventory,
+marked by how far each piece has been checked. The data model is settled and
+built — see [decisions/0029](decisions/0029-two-areas-shared-and-private.md)
+and [0036](decisions/0036-a-phone-keeps-its-own-files.md) — and 0041–0047
+record what was decided since.
 
 **What comes next, as the owner set it on 2026-09-28:** the design and UX of
 both apps, then the relay on a server, then a formal release for Linux and
@@ -404,8 +401,9 @@ device", and choosing which devices share a folder is the general case.
 8. ~~**Selective sync for ordinary devices**~~ — decided 2026-09-28: a
    folder kept remotely, listed and fetched on demand, not `PinSet` —
    [0045](decisions/0045-a-folder-kept-remotely.md).
-9. **The Android interface toolkit** — Jetpack Compose or the current XML
-   views. Before step 6; the app is being rebuilt either way.
+9. ~~**The Android interface toolkit**~~ — decided 2026-09-27: the platform's
+   own views, for a light app —
+   [0039](decisions/0039-a-light-android-app.md).
 
 ## 5A. Scope: Linux and Android, completely, before anything else
 
@@ -493,16 +491,23 @@ The phrase is confirmed on the phone as on the desktop, and the system picker
 asks the engine (2026-09-27). Step 6 is done.
 
 **7. Cross-device flows**, including Android↔Android, offline and relay.
+*Done between the Galaxy S23 and the laptop*, on Wi-Fi and on mobile data, with
+push; sending, Recently deleted and settling a conflict across the two
+verified. Not done: Android↔Android (one phone), and anything through a relay
+on a server — the relay is next after design.
 
 **8. Storage**: the first-run question (§3.3, built 2026-09-27 — decision
-0038), freeing a chosen file's local copy, fetch, selective availability,
-replica eviction.
+0038), freeing a chosen file's local copy, fetch, selective availability
+(0045). ✅ Done except replica eviction, which is §4.7.
 
-**9. Sharing**, once §4.6 is decided.
+**9. Sharing** ✅ — decided and built 2026-09-28,
+[0044](decisions/0044-sharing-with-chosen-devices.md).
 
 **10. Security, search, activity, polish, packaging, verification.** Packaging
 includes choosing one front end for the applications menu (§2.3, Tray) —
-chosen 2026-09-27: the window (decision 0040).
+chosen 2026-09-27: the window (decision 0040). Security (0041, 0046),
+packaging and versions (0047) are done; search is by name only; *polish* is
+the design and UX pass, next.
 
 ## 7. Rules this plan holds itself to
 
@@ -535,10 +540,10 @@ hardware where hardware is involved. Not when it compiles.
 - **Android decides when background work runs.** Push makes a change arrive in
   under a second when it is configured; without it, fifteen minutes is the
   floor and dozing makes it longer. The product must not promise otherwise.
-- **The direct-connection rate is unmeasured.** A phone has synced over mobile
-  data, but through an overlay network that did the traversal. What qurb's own
-  hole punching achieves against a carrier NAT is still unknown, and it is the
-  number the relay bill depends on.
+- **The direct-connection rate is unmeasured.** A phone on mobile data has
+  reached a laptop at home directly, by qurb's own traversal — on one carrier
+  and one home router. How often that works across networks is still unknown,
+  and it is the number the relay bill depends on.
 - **Two devices that are never awake together never meet**, unless something
   always-on is in the picture.
 - **Local discovery does not cover IPv6.** An IPv6-only network gets none of
@@ -573,6 +578,7 @@ Those are Phase 6 in [roadmap.md](roadmap.md) and unchanged by this.
 
 ## 12. What I need decided
 
-Nothing blocks the next steps. §4.6 (sharing) is needed before step 9, §4.7
-before a storage screen promises anything for replicas, §4.8 before step 8's
-selective availability, and §4.9 before step 6.
+The owner is choosing the design and UX direction from
+[features.md](features.md). After that, the relay on a server and a formal
+release need no further decision except where to host the relay. §4.7 is still
+open, and is needed before any storage screen promises anything for replicas.
