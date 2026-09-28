@@ -161,8 +161,10 @@ pub struct Situation {
     /// Whether the daemon is running and the rest of the commands will answer.
     running: bool,
     root: String,
-    /// Why it is not running, when it should have been. Almost always a
-    /// passphrase-protected key with no terminal to ask on.
+    /// Set up, not running, and the key needs a passphrase: the window asks.
+    locked: bool,
+    /// Why it is not running, when it should have been and nothing here can
+    /// ask for what is missing.
     problem: Option<String>,
 }
 
@@ -205,18 +207,103 @@ pub fn situation(hosted: Host<'_>) -> Answer<Situation> {
     let root = hosted.root();
     let set_up = qurb_cli::is_set_up(&root);
     let running = hosted.is_running();
+    let locked = set_up && !running && key_protection(&root) == Some(qurb_keys::Protection::Passphrase);
     Ok(Situation {
         set_up,
         running,
+        locked,
         root: root.display().to_string(),
-        // A folder with a key that is not running got that way for a reason,
-        // and the reason is on the terminal nobody launched this from.
-        problem: (set_up && !running).then(|| {
-            "this folder has a key that could not be opened — if it is protected by a \
-             passphrase, start qurb from a terminal so it can ask"
-                .to_string()
-        }),
+        problem: (set_up && !running && !locked)
+            .then(|| "this folder has a key that could not be opened".to_string()),
     })
+}
+
+/// How the key in this folder is kept, if it can be told.
+pub fn key_protection(root: &std::path::Path) -> Option<qurb_keys::Protection> {
+    qurb_keys::Vault::at(&qurb_cli::store_dir(root)).protection().ok()
+}
+
+/// Open a passphrase-protected key and start syncing (decision 0046).
+///
+/// The passphrase goes to the key-derivation function and nowhere else: not
+/// kept, not logged. A wrong one is said as such, and changes nothing.
+#[tauri::command]
+pub fn unlock(hosted: Host<'_>, passphrase: String) -> Answer<()> {
+    hosted.start(move || Ok(passphrase)).map_err(|e| {
+        match e.chain().any(|cause| {
+            matches!(cause.downcast_ref::<qurb_keys::Error>(), Some(qurb_keys::Error::WrongPassphrase))
+        }) {
+            true => "that passphrase does not open this key".to_string(),
+            false => format!("{e:#}"),
+        }
+    })
+}
+
+/// The Security section (brief §33): what protects this device, and what has
+/// happened that bears on trust.
+#[derive(Serialize)]
+pub struct Security {
+    /// This device's identity: the fingerprint its paired devices pinned.
+    identity: String,
+    /// "file", "keystore" or "passphrase".
+    protection: String,
+    /// Pairings and removals, newest first.
+    events: Vec<Happened>,
+}
+
+#[tauri::command]
+pub fn security(hosted: Host<'_>) -> Answer<Security> {
+    let root = hosted.root();
+    let identity = qurb_peer::Identity::load_or_create(&qurb_cli::store_dir(&root))
+        .map(|id| id.fingerprint().to_string())
+        .map_err(failed)?;
+    let protection = key_protection(&root).map(|p| p.as_str().to_string()).unwrap_or_default();
+    let events = hosted
+        .with_store(|store| {
+            let names = store.db().device_names()?;
+            Ok(store
+                .db()
+                .activity(200, None)?
+                .into_iter()
+                .filter(|r| {
+                    matches!(r.kind, qurb_storage::db::Event::Paired | qurb_storage::db::Event::Removed)
+                })
+                .take(20)
+                .map(|r| Happened {
+                    id: r.id,
+                    at: r.at,
+                    kind: r.kind.as_str().to_string(),
+                    path: r.path,
+                    size: r.size.map(big),
+                    device: r.device.map(|id| names.get(&id).cloned().unwrap_or_else(|| id.short())),
+                    detail: r.detail,
+                })
+                .collect())
+        })
+        .map_err(failed)?;
+    Ok(Security { identity, protection, events })
+}
+
+/// Change how the key is kept: "keystore", "passphrase" or "file". The key
+/// itself is untouched -- this changes the lock, not what it protects -- and
+/// the running daemon, which already holds it, carries on.
+#[tauri::command]
+pub fn protect_key(
+    hosted: Host<'_>,
+    to: String,
+    current: Option<String>,
+    new: Option<String>,
+) -> Answer<()> {
+    let to: qurb_keys::Protection = to.parse().map_err(failed)?;
+    if to == qurb_keys::Protection::Passphrase && new.as_deref().is_none_or(|p| p.chars().count() < 8) {
+        return Err("a passphrase needs at least 8 characters".into());
+    }
+    qurb_keys::Vault::at(&qurb_cli::store_dir(&hosted.root()))
+        .protect(to, current.as_deref(), new.as_deref())
+        .map_err(|e| match e {
+            qurb_keys::Error::WrongPassphrase => "the current passphrase is not right".to_string(),
+            e => e.to_string(),
+        })
 }
 
 /// What is true of a folder somebody is considering.

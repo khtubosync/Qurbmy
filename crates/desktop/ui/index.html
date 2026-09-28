@@ -106,6 +106,26 @@
       </div>
     </section>
 
+    <!-- The key is protected by a passphrase (decision 0046). Shown before
+         anything else, because nothing else can answer until it is open. -->
+    <section class="step" data-step="unlock">
+      <h1>qurb is locked</h1>
+      <p class="lead">
+        This computer's key is protected by a passphrase. Type it to open your
+        files and start syncing.
+      </p>
+      <input type="password" id="unlock-passphrase" autocomplete="off" spellcheck="false"
+             placeholder="Passphrase">
+      <p id="unlock-says" class="warn hidden"></p>
+      <div class="buttons">
+        <button class="act primary" id="unlock-go">Unlock</button>
+      </div>
+      <p class="quiet note">
+        Forgotten it? The 24 words set up this computer again: move this
+        folder's <code>.qurb</code> aside and choose "I already use qurb".
+      </p>
+    </section>
+
     <section class="step" data-step="ready">
       <h1>Ready</h1>
       <p class="lead" id="ready-says"></p>
@@ -429,6 +449,38 @@
         <button class="act" id="quit">Quit qurb</button>
         <span class="quiet">Stops syncing until you open it again.</span>
       </div>
+
+      <h2>Security</h2>
+      <dl id="security-facts"></dl>
+      <p id="protection-says" class="quiet note"></p>
+      <div class="buttons" id="protection-buttons"></div>
+      <div id="protect-form" class="hidden">
+        <label class="field" id="protect-current-wrap">
+          <span>Current passphrase</span>
+          <input type="password" id="protect-current" autocomplete="off">
+        </label>
+        <label class="field" id="protect-new-wrap">
+          <span>New passphrase</span>
+          <input type="password" id="protect-new" autocomplete="new-password">
+          <span class="quiet">At least 8 characters. Nobody can recover it for you; the 24 words can set this computer up again.</span>
+        </label>
+        <label class="field" id="protect-again-wrap">
+          <span>The same again</span>
+          <input type="password" id="protect-again" autocomplete="new-password">
+        </label>
+        <p id="protect-says" class="warn hidden"></p>
+        <div class="buttons">
+          <button class="act" id="protect-cancel">Cancel</button>
+          <button class="act primary" id="protect-go">Set the passphrase</button>
+        </div>
+      </div>
+      <p class="quiet note">
+        Trusted devices, and removing one, are on the Devices screen. Encryption:
+        every file is encrypted at rest with your key and in transit end to end;
+        a relay carries only what it cannot read.
+      </p>
+      <h3>Pairings and removals</h3>
+      <ul id="security-events" class="rows"></ul>
 
       <h2>Recovery phrase</h2>
       <p class="quiet note">

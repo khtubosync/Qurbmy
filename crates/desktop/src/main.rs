@@ -62,18 +62,22 @@ fn run() -> Result<()> {
 
     let root = directory();
     let hosted = Arc::new(Hosted::new(root.clone()));
+    // A key protected by a passphrase waits for the window to ask for it
+    // (decision 0046) -- at login too, which is why the window then shows:
+    // nothing syncs until it is typed.
+    let locked = qurb_cli::is_set_up(&root)
+        && commands::key_protection(&root) == Some(qurb_keys::Protection::Passphrase);
     // A device that is not set up yet has nothing to sync, and a window hidden
     // at login would leave setting it up to nobody.
-    let show_now = !hidden || !qurb_cli::is_set_up(&root);
+    let show_now = !hidden || !qurb_cli::is_set_up(&root) || locked;
 
     // A device that already exists starts syncing immediately; the window is
     // showing something that is already true, not waiting to be told to begin.
     //
-    // A failure here is reported on the screen rather than on the way up. The
-    // commonest cause is a passphrase-protected key with no terminal to ask on,
-    // and exiting with a message nobody sees is the worst of the options.
-    if qurb_cli::is_set_up(&root) {
-        if let Err(e) = hosted.start(ask_passphrase) {
+    // A failure here is reported on the screen rather than on the way up:
+    // exiting with a message nobody sees is the worst of the options.
+    if qurb_cli::is_set_up(&root) && !locked {
+        if let Err(e) = hosted.start(|| anyhow::bail!("this key needs a passphrase")) {
             tracing::error!(error = %e, "could not start");
         }
     }
@@ -119,6 +123,9 @@ fn run() -> Result<()> {
             commands::send_files,
             commands::cancel_send,
             commands::removal_plan,
+            commands::unlock,
+            commands::security,
+            commands::protect_key,
             commands::sharing,
             commands::set_sharing,
             commands::keep_remotely,
@@ -188,26 +195,3 @@ pub fn disk_size(root: &std::path::Path) -> u64 {
     qurb_cli::setup::inspect(root).disk
 }
 
-/// Ask for a passphrase on the terminal this was launched from, if there is
-/// one.
-///
-/// A graphical prompt would be better and needs the window, which does not
-/// exist yet — and cannot, because opening the key is what decides whether
-/// there is anything to show. Launched from a menu with a passphrase-protected
-/// key, this fails with a message the window then displays, which is honest and
-/// rare.
-fn ask_passphrase() -> Result<String> {
-    use std::io::{IsTerminal, Write};
-    if !std::io::stdin().is_terminal() {
-        anyhow::bail!(
-            "this key is protected by a passphrase, and there is no terminal to ask on. \
-             Start it from a terminal, or switch to the keystore with \
-             `qurb protect <dir> keystore`."
-        );
-    }
-    print!("passphrase: ");
-    std::io::stdout().flush().ok();
-    let mut line = String::new();
-    std::io::stdin().read_line(&mut line)?;
-    Ok(line.trim_end_matches(['\n', '\r']).to_string())
-}

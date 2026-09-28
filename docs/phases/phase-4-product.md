@@ -888,6 +888,21 @@ downloaded, and downloads when asked for; a file already here stays current;
 keeping the folder here again brings everything back and new files arrive
 again.
 
+## The passphrase in the window, and a Security section
+
+**2026-09-28.** A key wrapped with a passphrase used to need a terminal to
+start: launched from the menu or at login, qurb could not ask, so it did not
+sync, and said so on a window nobody had opened. Now the window opens on "qurb
+is locked" and asks; at login it shows itself for that. Settings has a
+Security section — identity, how the key is kept in plain words, changing it,
+pairings and removals — [decision 0046](../decisions/0046-the-window-asks-for-the-passphrase.md),
+amending 0033.
+
+Checked in the real window by the desktop smoke test, which now protects the
+key with a passphrase from Settings, quits, starts again, has a wrong
+passphrase refused and the right one unlock it. The smoke test also runs off
+the session bus now, so nothing it does can reach a real keyring.
+
 ## Still to do
 
 - **Running the *daemon* as a service** — a user unit, a launch agent, a

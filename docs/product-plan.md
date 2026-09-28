@@ -265,8 +265,12 @@ Since 2026-09-28:
   adding into the folder being looked at; deleting goes to Recently deleted.
   A file keeps its area when moved.
 
-Still as the inventory says: a passphrase in the window, a replica freeing
-space, and everything in §2.4–§2.6.
+- **A passphrase in the window, and a Security section** (§33): a locked key
+  is unlocked from the window, and Settings says how the key is kept and
+  changes it — [0046](decisions/0046-the-window-asks-for-the-passphrase.md).
+
+Still as the inventory says: a replica freeing space, and everything in
+§2.4–§2.6.
 
 ---
 

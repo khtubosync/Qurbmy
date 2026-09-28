@@ -55,6 +55,9 @@ export HOME=$WORK XDG_CONFIG_HOME=$WORK/.config XDG_DATA_HOME=$WORK/.local/share
 unset WAYLAND_DISPLAY DISPLAY
 export GDK_BACKEND=broadway BROADWAY_DISPLAY=:$display
 export WEBKIT_DISABLE_COMPOSITING_MODE=1 TAURI_WEBVIEW_AUTOMATION=true
+# Off your session bus, so nothing the test does can reach your real keyring
+# or notifications; and no accessibility bridge to look for on it.
+export DBUS_SESSION_BUS_ADDRESS=disabled: NO_AT_BRIDGE=1
 
 broadwayd ":$display" >"$WORK/broadway.log" 2>&1 & pids+=($!)
 WebKitWebDriver --port="$port" >"$WORK/webdriver.log" 2>&1 & pids+=($!)

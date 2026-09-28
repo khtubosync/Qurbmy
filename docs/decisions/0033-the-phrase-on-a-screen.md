@@ -1,6 +1,6 @@
 # 0033 — The recovery phrase on a screen
 
-**Status:** Accepted — the storage clause amended by [0038](0038-the-storage-question-during-setup.md); applied to the phone 2026-09-27
+**Status:** Accepted — the storage clause amended by [0038](0038-the-storage-question-during-setup.md); applied to the phone 2026-09-27; "no passphrase prompt in the window" amended by [0046](0046-the-window-asks-for-the-passphrase.md)
 **Date:** 2026-09-23
 
 ## Decision
@@ -84,8 +84,10 @@ only shows up much later, on the device that was set up the unusual way.
 
 ## What this does not do
 
-- **No passphrase prompt in the window.** A passphrase-protected key is asked
-  for on the terminal the application was launched from. The window cannot ask,
+- **No passphrase prompt in the window** — *amended 2026-09-28 by
+  [0046](0046-the-window-asks-for-the-passphrase.md): the window asks.* A
+  passphrase-protected key is asked for on the terminal the application was
+  launched from. The window cannot ask,
   because opening the key is what decides whether there is anything to show.
   Launched from a menu, it says so on the first screen instead of failing
   silently.

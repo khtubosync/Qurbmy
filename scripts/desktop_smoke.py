@@ -12,6 +12,8 @@ What it does, in the real application with the real engine behind it:
    with the same words) join with it.
 4. Sends that device a file.
 5. Removes that device, from its details, answering the question.
+6. Protects the key with a passphrase from Settings, starts again, and
+   unlocks from the window -- a wrong passphrase refused first.
 
 It fails if any command the window calls returns an error, whichever step
 called it, or if a step does not reach the state it should. It checks that
@@ -49,9 +51,9 @@ def call(method, path, body=None):
 
 
 class Window:
-    def __init__(self):
+    def __init__(self, args=()):
         caps = {"capabilities": {"alwaysMatch": {
-            "webkitgtk:browserOptions": {"binary": APP, "args": []}}}}
+            "webkitgtk:browserOptions": {"binary": APP, "args": list(args)}}}}
         self.id = call("POST", "/session", caps)["sessionId"]
 
     def js(self, script, *args):
@@ -181,6 +183,55 @@ def remove(window, device):
         "return !document.getElementById('transfers').textContent.includes('waiting for')" )
 
 
+# Failures a step causes on purpose, and so not a reason to fail the run.
+EXPECTED = ("unlock: that passphrase does not open this key",)
+
+# Failures from windows already closed: starting again opens a new page, and
+# its list starts empty.
+EARLIER = []
+
+
+def lock_and_unlock(window):
+    """Protect the key with a passphrase from Settings, start again, and
+    unlock from the window -- refused once with the wrong one first.
+
+    Returns the new window: the old one is closed by starting again.
+    """
+    window.js("document.querySelector('#tabs [data-screen=settings]').click()")
+    window.until("the Security section",
+        "return [...document.querySelectorAll('#protection-buttons button')].find(b => b.textContent.startsWith('Protect'))")
+    window.js("[...document.querySelectorAll('#protection-buttons button')].find(b => b.textContent.startsWith('Protect')).click()")
+    window.js("""document.getElementById('protect-new').value = 'correct horse battery';
+                 document.getElementById('protect-again').value = 'correct horse battery';
+                 document.getElementById('protect-go').click();""")
+    window.until("the key kept by passphrase",
+        "return document.getElementById('security-facts').textContent.includes('passphrase')")
+    EARLIER.extend(window.js("return window.qurbFailures || []"))
+    # Quit, not close: closing the window keeps qurb running (decision 0040),
+    # and the next launch would only ask that one to show itself.
+    try:
+        window.js("document.getElementById('quit').click()")
+    except Exception:
+        pass  # the page may go before the answer does
+    window.close()
+    time.sleep(2)
+
+    # The folder named: the second device enrolled from the command line is
+    # the most recently registered, and would otherwise be the one opened.
+    window = Window([f"{HOME}/qurb"])
+    window.until("the unlock screen",
+        "const s = document.querySelector('[data-step=unlock]'); return s && s.classList.contains('on') && !document.getElementById('setup').classList.contains('hidden')")
+    window.js("""document.getElementById('unlock-passphrase').value = 'wrong horse';
+                 document.getElementById('unlock-go').click();""")
+    said = window.until("the wrong one refused",
+        "const s = document.getElementById('unlock-says'); return !s.classList.contains('hidden') && s.textContent")
+    assert "does not open" in said, said
+    window.js("""document.getElementById('unlock-passphrase').value = 'correct horse battery';
+                 document.getElementById('unlock-go').click();""")
+    window.until("the main window", "return document.getElementById('setup').classList.contains('hidden')")
+    return window
+
+
 def main():
     window = Window()
     failures = []
@@ -200,6 +251,9 @@ def main():
         print(f"sent a file to {device}")
         remove(window, device)
         print(f"removed {device}, and its waiting send with it")
+        # The wrong passphrase is a command that fails on purpose.
+        window = lock_and_unlock(window)
+        print("protected the key with a passphrase, and unlocked it from the window")
         ok = True
     except Exception:
         try:
@@ -215,6 +269,7 @@ def main():
         window.close()
         # Printed on the way out of a failed step too: which command failed,
         # and with what, is usually the reason the step did not finish.
+        failures = [f for f in EARLIER + failures if f not in EXPECTED]
         if failures:
             print("commands that failed:", *failures, sep="\n  ")
 

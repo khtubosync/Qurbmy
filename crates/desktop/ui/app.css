@@ -514,3 +514,12 @@ button.primary.danger { background: var(--warn); border-color: var(--warn); }
 .rows li.sharing { flex-wrap: wrap; }
 .rows li.sharing .picker { flex-basis: 100%; margin: 6px 0 4px; }
 .picker .check { display: block; margin: 2px 0; }
+
+#unlock-passphrase {
+  font: inherit; color: var(--ink); background: var(--panel);
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 8px 12px; width: min(100%, 28rem);
+}
+.mono { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; overflow-wrap: anywhere; }
+#security-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; }
+#security-facts dd { margin: 0; }

@@ -90,11 +90,18 @@ async function decide() {
     return;
   }
 
-  settingUp = !where.set_up;
+  // Locked is shown in the setting-up frame too: nothing else can answer
+  // until the key is open (decision 0046).
+  settingUp = !where.set_up || where.locked;
   $("setup").classList.toggle("hidden", !settingUp);
   $("tabs").classList.toggle("hidden", settingUp);
   document.querySelector("main").classList.toggle("hidden", settingUp);
 
+  if (where.locked) {
+    step("unlock");
+    $("unlock-passphrase").focus();
+    return;
+  }
   if (settingUp) {
     $("folder-path").value = where.root;
     step("welcome");
@@ -120,6 +127,31 @@ function step(name) {
     s.classList.toggle("on", s.dataset.step === name);
   });
 }
+
+// Unlocking a key protected by a passphrase. The passphrase goes to the
+// command and is not kept: the field is cleared whatever the answer.
+async function unlock() {
+  const field = $("unlock-passphrase");
+  const says = $("unlock-says");
+  const go = $("unlock-go");
+  const passphrase = field.value;
+  field.value = "";
+  if (!passphrase) return;
+  go.disabled = true;
+  says.classList.add("hidden");
+  try {
+    await invoke("unlock", { passphrase });
+    decide();
+  } catch (e) {
+    says.textContent = String(e);
+    says.classList.remove("hidden");
+    field.focus();
+  } finally {
+    go.disabled = false;
+  }
+}
+$("unlock-go").addEventListener("click", unlock);
+$("unlock-passphrase").addEventListener("keydown", (e) => { if (e.key === "Enter") unlock(); });
 
 /** The path chosen, and whether the next button may be pressed. */
 let joining = false;
@@ -1630,7 +1662,112 @@ decide();
 
 // ----------------------------------------------------------------- settings
 
+// ----------------------------------------------------------------- security
+
+const PROTECTION = {
+  file:
+    "Kept in a file only you can read. Enough against other people using this " +
+    "computer; not against anyone who can read its disk — a stolen laptop, or a backup.",
+  keystore:
+    "Kept in the system keystore, locked while you are logged out. qurb opens it " +
+    "without asking while you are logged in.",
+  passphrase:
+    "Wrapped with a passphrase only you know. qurb asks for it when it starts, and " +
+    "nothing syncs until you type it. The only option that still protects the key " +
+    "if someone has the disk and your login.",
+};
+
+/** Which change is being made in the passphrase form, if one is. */
+let protecting = null;
+
+async function drawSecurity() {
+  let s;
+  try {
+    s = await invoke("security");
+  } catch (e) {
+    $("protection-says").textContent = String(e);
+    return;
+  }
+  const facts = $("security-facts");
+  facts.replaceChildren(
+    el("dt", null, "This device's identity"), el("dd", "mono", s.identity),
+    el("dt", null, "How the key is kept"), el("dd", null, s.protection || "unknown"),
+  );
+  $("protection-says").textContent = PROTECTION[s.protection] ?? "";
+
+  const buttons = $("protection-buttons");
+  buttons.replaceChildren();
+  const offer = (label, action) => {
+    const b = el("button", "act", label);
+    b.addEventListener("click", action);
+    buttons.append(b);
+  };
+  const was = s.protection;
+  if (was !== "passphrase") offer("Protect with a passphrase…", () => protectForm("passphrase", was));
+  if (was === "passphrase") offer("Change the passphrase…", () => protectForm("passphrase", was));
+  if (was !== "keystore") offer("Use the system keystore", () => protectForm("keystore", was));
+
+  const events = $("security-events");
+  events.replaceChildren();
+  if (s.events.length === 0) events.append(el("li", "quiet", "nothing yet"));
+  for (const r of s.events) {
+    const row = el("li");
+    row.append(el("span", "tag", r.kind));
+    row.append(el("span", "name", r.device ?? r.detail ?? ""));
+    row.append(el("span", "when", when(r.at)));
+    events.append(row);
+  }
+}
+
+/** The fields a change of protection needs, and nothing else. */
+function protectForm(to, was) {
+  protecting = { to, was };
+  const form = $("protect-form");
+  form.classList.remove("hidden");
+  $("protect-current-wrap").classList.toggle("hidden", was !== "passphrase");
+  const wantsNew = to === "passphrase";
+  $("protect-new-wrap").classList.toggle("hidden", !wantsNew);
+  $("protect-again-wrap").classList.toggle("hidden", !wantsNew);
+  $("protect-says").classList.add("hidden");
+  for (const id of ["protect-current", "protect-new", "protect-again"]) $(id).value = "";
+  $("protect-go").textContent = wantsNew ? "Set the passphrase" : "Use the keystore";
+}
+
+$("protect-cancel").addEventListener("click", () => {
+  protecting = null;
+  $("protect-form").classList.add("hidden");
+});
+
+$("protect-go").addEventListener("click", async () => {
+  if (!protecting) return;
+  const says = $("protect-says");
+  const current = $("protect-current").value || null;
+  const fresh = $("protect-new").value;
+  const again = $("protect-again").value;
+  if (protecting.to === "passphrase" && fresh !== again) {
+    says.textContent = "the two new passphrases are not the same";
+    says.classList.remove("hidden");
+    return;
+  }
+  try {
+    await invoke("protect_key", {
+      to: protecting.to,
+      current,
+      new: protecting.to === "passphrase" ? fresh : null,
+    });
+    protecting = null;
+    $("protect-form").classList.add("hidden");
+    drawSecurity();
+  } catch (e) {
+    says.textContent = String(e);
+    says.classList.remove("hidden");
+  } finally {
+    for (const id of ["protect-current", "protect-new", "protect-again"]) $(id).value = "";
+  }
+});
+
 async function drawSettings() {
+  drawSecurity();
   let s;
   try {
     s = await invoke("settings");
