@@ -729,6 +729,45 @@ fn a_cancelled_offer_cannot_be_joined() {
     assert!(offer.wait().is_err());
 }
 
+/// The phone shows a code and waits on it; the person gives up. The wait
+/// already blocking must return then, not five minutes later when the code
+/// expires -- the Cancel button on the phone's code screen depends on it.
+#[test]
+fn giving_up_on_a_code_stops_the_wait_already_blocking() {
+    let _sharing = ALONE.read().unwrap_or_else(|e| e.into_inner());
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().display().to_string();
+    create(root.clone()).unwrap();
+    let qurb = Qurb::open(root, None).unwrap();
+
+    let offer = qurb.offer_pairing().unwrap();
+    let waiting = {
+        let offer = Arc::clone(&offer);
+        std::thread::spawn(move || offer.wait())
+    };
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let started = std::time::Instant::now();
+    offer.cancel();
+    assert!(waiting.join().unwrap().is_err());
+    assert!(started.elapsed() < std::time::Duration::from_secs(2), "{:?}", started.elapsed());
+}
+
+/// A real pairing code, drawn: square, and a size a QR code can be.
+#[test]
+fn a_pairing_code_is_drawn_as_a_qr_code() {
+    let _sharing = ALONE.read().unwrap_or_else(|e| e.into_inner());
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().display().to_string();
+    create(root.clone()).unwrap();
+    let qurb = Qurb::open(root, None).unwrap();
+    let offer = qurb.offer_pairing().unwrap();
+
+    let qr = qurb_mobile::qr_code(offer.code()).unwrap();
+    assert_eq!(qr.dark.len(), (qr.width * qr.width) as usize);
+    assert!(qr.width >= 21 && (qr.width - 17) % 4 == 0, "not a QR size: {}", qr.width);
+    offer.cancel();
+}
+
 /// Sharing while the other device is switched off, and having it arrive later
 /// without anybody doing anything.
 ///

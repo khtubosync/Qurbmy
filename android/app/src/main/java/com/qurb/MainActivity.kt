@@ -248,23 +248,20 @@ class MainActivity : AppCompatActivity() {
      * travels across the room by camera rather than over the network.
      */
     fun pair() {
+        // A list rather than buttons: three ways to connect do not fit in a
+        // dialog's button row without stacking, and a stacked row puts Cancel
+        // between them. Scanning first, because it is what anyone will
+        // actually do; showing a code is how two phones connect with no
+        // computer; typing is the fallback nobody does twice.
+        val ways = listOf<Pair<String, () -> Unit>>(
+            "Scan the other device's code" to { scanner.launch(Intent(this, ScanActivity::class.java)) },
+            "Show a code on this phone" to { ShowCode.show(this) },
+            "Type a code" to { typeCode() },
+        )
         MaterialAlertDialogBuilder(this)
             .setTitle("Connect a device")
-            .setMessage(
-                "On your computer, open qurb, go to Devices and choose Show a code. " +
-                    "Then point this phone's camera at it.\n\n" +
-                    "From a terminal, `qurb pair` shows the same code."
-            )
-            // Scanning first, because it is what anyone will actually do. A
-            // pairing code is over a hundred characters; typing one is possible
-            // and nobody does it twice.
-            // Two buttons, not three. With a Cancel as well the row stacked,
-            // whatever the labels, and a stacked dialog puts Cancel between
-            // the two ways of connecting. Back and a tap outside still cancel.
-            .setPositiveButton("Scan code") { _, _ ->
-                scanner.launch(Intent(this, ScanActivity::class.java))
-            }
-            .setNeutralButton("Type code") { _, _ -> typeCode() }
+            .setItems(ways.map { it.first }.toTypedArray()) { _, which -> ways[which].second() }
+            .setNegativeButton("Cancel", null)
             .show()
     }
 

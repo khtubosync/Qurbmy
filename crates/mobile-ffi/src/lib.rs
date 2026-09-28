@@ -847,7 +847,6 @@ impl Qurb {
     /// who can change what you see has already won.
     pub fn offer_pairing(&self) -> Result<Arc<Pairing>, QurbError> {
         let identity = self.identity()?;
-        let port = self.port;
         let runtime = self.runtime()?;
 
         // Inside the runtime even though `open` is not async: it binds a QUIC
@@ -856,8 +855,11 @@ impl Qurb {
         // names the cause but not the fix, since nothing in the call is awaited.
         let host = {
             let _guard = runtime.enter();
+            // Port zero, not the sync port: a background sync starting while a
+            // code is on the screen would find that one taken. The invite
+            // carries whatever port this gets.
             qurb_peer::PairingHost::open(
-                format!("0.0.0.0:{port}").parse().expect("a literal address"),
+                "0.0.0.0:0".parse().expect("a literal address"),
                 &identity,
                 now(),
             )
@@ -873,6 +875,7 @@ impl Qurb {
             name: self.device_name.clone(),
             runtime,
             inner: Mutex::new(Some(host)),
+            cancelled: Arc::new(tokio::sync::Notify::new()),
         }))
     }
 
@@ -1755,6 +1758,28 @@ pub struct PeerInfo {
     pub last_seen: Option<i64>,
 }
 
+/// A pairing code as a QR code: `width` modules a side, row by row, `true`
+/// for dark. No quiet zone: the screen adds its own margin at the size it
+/// draws, and a scanner needs one (four modules) to find the code at all.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct QrCode {
+    pub width: u32,
+    pub dark: Vec<bool>,
+}
+
+/// Encode `text` -- a pairing code -- as a QR code. Low error correction, as
+/// on the desktop: it is read off a screen, and lower correction means larger
+/// modules at a given size.
+#[uniffi::export]
+pub fn qr_code(text: String) -> Result<QrCode, QurbError> {
+    let code = qrcode::QrCode::with_error_correction_level(text.as_bytes(), qrcode::EcLevel::L)
+        .map_err(|e| QurbError::Other { detail: format!("cannot draw that code: {e}") })?;
+    Ok(QrCode {
+        width: code.width() as u32,
+        dark: code.to_colors().into_iter().map(|c| c == qrcode::Color::Dark).collect(),
+    })
+}
+
 /// One side of a conflict. See [`Qurb::conflicts`].
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct ConflictSide {
@@ -1840,6 +1865,9 @@ pub struct Pairing {
     store: Arc<std::sync::Mutex<Store>>,
     name: String,
     runtime: Arc<tokio::runtime::Runtime>,
+    /// Told when somebody gives up, so a `wait` already blocking returns
+    /// rather than listening until the code expires.
+    cancelled: Arc<tokio::sync::Notify>,
 }
 
 #[uniffi::export]
@@ -1877,9 +1905,17 @@ impl Pairing {
                 detail: "this invitation has already been used".into(),
             })?;
 
-        let paired = self
-            .runtime
-            .block_on(host.wait(Arc::clone(&self.store), &self.name, now()))
+        let cancelled = Arc::clone(&self.cancelled);
+        let outcome = self.runtime.block_on(async {
+            tokio::select! {
+                joined = host.wait(Arc::clone(&self.store), &self.name, now()) => Some(joined),
+                () = cancelled.notified() => None,
+            }
+        });
+        // Either way nothing more is listened for: a code works once.
+        host.close();
+        let paired = outcome
+            .ok_or_else(|| QurbError::Other { detail: "pairing was cancelled".into() })?
             .map_err(|e| QurbError::Network { detail: e.to_string() })?;
 
         Ok(PeerInfo {
@@ -1891,13 +1927,16 @@ impl Pairing {
         })
     }
 
-    /// Give up waiting, and stop listening.
+    /// Give up waiting, and stop listening -- whether or not `wait` has
+    /// started. A permit is stored if nothing is waiting yet, so a `wait` that
+    /// starts afterwards returns at once too.
     pub fn cancel(&self) {
         if let Ok(mut guard) = self.inner.lock() {
             if let Some(host) = guard.take() {
                 host.close();
             }
         }
+        self.cancelled.notify_one();
     }
 }
 

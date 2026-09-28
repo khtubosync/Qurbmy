@@ -237,8 +237,6 @@ next sync further and further away. See
 - **No progress while a file moves.** A phone syncs in short windows, mostly in
   the background; Transfers shows what is waiting and what happened, not bytes
   in flight.
-- **This phone cannot show a code**, only scan one. Connecting two phones to
-  each other needs a computer's code, or typing.
 - **No storage question during setup, by design.** Phones have no allowance;
   the question is the desktop's, and is built there
   ([decision 0038](../docs/decisions/0038-the-storage-question-during-setup.md)).

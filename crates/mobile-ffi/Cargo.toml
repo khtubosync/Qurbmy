@@ -17,6 +17,9 @@ qurb-keys = { path = "../keys" }
 qurb-sync = { path = "../sync" }
 qurb-peer = { path = "../peer" }
 tokio = { version = "1", features = ["rt-multi-thread", "time", "macros", "sync"] }
+# The pairing code as a QR code the screen can draw: the same crate the
+# command line uses, without its image features.
+qrcode = { version = "0.14.1", default-features = false }
 uniffi = { version = "0.32", features = ["cli"] }
 thiserror = "2"
 tracing = "0.1"

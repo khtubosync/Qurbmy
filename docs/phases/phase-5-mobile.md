@@ -1111,6 +1111,29 @@ Getting there found four things:
 Not checked: the same on the S23, and opening a freed file when no device that
 has it is reachable, which should fail with the message it was written to give.
 
+## A phone shows a code
+
+**2026-09-28.** Connect a device now offers three ways: scan the other
+device's code, **show a code on this phone**, or type one. Showing one is what
+lets two phones connect with no computer between them (brief §20): until now a
+phone could only scan, so the other device always had to be one that could
+show a code.
+
+The code is drawn from a QR matrix the engine computes (`qr_code` in the FFI,
+the `qrcode` crate the command line already used, without its image features)
+into a bitmap in Kotlin — no image library in the app. The screen counts down
+to the code's expiry, keeps the display on, and closing it in any way stops the
+code working.
+
+Two faults in the FFI's pairing, fixed with it: `cancel` did nothing once
+`wait` had started — the host had already been taken out to wait on — so a
+phone would have listened until the code expired five minutes later; and the
+pairing host bound the sync port, which a background sync starting meanwhile
+would have found taken. It binds port zero now, as the desktop does. Tests:
+`giving_up_on_a_code_stops_the_wait_already_blocking` and
+`a_pairing_code_is_drawn_as_a_qr_code`. Built and compiled; **not yet run on a
+phone**, and phone-to-phone needs a second Android device to verify.
+
 ## Deliberately left undone
 
 - **Keychain, on iOS.** The Android half is done and verified on a device —
