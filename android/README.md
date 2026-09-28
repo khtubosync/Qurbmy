@@ -27,7 +27,7 @@ Five places under a tab bar, plus setup, scanning and the share sheet:
 | screen | what it is for |
 |---|---|
 | Home | which devices this phone knows; a card, shown only while it is true, saying how many files exist on this phone and nowhere else and what to do about it; what happened lately. The big button is *Connect a device* until one is connected, and *Sync now* after |
-| Vault | every file, and where its bytes are: on this phone and another device, only on this phone, or on another device and not here. Tapping one offers what that allows — open, save a copy, send to a device, free phone space, download, delete |
+| Vault | the files folder by folder, with search across all of them and sorting by name, newest or largest, and where each file's bytes are: on this phone and another device, only on this phone, or on another device and not here. Tapping one offers what that allows — open, save a copy, send to a device, free phone space, download, delete (into Recently deleted). ⋯ saves everything in the folder to the phone at once, or opens Recently deleted. Back goes up a folder |
 | Home, conflicts | a card when two devices changed a file, with both versions and the choices ([0043](../docs/decisions/0043-settling-a-conflict.md)) |
 | Settings, Folders | which devices each folder is on, and whether this phone keeps it or downloads each file when opened ([0044](../docs/decisions/0044-sharing-with-chosen-devices.md), [0045](../docs/decisions/0045-a-folder-kept-remotely.md)) |
 | Settings, Recently deleted | files deleted here or elsewhere, kept 30 days, restorable ([0042](../docs/decisions/0042-recently-deleted.md)) |
@@ -238,9 +238,6 @@ next sync further and further away. See
 
 ## Not built
 
-- **No bulk save.** One file at a time; there is no "save everything".
-- **No folders in the Vault.** It is one list of paths, in the order the index
-  keeps them, with no grouping, search or sorting.
 - **No progress while a file moves.** A phone syncs in short windows, mostly in
   the background; Transfers shows what is waiting and what happened, not bytes
   in flight.
@@ -251,7 +248,4 @@ next sync further and further away. See
   the device that sent them still has them. Builds before then did not record
   where a received file came from, and a phone cannot learn it afterwards
   without asking; it errs the safe way, never offering to free such a file.
-- **Sharing into qurb only adds.** The share sheet puts a file in the Vault; it
-  does not offer to send it straight to one device, which the Devices screen
-  does.
 - **Not signed.** `assembleRelease` produces an unsigned APK.

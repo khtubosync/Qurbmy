@@ -75,6 +75,17 @@ class MainActivity : AppCompatActivity() {
         if (destination != null && entry != null) writeCopy(entry, destination)
     }
 
+    /** Files waiting for a folder to be saved into, while the picker is open. */
+    private var pendingSaveAll: List<FileEntry> = emptyList()
+
+    private val folderSaver = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { tree ->
+        val entries = pendingSaveAll
+        pendingSaveAll = emptyList()
+        if (tree != null && entries.isNotEmpty()) writeAll(entries, tree)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -103,6 +114,15 @@ class MainActivity : AppCompatActivity() {
             true
         }
         views.tabs.setOnItemReselectedListener { current?.refresh() }
+        // The screen first -- the Vault goes up a folder -- then the usual.
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (current?.back() == true) return
+                isEnabled = false
+                onBackPressedDispatcher.onBackPressed()
+                isEnabled = true
+            }
+        })
         // Not refreshed here: onResume follows, and refreshes whatever is showing.
         show(tab)
     }
@@ -412,6 +432,53 @@ class MainActivity : AppCompatActivity() {
      * anywhere they keep things. The folder is this app's private storage, so
      * a file that lives only there is invisible to everything else.
      */
+    /** Save several files at once, into a folder the person picks. */
+    fun saveAll(entries: List<FileEntry>) {
+        pendingSaveAll = entries
+        try {
+            folderSaver.launch(null)
+        } catch (e: Exception) {
+            pendingSaveAll = emptyList()
+            fail("Could not open the folder picker", e)
+        }
+    }
+
+    /** Each file exported and copied in turn, as [writeCopy] does one. */
+    private fun writeAll(entries: List<FileEntry>, tree: Uri) {
+        lifecycleScope.launch {
+            var saved = 0
+            try {
+                withContext(Dispatchers.IO) {
+                    val parent = android.provider.DocumentsContract.buildDocumentUriUsingTree(
+                        tree,
+                        android.provider.DocumentsContract.getTreeDocumentId(tree),
+                    )
+                    for (entry in entries) {
+                        val name = entry.path.substringAfterLast('/')
+                        val destination = android.provider.DocumentsContract.createDocument(
+                            contentResolver, parent, mimeType(entry.path), name,
+                        ) ?: error("could not create $name")
+                        val staging = File(cacheDir, "save-${System.nanoTime()}")
+                        try {
+                            Engine.open(this@MainActivity).export(entry.path, staging.absolutePath)
+                            staging.inputStream().use { input ->
+                                contentResolver.openOutputStream(destination)?.use { output ->
+                                    input.copyTo(output)
+                                } ?: error("could not open $name")
+                            }
+                        } finally {
+                            staging.delete()
+                        }
+                        saved++
+                    }
+                }
+                say("Saved ${Words.files(saved)}")
+            } catch (e: Exception) {
+                fail(if (saved == 0) "Could not save them" else "Saved $saved, then stopped", e)
+            }
+        }
+    }
+
     fun saveCopy(entry: FileEntry) {
         pendingSave = entry
         try {

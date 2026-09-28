@@ -1134,6 +1134,23 @@ would have found taken. It binds port zero now, as the desktop does. Tests:
 `a_pairing_code_is_drawn_as_a_qr_code`. Built and compiled; **not yet run on a
 phone**, and phone-to-phone needs a second Android device to verify.
 
+## The Vault by folder, and the share sheet's choice
+
+**2026-09-28.** The Vault lists a folder at a time from the engine's index —
+the calls the system file picker already used, so the two cannot disagree —
+with search across every folder, sorting by name, newest or largest, and Back
+going up a folder before it leaves the app. ⋯ saves everything in the folder
+to a folder on the phone in one go (Android's folder picker, then each file
+exported and copied), and opens Recently deleted. Deleting says the file is
+kept in Recently deleted for 30 days.
+
+Sharing into qurb from another app now asks where it should go — **Save to My
+Vault**, or **Send to** any paired device (brief §39) — and asks only when a
+device is paired to send to. Sent that way, a file goes to that device alone
+and is not added to the phone's Vault.
+
+Built and compiled; **not yet run on the phone**.
+
 ## Deliberately left undone
 
 - **Keychain, on iOS.** The Android half is done and verified on a device —

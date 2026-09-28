@@ -8,10 +8,12 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.qurb.databinding.ActivityShareBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import uniffi.qurb_mobile.PeerInfo
 
 /**
  * The share sheet's way in.
@@ -53,7 +55,70 @@ class ShareActivity : AppCompatActivity() {
                 "Nothing to save",
                 "That share did not contain a file qurb can read.",
             )
-            else -> save(incoming)
+            else -> chooseWhere(incoming)
+        }
+    }
+
+    /**
+     * Save to My Vault, or send straight to a device (brief §39): the choice
+     * the share sheet exists to make fast. Asked only when there is a device
+     * to send to; with none, saving is the only answer and is not asked.
+     */
+    private fun chooseWhere(uris: List<Uri>) {
+        views.headline.text = "qurb"
+        lifecycleScope.launch {
+            val peers = runCatching {
+                withContext(Dispatchers.IO) { Engine.open(this@ShareActivity).peers() }
+            }.getOrDefault(emptyList())
+            if (peers.isEmpty()) {
+                save(uris)
+                return@launch
+            }
+            val what = if (uris.size == 1) "it" else "${uris.size} files"
+            val choices = listOf("Save to My Vault") + peers.map { "Send to ${it.name}" }
+            MaterialAlertDialogBuilder(this@ShareActivity)
+                .setTitle("Where should $what go?")
+                .setItems(choices.toTypedArray()) { _, which ->
+                    if (which == 0) save(uris) else send(uris, peers[which - 1])
+                }
+                .setNegativeButton("Cancel") { _, _ -> finish() }
+                .setOnCancelListener { finish() }
+                .show()
+        }
+    }
+
+    /**
+     * Straight to one device, privately, and nowhere else (decision 0030). The
+     * engine keeps its copy until that device collects it, so this works while
+     * the device is off; it is not added to this phone's Vault.
+     */
+    private fun send(uris: List<Uri>, to: PeerInfo) {
+        views.headline.text = "Sending to ${to.name}"
+        views.detail.text = ""
+        lifecycleScope.launch {
+            var sent = 0
+            var failed = 0
+            for (uri in uris) {
+                try {
+                    Engine.sendUri(this@ShareActivity, uri, to.fingerprint)
+                    sent++
+                } catch (e: Exception) {
+                    android.util.Log.w("qurb", "could not send a shared file", e)
+                    failed++
+                }
+            }
+            if (sent == 0) {
+                refuse("Could not send that", "qurb could not read the file it was handed.")
+                return@launch
+            }
+            SyncWorker.runNow(this@ShareActivity)
+            views.progress.visibility = android.view.View.GONE
+            views.done.visibility = android.view.View.VISIBLE
+            views.headline.text = if (failed > 0) "Sent $sent of ${sent + failed}" else "Sent to ${to.name}"
+            views.detail.text = "${to.name} collects " + (if (sent == 1) "it" else "them") +
+                " the next time it is switched on and reachable. Your other devices never see " +
+                (if (sent == 1) "it." else "them.") +
+                if (failed > 0) "\n\n$failed could not be read and were not sent." else ""
         }
     }
 

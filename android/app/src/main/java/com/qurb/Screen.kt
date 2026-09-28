@@ -30,6 +30,12 @@ abstract class Screen(protected val app: MainActivity) {
      */
     abstract fun refresh()
 
+    /**
+     * Back was pressed while this screen is showing. Returns whether it used
+     * it -- the Vault going up a folder -- or the app should do the usual.
+     */
+    open fun back(): Boolean = false
+
     protected val scope get() = app.lifecycleScope
 
     protected suspend fun engine(): Qurb = Engine.open(app)
