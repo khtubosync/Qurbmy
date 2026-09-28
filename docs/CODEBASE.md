@@ -508,8 +508,9 @@ qurb/
 │   │                      reachable, and a free way to get there
 │   ├── measuring-connectivity.md
 │   │                      how to measure the direct-connection rate
-│   ├── design/brief.md    The design pass: every choice made for it, and
-│   │                      where each feature goes on a screen
+│   ├── design/            The design pass: direction.md, the owner's
+│   │                      direction word for word; brief.md, how it meets
+│   │                      the product and where each feature goes
 │   ├── decisions/         Why each choice was made (one file per decision)
 │   └── phases/            What each phase produced, with measurements
 │
