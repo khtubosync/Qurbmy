@@ -757,6 +757,14 @@ earlier); the file was then held on both. About five seconds from a change
 on the laptop to a sleeping phone syncing it, with nothing running on the
 phone in between.
 
+**Kept across a restart, and a rarer scheduled pass** (2026-09-28, later).
+The service now keeps wake tokens in a small file in its state directory,
+written when one changes; the server guide explains why that reverses what it
+used to say. And with pushes arriving, the phone's scheduled pass drops from
+every fifteen minutes to every hour — adaptively: only after a push has
+actually woken it within the last seven days. Not measured: the battery this
+saves. The claim is a quarter of the scheduled wake-ups, not a number of hours.
+
 One of the phone's passes that afternoon did not connect: at 13:35:47 the
 laptop saw the phone arrive and tried to reach it, and no connection followed
 in either direction. The daemon logged that failure only at debug level, so why

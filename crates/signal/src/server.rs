@@ -141,6 +141,21 @@ struct Directory {
     /// every connection, so an eviction costs at most one missed wake-up and
     /// heals itself.
     wake: HashMap<(GroupId, MemberId), (crate::wake::WakeToken, std::time::Instant)>,
+    /// Where the tokens are kept across a restart, when they are.
+    ///
+    /// Without it a restarted service could wake nobody until each device had
+    /// connected again and said how -- for a phone, its next scheduled pass,
+    /// which Android may put off for hours. Found on 2026-09-28, the first
+    /// time the laptop hosting the service restarted it.
+    wake_file: Option<std::path::PathBuf>,
+}
+
+/// One wake token as kept on disk.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct KeptToken {
+    group: GroupId,
+    member: MemberId,
+    token: crate::wake::WakeToken,
 }
 
 struct Member {
@@ -228,12 +243,43 @@ impl Directory {
     ) {
         match token {
             Some(token) => {
+                // Devices say how to wake them on every connection; written
+                // down only when that is news.
+                let changed = self.wake.get(&(group, member)).is_none_or(|(kept, _)| *kept != token);
                 self.wake.insert((group, member), (token, std::time::Instant::now()));
                 self.evict_wake_tokens(most);
+                if changed {
+                    self.save_wake_tokens();
+                }
             }
             None => {
-                self.wake.remove(&(group, member));
+                if self.wake.remove(&(group, member)).is_some() {
+                    self.save_wake_tokens();
+                }
             }
+        }
+    }
+
+    /// Write the tokens where they are kept, if they are. Best effort: a
+    /// failure costs wake-ups after a restart, never a connection now.
+    fn save_wake_tokens(&self) {
+        let Some(path) = &self.wake_file else { return };
+        let kept: Vec<KeptToken> = self
+            .wake
+            .iter()
+            .map(|((group, member), (token, _))| KeptToken {
+                group: *group,
+                member: *member,
+                token: token.clone(),
+            })
+            .collect();
+        let written = serde_json::to_vec(&kept).map_err(std::io::Error::other).and_then(|bytes| {
+            let staging = path.with_extension("tmp");
+            write_private(&staging, &bytes)?;
+            std::fs::rename(&staging, path)
+        });
+        if let Err(e) = written {
+            tracing::warn!(path = %path.display(), error = %e, "could not keep the wake tokens");
         }
     }
 
@@ -309,6 +355,25 @@ impl SignalServer {
     /// what a deployment with no push credentials gets.
     pub fn waking_with(mut self, waker: crate::wake::SharedWaker) -> Self {
         self.waker = waker;
+        self
+    }
+
+    /// Keep wake tokens in `path` across restarts, and start with any kept
+    /// there. The file is readable by its owner only: a token is enough to
+    /// send the device a push, given the push credentials.
+    pub fn keeping_wake_tokens_in(self, path: std::path::PathBuf) -> Self {
+        let kept: Vec<KeptToken> = std::fs::read(&path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default();
+        {
+            let mut directory = self.directory.lock().expect("directory");
+            let now = std::time::Instant::now();
+            for entry in kept {
+                directory.wake.insert((entry.group, entry.member), (entry.token, now));
+            }
+            directory.wake_file = Some(path);
+        }
         self
     }
 
@@ -678,6 +743,38 @@ mod wake_tests {
         );
     }
 
+    /// And the service restarting. Before this a restart forgot every token,
+    /// and a phone could not be woken until its own next scheduled pass.
+    #[tokio::test]
+    async fn tokens_outlive_a_restart_of_the_service() {
+        let (group, _one, two) = group_and_members();
+        let dir = tempfile::tempdir().unwrap();
+        let kept = dir.path().join("wake-tokens.json");
+
+        let first = SignalServer::bind("127.0.0.1:0".parse().unwrap())
+            .await
+            .unwrap()
+            .keeping_wake_tokens_in(kept.clone());
+        first.directory.lock().unwrap().set_wake_token(group, two, Some("token-for-two".into()), 16);
+        drop(first);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&kept).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "tokens readable by others");
+        }
+
+        let second = SignalServer::bind("127.0.0.1:0".parse().unwrap())
+            .await
+            .unwrap()
+            .keeping_wake_tokens_in(kept);
+        assert_eq!(
+            second.directory.lock().unwrap().wake_token(group, two),
+            Some("token-for-two".to_string())
+        );
+    }
+
     /// A token has to outlive the connection that supplied it. It is only ever
     /// useful for a device that is *not* here.
     #[test]
@@ -754,3 +851,18 @@ mod wake_tests {
         );
     }
 }
+
+/// Write a file only its owner can read.
+fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)?.write_all(bytes)
+}
+
+

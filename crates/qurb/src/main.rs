@@ -1601,7 +1601,15 @@ async fn signal(
 
     let server = qurb_signal::SignalServer::bind(addr).await?;
     let server = match waker {
-        Some(waker) => server.waking_with(waker),
+        // With push, the tokens are kept across restarts: without them a
+        // restarted service could wake nobody until each phone's own next
+        // scheduled pass. Beside the certificate, in the service's state.
+        Some(waker) => {
+            let dir = qurb_signal::tls::default_state_dir();
+            std::fs::create_dir_all(&dir)
+                .with_context(|| format!("preparing {}", dir.display()))?;
+            server.waking_with(waker).keeping_wake_tokens_in(dir.join("wake-tokens.json"))
+        }
         None => server,
     };
 

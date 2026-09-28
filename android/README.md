@@ -198,10 +198,16 @@ survive Doze or a reboot, and a foreground service means a permanent
 notification plus — since Android 14 — a declared type that "syncing files" does
 not cleanly fit.
 
-Every fifteen minutes, which is not a choice: it is the shortest period
-WorkManager accepts, and asking for less silently becomes fifteen anyway. In
-practice it is a floor rather than a promise, because Doze batches background
-work and an idle phone may go hours between runs.
+Every fifteen minutes — the shortest period WorkManager accepts — or **every
+hour once pushes are demonstrably arriving** (one in the last seven days).
+With push, a change on another device wakes the phone within seconds, and the
+scheduled pass is left with what push does not cover: files added to the
+phone's folder by another app, and telling a rendezvous service how to wake the
+phone if it has lost that. An hour covers those at a quarter of the wake-ups.
+"Demonstrably", rather than "the app was built with Firebase", because a
+rendezvous service without push credentials never sends one. Either period is
+a floor rather than a promise: Doze batches background work, and an idle phone
+may go longer between runs.
 
 The three outcomes are mapped deliberately:
 

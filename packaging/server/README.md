@@ -49,9 +49,9 @@ on when `~/.config/qurb/firebase.json` exists (the service account under
 [Waking sleeping phones](#waking-sleeping-phones)); the script writes
 `~/.config/qurb/rendezvous.env` accordingly, and says which. With push, a
 change on the computer wakes the phone to sync within seconds instead of at its
-next periodic pass. The service keeps wake tokens in memory, so after it
-restarts, the phone can be woken only once it has synced again and re-sent its
-token. `--uninstall` removes it all.
+next periodic pass. With push on, the service keeps wake tokens in
+`~/.config/qurb/rendezvous/wake-tokens.json` (readable by you only), so a
+restart does not stop it waking the phone. `--uninstall` removes it all.
 
 **What this lacks is a relay.** Neither option carries the relay's raw TCP, so
 the phone and the computer have to reach each other directly. Whether they can
@@ -277,11 +277,19 @@ replaces `target/release/qurb` with one that refuses `--push` at startup. It
 says so clearly rather than starting without push, which is the right
 behaviour — but it is a confusing minute if you have forgotten.
 
-**Restarting the service forgets every wake token.** They are held in memory,
-so the first change after a restart wakes nobody. Devices re-register on their
-next connection, so it heals itself at the cost of one delayed sync. Persisting
-them would mean a database, which is the thing this service is valuable for not
-having.
+**Wake tokens are kept across a restart**, in `wake-tokens.json` in the
+service's state directory (`$STATE_DIRECTORY`, or
+`~/.config/qurb/rendezvous`), readable by the service's user only. They are
+written when one changes — rarely: a device re-sends the same token on every
+connection — and read back at start.
+
+This reverses what this guide used to say: that a restart forgets them, heals
+itself "at the cost of one delayed sync", and that keeping them would mean a
+database. Running the service on a laptop, which restarts it whenever the
+laptop reboots, showed the cost is larger: a phone re-sends its token only on
+its own next scheduled pass, which Android may put off for hours, and no change
+wakes it until then. A small file written when a token changes is not a
+database.
 
 ## What this does not give you
 

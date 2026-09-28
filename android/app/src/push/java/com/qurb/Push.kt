@@ -53,6 +53,7 @@ object Push {
 class Wakeup : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         Log.i("qurb", "woken by another device")
+        SyncWorker.noteWoken(applicationContext)
         SyncWorker.runNow(applicationContext)
     }
 

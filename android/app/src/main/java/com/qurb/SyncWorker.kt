@@ -147,6 +147,11 @@ class SyncWorker(context: Context, params: WorkerParameters) :
         private const val PREFS = "qurb"
         private const val LAST_RESULT = "last-sync-result"
         private const val LAST_AT = "last-sync-at"
+        private const val LAST_WOKEN = "last-woken-at"
+        private const val PERIOD = "sync-period-minutes"
+
+        /** How recently a push must have arrived for the hourly schedule. */
+        private const val PUSH_TRUSTED_FOR_MS = 7L * 24 * 3600 * 1000
 
         private fun record(context: Context, result: String, startedAt: Long) {
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -173,17 +178,50 @@ class SyncWorker(context: Context, params: WorkerParameters) :
         }
 
         /**
-         * Ask for a sync roughly every fifteen minutes.
+         * Another device woke this one. Remembered, because it is the proof
+         * that pushes reach this phone -- which is what lets the scheduled
+         * pass run less often.
+         */
+        fun noteWoken(context: Context) {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putLong(LAST_WOKEN, System.currentTimeMillis())
+                .apply()
+            schedule(context)
+        }
+
+        /**
+         * Minutes between scheduled passes: an hour while pushes are
+         * demonstrably arriving, fifteen otherwise.
          *
-         * Fifteen is not a choice: it is the shortest period WorkManager
-         * accepts for periodic work, and asking for less silently becomes
-         * fifteen anyway. In practice it is a floor rather than a promise —
-         * Doze batches these, so an idle phone may go hours between runs. That
-         * is the platform's decision and arguing with it loses.
+         * With push, a change on another device wakes this phone within
+         * seconds, and the scheduled pass is left with the rest: sending what
+         * was added here some other way, and telling a rendezvous service that
+         * lost its memory how to wake this phone. An hour covers those at a
+         * quarter of the wake-ups. Without push the pass is the only way news
+         * arrives, and fifteen -- the shortest WorkManager allows -- stays.
          *
-         * `KEEP` rather than `UPDATE`: re-registering on every launch with
-         * `UPDATE` resets the period, so an app opened often would never reach
-         * the end of one and never sync.
+         * "Demonstrably" is a push in the last seven days, not the app having
+         * been built with Firebase: a rendezvous service with no push
+         * credentials never sends one, and a phone that assumed otherwise
+         * would sync hourly for nothing.
+         */
+        fun periodMinutes(context: Context): Long {
+            val woken = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(LAST_WOKEN, 0)
+            val pushWorks = Push.AVAILABLE && System.currentTimeMillis() - woken < PUSH_TRUSTED_FOR_MS
+            return if (pushWorks) 60 else 15
+        }
+
+        /**
+         * Ask for a sync every [periodMinutes].
+         *
+         * Fifteen is the shortest period WorkManager accepts for periodic
+         * work. In practice either is a floor rather than a promise — Doze
+         * batches these, so an idle phone may go hours between runs. That is
+         * the platform's decision and arguing with it loses.
+         *
+         * `KEEP` rather than `UPDATE` unless the period changed: re-registering
+         * on every launch with `UPDATE` resets the period, so an app opened
+         * often would never reach the end of one and never sync.
          */
         fun schedule(context: Context) {
             for (old in RETIRED) {
@@ -206,13 +244,21 @@ class SyncWorker(context: Context, params: WorkerParameters) :
             // answer to that is another window shortly -- not a delay that
             // doubles away into hours. Exponential backoff here is what put a
             // phone three hours out from its next attempt.
-            val request = PeriodicWorkRequestBuilder<SyncWorker>(15, TimeUnit.MINUTES)
+            val minutes = periodMinutes(context)
+            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val changed = prefs.getLong(PERIOD, 15) != minutes
+            prefs.edit().putLong(PERIOD, minutes).apply()
+
+            val request = PeriodicWorkRequestBuilder<SyncWorker>(minutes, TimeUnit.MINUTES)
                 .setConstraints(constraints)
                 .setBackoffCriteria(BackoffPolicy.LINEAR, 1, TimeUnit.MINUTES)
                 .build()
 
-            WorkManager.getInstance(context)
-                .enqueueUniquePeriodicWork(NAME, ExistingPeriodicWorkPolicy.KEEP, request)
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                NAME,
+                if (changed) ExistingPeriodicWorkPolicy.UPDATE else ExistingPeriodicWorkPolicy.KEEP,
+                request,
+            )
         }
 
         /**
@@ -229,8 +275,11 @@ class SyncWorker(context: Context, params: WorkerParameters) :
             val info = infos.firstOrNull() ?: return "Not scheduled."
             val last = lastRun(context)?.let { "$it\n\n" } ?: ""
             return last + when (info.state) {
-                androidx.work.WorkInfo.State.ENQUEUED ->
-                    "Scheduled. Waiting for a network connection and Android's permission to run."
+                androidx.work.WorkInfo.State.ENQUEUED -> when (periodMinutes(context)) {
+                    60L -> "Every hour, and whenever another device has something: " +
+                        "it wakes this phone."
+                    else -> "About every 15 minutes, when Android allows."
+                }
                 androidx.work.WorkInfo.State.RUNNING -> "Running now."
                 androidx.work.WorkInfo.State.BLOCKED -> "Waiting on its conditions."
                 androidx.work.WorkInfo.State.CANCELLED -> "Cancelled."
