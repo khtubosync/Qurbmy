@@ -722,22 +722,15 @@ impl Qurb {
     /// the directory simply lost it. The index is flat, so a folder is what the
     /// paths beneath it say it is.
     pub fn browse(&self, dir: String) -> Result<Directory, QurbError> {
-        let dir = qurb_watcher::normalize(dir.trim_matches('/'));
-        let entries = self.engine()?.store().db().folder_entries_under(&dir)?;
-        let prefix = if dir.is_empty() { String::new() } else { format!("{dir}/") };
+        self.directory(dir, None)
+    }
 
-        let mut folders = std::collections::BTreeSet::new();
-        let mut files = Vec::new();
-        for entry in entries {
-            let Some(rest) = entry.path.strip_prefix(&prefix) else { continue };
-            match rest.split_once('/') {
-                Some((folder, _)) => {
-                    folders.insert(folder.to_string());
-                }
-                None => files.push(FileEntry::from(entry)),
-            }
-        }
-        Ok(Directory { folders: folders.into_iter().collect(), files })
+    /// The same, in one area only: the shared area for `private == false`,
+    /// this phone's Private Vault for `true`. What the Files screen and the
+    /// Private Vault each show -- a folder holding only private files is not
+    /// a folder of the shared area.
+    pub fn browse_in(&self, dir: String, private: bool) -> Result<Directory, QurbError> {
+        self.directory(dir, Some(private))
     }
 
     /// One file, with where its bytes are; nothing if the path is not a file
@@ -751,6 +744,26 @@ impl Qurb {
     pub fn search(&self, text: String, limit: u32) -> Result<Vec<FileEntry>, QurbError> {
         let found = self.engine()?.store().db().folder_search(&text, limit as usize)?;
         Ok(found.into_iter().map(FileEntry::from).collect())
+    }
+
+    /// The same, in one area only, as [`browse_in`](Self::browse_in).
+    pub fn search_in(&self, text: String, limit: u32, private: bool) -> Result<Vec<FileEntry>, QurbError> {
+        let found = self.engine()?.store().db().folder_search(&text, 4 * limit as usize)?;
+        Ok(found
+            .into_iter()
+            .filter(|e| e.private == private)
+            .take(limit as usize)
+            .map(FileEntry::from)
+            .collect())
+    }
+
+    /// Take a file from `source` into the synced tree at `path`, in the area
+    /// given: the shared area, or this phone's Private Vault. What *Add files*
+    /// does in each, whatever *Keep new files private* says -- that setting is
+    /// for files that arrive in the folder by other ways. A path already in
+    /// qurb keeps its own area.
+    pub fn import_into(&self, source: String, path: String, private: bool) -> Result<(), QurbError> {
+        self.import(source, path, Some(private))
     }
 
     /// Write a stored file's contents to `destination`, a chunk at a time.
@@ -790,22 +803,7 @@ impl Qurb {
     /// onto itself, which truncates it to nothing — an easy call for an app to
     /// make, and a silent way to destroy the file it was trying to add.
     pub fn import_file(&self, source: String, path: String) -> Result<(), QurbError> {
-        let logical = qurb_watcher::normalize(&path);
-        let destination = self.root.join(&logical);
-
-        if let Some(parent) = destination.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| QurbError::Storage { detail: e.to_string() })?;
-        }
-
-        if !same_file(Path::new(&source), &destination) {
-            std::fs::copy(&source, &destination)
-                .map_err(|e| QurbError::Storage { detail: format!("{source}: {e}") })?;
-        }
-
-        let mut engine = self.engine()?;
-        engine.store_mut().put_file(&logical, &destination)?;
-        Ok(())
+        self.import(source, path, None)
     }
 
     /// Rename or move a file, keeping it in the area it is in. See
@@ -1309,6 +1307,60 @@ impl Qurb {
 /// applied to, and neither a `MutexGuard` nor a four-argument constructor
 /// taking an optional callback interface can cross an FFI boundary.
 impl Qurb {
+    /// One directory, from the index: every area, or one (see
+    /// [`browse_in`](Self::browse_in)).
+    fn directory(&self, dir: String, area: Option<bool>) -> Result<Directory, QurbError> {
+        let dir = qurb_watcher::normalize(dir.trim_matches('/'));
+        let entries = self.engine()?.store().db().folder_entries_under(&dir)?;
+        let prefix = if dir.is_empty() { String::new() } else { format!("{dir}/") };
+
+        let mut folders = std::collections::BTreeSet::new();
+        let mut files = Vec::new();
+        for entry in entries.into_iter().filter(|e| area.is_none_or(|private| e.private == private)) {
+            let Some(rest) = entry.path.strip_prefix(&prefix) else { continue };
+            match rest.split_once('/') {
+                Some((folder, _)) => {
+                    folders.insert(folder.to_string());
+                }
+                None => files.push(FileEntry::from(entry)),
+            }
+        }
+        Ok(Directory { folders: folders.into_iter().collect(), files })
+    }
+
+    /// Copy `source` into the tree at `path` and index it: in the area given,
+    /// or where *Keep new files private* says for `None`.
+    ///
+    /// A `source` that is already at `path` inside the tree is indexed where
+    /// it lies rather than copied. Copying it would be `std::fs::copy` from a
+    /// file onto itself, which truncates it to nothing — an easy call for an
+    /// app to make, and a silent way to destroy the file it was trying to add.
+    fn import(&self, source: String, path: String, private: Option<bool>) -> Result<(), QurbError> {
+        let logical = qurb_watcher::normalize(&path);
+        let destination = self.root.join(&logical);
+
+        if let Some(parent) = destination.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| QurbError::Storage { detail: e.to_string() })?;
+        }
+
+        if !same_file(Path::new(&source), &destination) {
+            std::fs::copy(&source, &destination)
+                .map_err(|e| QurbError::Storage { detail: format!("{source}: {e}") })?;
+        }
+
+        let mut engine = self.engine()?;
+        let store = engine.store_mut();
+        let was = store.new_files_private();
+        if let Some(private) = private {
+            store.set_new_files_private(private);
+        }
+        let stored = store.put_file(&logical, &destination);
+        store.set_new_files_private(was);
+        stored?;
+        Ok(())
+    }
+
     fn open_inner(
         root: String,
         passphrase: Option<String>,

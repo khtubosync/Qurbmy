@@ -48,24 +48,25 @@ class ShareActivity : AppCompatActivity() {
         val incoming = incomingUris()
         when {
             !Engine.isSetUp(this) -> refuse(
-                "qurb is not set up on this phone",
-                "Open qurb first and either create a key or enter your 24 words.",
+                "Qurb isn't set up on this phone",
+                "Open Qurb first and either create a key or enter your 24 words.",
             )
             incoming.isEmpty() -> refuse(
                 "Nothing to save",
-                "That share did not contain a file qurb can read.",
+                "That share did not contain a file Qurb can read.",
             )
             else -> chooseWhere(incoming)
         }
     }
 
     /**
-     * Save to My Vault, or send straight to a device (brief §39): the choice
-     * the share sheet exists to make fast. Asked only when there is a device
-     * to send to; with none, saving is the only answer and is not asked.
+     * Save to Private Vault, save to Files, or send straight to a device
+     * (brief §39): the choice the share sheet exists to make fast. Asked only
+     * when there is a device to send to; with none, the file is saved where
+     * *Keep new files private* says, and nothing is asked.
      */
     private fun chooseWhere(uris: List<Uri>) {
-        views.headline.text = "qurb"
+        views.headline.text = "Qurb"
         lifecycleScope.launch {
             val peers = runCatching {
                 withContext(Dispatchers.IO) { Engine.open(this@ShareActivity).peers() }
@@ -75,11 +76,16 @@ class ShareActivity : AppCompatActivity() {
                 return@launch
             }
             val what = if (uris.size == 1) "it" else "${uris.size} files"
-            val choices = listOf("Save to My Vault") + peers.map { "Send to ${it.name}" }
+            val choices = listOf("Save to Private Vault", "Save to Files, on all your devices") +
+                peers.map { "Send to ${it.name}" }
             MaterialAlertDialogBuilder(this@ShareActivity)
                 .setTitle("Where should $what go?")
                 .setItems(choices.toTypedArray()) { _, which ->
-                    if (which == 0) save(uris) else send(uris, peers[which - 1])
+                    when (which) {
+                        0 -> save(uris, private = true)
+                        1 -> save(uris, private = false)
+                        else -> send(uris, peers[which - 2])
+                    }
                 }
                 .setNegativeButton("Cancel") { _, _ -> finish() }
                 .setOnCancelListener { finish() }
@@ -108,7 +114,7 @@ class ShareActivity : AppCompatActivity() {
                 }
             }
             if (sent == 0) {
-                refuse("Could not send that", "qurb could not read the file it was handed.")
+                refuse("Could not send that", "Qurb could not read the file it was handed.")
                 return@launch
             }
             SyncWorker.runNow(this@ShareActivity)
@@ -152,8 +158,10 @@ class ShareActivity : AppCompatActivity() {
      * should get ten of them and be told about the one that did not work,
      * rather than losing all eleven to it.
      */
-    private fun save(uris: List<Uri>) {
-        views.headline.text = if (uris.size == 1) "Saving to qurb" else "Saving ${uris.size} files to qurb"
+    private fun save(uris: List<Uri>, private: Boolean? = null) {
+        val area = private ?: Engine.ownFilesPrivate(this)
+        val place = if (area) "Private Vault" else "Qurb"
+        views.headline.text = if (uris.size == 1) "Saving to $place" else "Saving ${uris.size} files to $place"
         views.detail.text = ""
 
         lifecycleScope.launch {
@@ -161,7 +169,7 @@ class ShareActivity : AppCompatActivity() {
             var failed = 0
             for (uri in uris) {
                 try {
-                    Engine.importUri(this@ShareActivity, uri)
+                    Engine.importUri(this@ShareActivity, uri, private = area)
                     saved++
                 } catch (e: Exception) {
                     android.util.Log.w("qurb", "could not save a shared file", e)
@@ -170,7 +178,7 @@ class ShareActivity : AppCompatActivity() {
             }
 
             if (saved == 0) {
-                refuse("Could not save that", "qurb could not read the file it was handed.")
+                refuse("Could not save that", "Qurb could not read the file it was handed.")
                 return@launch
             }
 
@@ -185,8 +193,8 @@ class ShareActivity : AppCompatActivity() {
             views.done.visibility = android.view.View.VISIBLE
             views.headline.text = when {
                 failed > 0 -> "Saved $saved of ${saved + failed}"
-                saved == 1 -> "Saved to qurb"
-                else -> "Saved $saved files to qurb"
+                saved == 1 -> "Saved to $place"
+                else -> "Saved $saved files to $place"
             }
 
             // About what was just shared, not about the backlog. Someone who
@@ -204,17 +212,16 @@ class ShareActivity : AppCompatActivity() {
             views.detail.text = buildString {
                 append(
                     when {
-                        !Engine.ownFilesPrivate(this@ShareActivity) ->
+                        !area ->
                             "Your other devices will get $it the next time one is " +
-                                "switched on and reachable. You do not need to do anything."
+                                "online. You don't need to do anything."
                         keepers.isNotEmpty() ->
-                            "${keepers.joinToString(", ") { k -> k.name }} will keep a copy " +
-                                "the next time it is switched on and reachable. Nobody else " +
-                                "sees $it."
+                            "${keepers.joinToString(", ") { k -> k.name }} keeps a backup " +
+                                "the next time it's online. Nobody else sees $it."
                         else ->
                             (if (saved == 1) "It stays" else "They stay") +
-                                " on this phone and nowhere else. To keep a copy safe, " +
-                                "choose a device on qurb's Devices screen."
+                                " on this phone and nowhere else. To keep a backup, choose a " +
+                                "device in Qurb's Devices."
                     }
                 )
                 if (failed > 0) {

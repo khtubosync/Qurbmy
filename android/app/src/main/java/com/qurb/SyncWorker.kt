@@ -70,6 +70,7 @@ class SyncWorker(context: Context, params: WorkerParameters) :
                 },
                 started,
             )
+            if (outcome.reached > 0u) Engine.noteSynced(applicationContext)
             Log.i(TAG, "sync: reached=${outcome.reached} unreachable=${outcome.unreachable} " +
                 "adopted=${outcome.adopted} timedOut=${outcome.timedOut}")
 

@@ -1,43 +1,74 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- The whole app's look, as roles mapped onto Material's.
+    <!-- The whole app's look, from docs/design/direction.md, as roles mapped
+         onto Material's. Light: dark comes after the light design is approved.
 
          NoActionBar because each screen draws its own heading; with the default,
          the window decor would supply a bar as well. -->
-    <style name="Theme.Qurb" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/primary</item>
-        <item name="colorOnPrimary">@color/on_primary</item>
-        <item name="colorPrimaryContainer">@color/primary_soft</item>
-        <item name="colorOnPrimaryContainer">@color/on_primary_soft</item>
-        <item name="colorSecondaryContainer">@color/primary_soft</item>
-        <item name="colorOnSecondaryContainer">@color/on_primary_soft</item>
-        <item name="colorTertiary">@color/safe</item>
+    <style name="Theme.Qurb" parent="Theme.Material3.Light.NoActionBar">
+        <item name="colorPrimary">@color/green</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorPrimaryContainer">@color/green_soft</item>
+        <item name="colorOnPrimaryContainer">@color/green_pressed</item>
+        <item name="colorSecondary">@color/green</item>
+        <item name="colorSecondaryContainer">@color/green_soft</item>
+        <item name="colorOnSecondaryContainer">@color/green_pressed</item>
+        <item name="colorTertiary">@color/healthy</item>
         <item name="colorError">@color/error</item>
-        <item name="android:colorBackground">@color/paper</item>
-        <item name="colorSurface">@color/paper</item>
-        <item name="colorSurfaceContainer">@color/surface</item>
+        <item name="android:colorBackground">@color/bg</item>
+        <item name="colorSurface">@color/bg</item>
+        <item name="colorSurfaceContainerLowest">@color/surface</item>
         <item name="colorSurfaceContainerLow">@color/surface</item>
-        <item name="colorSurfaceContainerHigh">@color/surface_soft</item>
-        <item name="colorOnSurface">@color/ink</item>
-        <item name="colorOnSurfaceVariant">@color/ink_soft</item>
-        <item name="colorOutline">@color/line</item>
-        <item name="colorOutlineVariant">@color/line</item>
+        <item name="colorSurfaceContainer">@color/surface</item>
+        <item name="colorSurfaceContainerHigh">@color/surface_2</item>
+        <item name="colorSurfaceContainerHighest">@color/surface_2</item>
+        <item name="colorOnSurface">@color/text</item>
+        <item name="colorOnSurfaceVariant">@color/text_2</item>
+        <item name="colorOutline">@color/border_strong</item>
+        <item name="colorOutlineVariant">@color/border</item>
+        <item name="colorControlNormal">@color/text_2</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">@bool/light_bars</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightNavigationBar">@bool/light_bars</item>
+        <item name="android:windowBackground">@drawable/environment</item>
+
+        <!-- Inter, everywhere a component would otherwise pick its own. -->
+        <item name="android:fontFamily">@font/inter</item>
+        <item name="fontFamily">@font/inter</item>
+        <item name="textAppearanceHeadlineSmall">@style/Text.Display</item>
+        <item name="textAppearanceTitleLarge">@style/Text.Title</item>
+        <item name="textAppearanceTitleMedium">@style/Text.Section</item>
+        <item name="textAppearanceTitleSmall">@style/Text.Section</item>
+        <item name="textAppearanceBodyLarge">@style/Text.Body</item>
+        <item name="textAppearanceBodyMedium">@style/Text.Quiet</item>
+        <item name="textAppearanceBodySmall">@style/Text.Meta</item>
+        <item name="textAppearanceLabelLarge">@style/Text.Button</item>
+        <item name="textAppearanceLabelMedium">@style/Text.Meta</item>
+        <item name="textAppearanceLabelSmall">@style/Text.Meta</item>
+
+        <item name="materialButtonStyle">@style/Widget.Qurb.Button</item>
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.Qurb.Dialog</item>
+        <item name="bottomSheetDialogTheme">@style/ThemeOverlay.Qurb.Sheet</item>
+        <item name="textInputStyle">@style/Widget.Qurb.Field</item>
+        <item name="snackbarStyle">@style/Widget.Qurb.Snackbar</item>
     </style>
 
     <!-- The share sheet's screen is a dialog rather than a page. It reports one
          short outcome and gets out of the way, and framing it as a dialog keeps
          the app the person was actually using visible behind it. -->
-    <style name="Theme.Qurb.Share" parent="Theme.Material3.DayNight.Dialog">
-        <item name="colorPrimary">@color/primary</item>
-        <item name="colorOnPrimary">@color/on_primary</item>
-        <item name="colorSurface">@color/surface_soft</item>
-        <item name="colorOnSurface">@color/ink</item>
-        <item name="colorOnSurfaceVariant">@color/ink_soft</item>
-        <item name="colorSurfaceContainerHighest">@color/line</item>
+    <style name="Theme.Qurb.Share" parent="Theme.Material3.Light.Dialog">
+        <item name="colorPrimary">@color/green</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorSurface">@color/glass_elevated</item>
+        <item name="colorOnSurface">@color/text</item>
+        <item name="colorOnSurfaceVariant">@color/text_2</item>
+        <item name="colorSurfaceContainerHighest">@color/border</item>
         <item name="android:windowBackground">@drawable/dialog_window</item>
+        <item name="android:fontFamily">@font/inter</item>
+        <item name="fontFamily">@font/inter</item>
+        <item name="materialButtonStyle">@style/Widget.Qurb.Button</item>
+        <item name="textAppearanceLabelLarge">@style/Text.Button</item>
         <!-- The activity's label is what the share sheet puts on its button;
              as a window title it only repeats the screen's own heading in
              smaller type. Both spellings: this is an AppCompat theme, which
@@ -52,25 +83,185 @@
         <item name="android:windowMinWidthMinor">90%</item>
     </style>
 
-    <!-- Type: three sizes, and weight and colour doing the rest. -->
-    <style name="Text.Title" parent="TextAppearance.Material3.HeadlineSmall">
-        <item name="android:textColor">@color/ink</item>
+    <!-- Type (§9, mobile): page title 26, section 17, body 15.5, metadata
+         12.5. Weight and colour do the rest. -->
+    <style name="Text" parent="TextAppearance.Material3.BodyLarge">
+        <item name="android:fontFamily">@font/inter</item>
+        <item name="fontFamily">@font/inter</item>
+        <item name="android:textColor">@color/text</item>
+        <item name="android:letterSpacing">0</item>
     </style>
-    <style name="Text.Heading" parent="TextAppearance.Material3.TitleSmall">
-        <item name="android:textColor">@color/ink_soft</item>
+    <style name="Text.Display">
+        <item name="android:textSize">27sp</item>
+        <item name="android:lineHeight">33sp</item>
+        <item name="android:textFontWeight">600</item>
+        <item name="android:letterSpacing">-0.02</item>
+    </style>
+    <style name="Text.Hero">
+        <item name="android:textSize">26sp</item>
+        <item name="android:lineHeight">32sp</item>
+        <item name="android:textFontWeight">600</item>
+        <item name="android:letterSpacing">-0.02</item>
+    </style>
+    <style name="Text.Title">
+        <item name="android:textSize">20sp</item>
+        <item name="android:lineHeight">26sp</item>
+        <item name="android:textFontWeight">600</item>
+        <item name="android:letterSpacing">-0.01</item>
+    </style>
+    <style name="Text.Section">
+        <item name="android:textSize">17sp</item>
+        <item name="android:lineHeight">23sp</item>
+        <item name="android:textFontWeight">600</item>
+    </style>
+    <style name="Text.Body">
+        <item name="android:textSize">15.5sp</item>
+        <item name="android:lineHeight">22sp</item>
+    </style>
+    <style name="Text.Name">
+        <item name="android:textSize">15.5sp</item>
+        <item name="android:lineHeight">21sp</item>
+        <item name="android:textFontWeight">500</item>
+    </style>
+    <style name="Text.Quiet">
+        <item name="android:textSize">14.5sp</item>
+        <item name="android:lineHeight">21sp</item>
+        <item name="android:textColor">@color/text_2</item>
+    </style>
+    <style name="Text.Meta">
+        <item name="android:textSize">12.5sp</item>
+        <item name="android:lineHeight">17sp</item>
+        <item name="android:textColor">@color/text_3</item>
+    </style>
+    <style name="Text.Label">
+        <item name="android:textSize">11.5sp</item>
+        <item name="android:textFontWeight">600</item>
+        <item name="android:textColor">@color/text_3</item>
+        <item name="android:letterSpacing">0.08</item>
+        <item name="android:textAllCaps">true</item>
+    </style>
+    <style name="Text.Button">
+        <item name="android:textSize">15sp</item>
+        <item name="android:textFontWeight">600</item>
+        <item name="android:letterSpacing">0</item>
         <item name="android:textAllCaps">false</item>
     </style>
-    <style name="Text.Body" parent="TextAppearance.Material3.BodyLarge">
-        <item name="android:textColor">@color/ink</item>
+    <!-- The old names, for the screens that still say them. -->
+    <style name="Text.Heading" parent="Text.Label" />
+
+    <!-- Buttons (§44): primary is Qurb green; secondary a translucent neutral
+         glass with a subtle edge; tertiary is words; destructive is muted red.
+         Freeing space is never the destructive one. -->
+    <style name="Widget.Qurb.Button" parent="Widget.Material3.Button">
+        <item name="android:minHeight">@dimen/touch</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="cornerRadius">@dimen/radius_m</item>
+        <item name="android:textAppearance">@style/Text.Button</item>
+        <item name="backgroundTint">@color/button_primary</item>
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="iconTint">#FFFFFF</item>
+        <item name="iconSize">20dp</item>
+        <item name="iconPadding">8dp</item>
+        <item name="android:stateListAnimator">@animator/press</item>
     </style>
-    <style name="Text.Quiet" parent="TextAppearance.Material3.BodyMedium">
-        <item name="android:textColor">@color/ink_soft</item>
+    <style name="Widget.Qurb.Button.Secondary">
+        <item name="backgroundTint">@color/glass_frosted</item>
+        <item name="android:textColor">@color/text</item>
+        <item name="iconTint">@color/text_2</item>
+        <item name="strokeColor">@color/hairline</item>
+        <item name="strokeWidth">1dp</item>
+    </style>
+    <style name="Widget.Qurb.Button.Text" parent="Widget.Material3.Button.TextButton">
+        <item name="android:minHeight">@dimen/touch</item>
+        <item name="android:textAppearance">@style/Text.Button</item>
+        <item name="android:textColor">@color/green</item>
+        <item name="iconTint">@color/green</item>
+        <item name="rippleColor">@color/green_soft</item>
+        <item name="cornerRadius">@dimen/radius_m</item>
+    </style>
+    <style name="Widget.Qurb.Button.Danger">
+        <item name="backgroundTint">@color/error</item>
     </style>
 
-    <!-- A card: a surface a step up from the paper, rounded, no shadow. -->
+    <!-- Sheets and dialogs are the elevated material (§6): nearly opaque, a
+         light edge, large top corners. -->
+    <style name="ThemeOverlay.Qurb.Sheet" parent="ThemeOverlay.Material3.BottomSheetDialog">
+        <item name="bottomSheetStyle">@style/Widget.Qurb.Sheet</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:backgroundDimAmount">0.2</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+    <style name="Widget.Qurb.Sheet" parent="Widget.Material3.BottomSheet.Modal">
+        <item name="backgroundTint">@color/glass_elevated</item>
+        <item name="shapeAppearance">@style/Shape.Qurb.Sheet</item>
+    </style>
+    <style name="Shape.Qurb.Sheet" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSizeTopLeft">@dimen/radius_sheet</item>
+        <item name="cornerSizeTopRight">@dimen/radius_sheet</item>
+        <item name="cornerSizeBottomLeft">0dp</item>
+        <item name="cornerSizeBottomRight">0dp</item>
+    </style>
+    <style name="ThemeOverlay.Qurb.Dialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="colorSurface">@color/glass_elevated</item>
+        <item name="colorSurfaceContainerHigh">@color/glass_elevated</item>
+        <item name="shapeAppearanceOverlay">@style/Shape.Qurb.Dialog</item>
+        <item name="android:backgroundDimAmount">0.2</item>
+        <item name="materialAlertDialogTitleTextStyle">@style/Dialog.Title</item>
+        <item name="materialAlertDialogBodyTextStyle">@style/Dialog.Body</item>
+        <item name="buttonBarPositiveButtonStyle">@style/Widget.Qurb.Button.Text</item>
+        <item name="buttonBarNegativeButtonStyle">@style/Widget.Qurb.Button.Text</item>
+        <item name="buttonBarNeutralButtonStyle">@style/Widget.Qurb.Button.Text</item>
+    </style>
+    <style name="Shape.Qurb.Dialog" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/radius_sheet</item>
+    </style>
+    <style name="Dialog.Title" parent="MaterialAlertDialog.Material3.Title.Text">
+        <item name="android:textAppearance">@style/Text.Title</item>
+    </style>
+    <style name="Dialog.Body" parent="MaterialAlertDialog.Material3.Body.Text">
+        <item name="android:textAppearance">@style/Text.Quiet</item>
+    </style>
+
+    <style name="Widget.Qurb.Field" parent="Widget.Material3.TextInputLayout.OutlinedBox">
+        <item name="boxCornerRadiusTopStart">@dimen/radius_m</item>
+        <item name="boxCornerRadiusTopEnd">@dimen/radius_m</item>
+        <item name="boxCornerRadiusBottomStart">@dimen/radius_m</item>
+        <item name="boxCornerRadiusBottomEnd">@dimen/radius_m</item>
+        <item name="boxBackgroundColor">@color/glass_frosted</item>
+        <item name="boxStrokeColor">@color/green</item>
+        <item name="boxStrokeWidth">1dp</item>
+    </style>
+
+    <style name="Widget.Qurb.Snackbar" parent="Widget.Material3.Snackbar">
+        <item name="shapeAppearance">@style/Shape.Qurb.Dialog</item>
+    </style>
+
+    <!-- The tab bar's selected place: a soft green pill behind the icon. -->
+    <style name="Nav.Indicator" parent="Widget.Material3.BottomNavigationView.ActiveIndicator">
+        <item name="android:color">@color/green_soft</item>
+        <item name="android:width">56dp</item>
+        <item name="android:height">30dp</item>
+    </style>
+    <style name="Nav.Label" parent="Text">
+        <item name="android:textSize">12sp</item>
+        <item name="android:textFontWeight">500</item>
+    </style>
+
+    <style name="Shape.Qurb.Fab" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">18dp</item>
+    </style>
+
+    <!-- The old card, for the screens that still use it. -->
     <style name="Card" parent="Widget.Material3.CardView.Filled">
-        <item name="cardBackgroundColor">@color/surface</item>
-        <item name="cardCornerRadius">@dimen/corner</item>
+        <item name="cardBackgroundColor">@color/glass_frosted</item>
+        <item name="cardCornerRadius">@dimen/radius_l</item>
         <item name="contentPadding">@dimen/gap_m</item>
+        <item name="strokeColor">@color/glass_edge</item>
+        <item name="strokeWidth">1dp</item>
     </style>
 </resources>

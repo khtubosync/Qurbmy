@@ -1,11 +1,14 @@
 package com.qurb
 
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
+import android.content.res.ColorStateList
 import android.view.View
+import android.view.animation.LinearInterpolator
 import com.qurb.databinding.ScreenHomeBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import uniffi.qurb_mobile.ConflictInfo
 import uniffi.qurb_mobile.ConflictSide
 import uniffi.qurb_mobile.Happening
@@ -14,33 +17,38 @@ import uniffi.qurb_mobile.PeerInfo
 import uniffi.qurb_mobile.Usage
 
 /**
- * The first thing anyone sees: which devices this phone knows, whether
- * anything on it exists nowhere else, and what happened lately.
+ * Home (direction §5): is my Qurb space okay?
  *
- * The second of those is the one the whole product exists to answer, so it
- * gets a card of its own -- shown only while it is true, and saying what to do
- * about it.
+ * One state, one action -- *Send to device*, or *Add a device* until there is
+ * one -- a line of secondary facts, attention only when something needs a
+ * decision, and a little that is recent. A healthy Home should be almost
+ * boring. Pulling down syncs, and so does *Sync now*.
+ *
+ * A phone has no daemon running to ask whether it is up to date, so the state
+ * is built from what it does know: whether it is syncing now, whether
+ * anything made here has not reached another device, and when it last
+ * reached one.
  */
 class HomeScreen(app: MainActivity) : Screen(app) {
 
     private val views = ScreenHomeBinding.inflate(app.layoutInflater)
     override val view: View get() = views.root
+    override val tab = R.id.tab_home
 
-    /** Whether any device is connected, as of the last read. Decides the buttons. */
-    private var paired = false
+    private var turning: ObjectAnimator? = null
+
+    /** The state last drawn, to notice the moment everything becomes synced. */
+    private var lastTitle: String? = null
 
     init {
-        views.secondary.setOnClickListener { app.pair() }
-        views.refresh.setOnRefreshListener { refresh() }
-    }
-
-    private fun buttons() {
-        views.primary.text = if (paired) "Sync now" else "Connect a device"
-        views.primary.setIconResource(if (paired) R.drawable.ic_sync else R.drawable.ic_link)
-        views.primary.setOnClickListener { if (paired) app.sync() else app.pair() }
-        views.primary.isEnabled = !(paired && app.syncing)
-        views.secondary.visibility = if (paired) View.VISIBLE else View.GONE
-        views.progress.visibility = if (app.syncing) View.VISIBLE else View.GONE
+        views.refresh.setColorSchemeResources(R.color.green)
+        views.refresh.setOnRefreshListener {
+            views.refresh.isRefreshing = false
+            app.sync()
+        }
+        views.sync.setOnClickListener { app.sync() }
+        views.mark.setOnClickListener { app.sync() }
+        views.seeAll.setOnClickListener { app.push(ActivityScreen(app)) }
     }
 
     /** Everything the screen draws, read in one go off the main thread. */
@@ -54,8 +62,6 @@ class HomeScreen(app: MainActivity) : Screen(app) {
     )
 
     override fun refresh() {
-        buttons()
-
         scope.launch {
             try {
                 val state = withContext(Dispatchers.IO) {
@@ -71,153 +77,177 @@ class HomeScreen(app: MainActivity) : Screen(app) {
                 }
                 show(state)
             } catch (e: Exception) {
-                app.fail("Could not read this phone's files", e)
-            } finally {
-                views.refresh.isRefreshing = false
+                hero("error", R.drawable.ic_circle_alert, "Qurb can't read this phone's files", e.message ?: "")
             }
         }
     }
 
     private fun show(state: State) {
-        val devices = when (state.peers.size) {
-            0 -> "Not connected to any device yet"
-            1 -> "Connected to ${state.peers[0].name}"
-            else -> "Connected to ${state.peers.size} devices"
+        val waiting = state.outstanding.files
+        val synced = Engine.lastSynced(app)
+        when {
+            state.peers.isEmpty() -> hero(
+                "away", R.drawable.ic_monitor_smartphone, "Add your first device",
+                "Qurb keeps your files on devices you own. Connect your computer or another phone to begin.",
+            )
+            app.syncing -> hero("syncing", R.drawable.ic_arrow_up_down, "Syncing…", "Bringing your devices up to date.")
+            waiting.isNotEmpty() -> hero(
+                "away", R.drawable.ic_upload,
+                if (waiting.size == 1) "1 file is waiting to reach your devices"
+                else "${waiting.size} files are waiting to reach your devices",
+                onlyHereSays(state),
+            )
+            synced == null -> hero("away", R.drawable.ic_refresh_cw, "Not synced yet", "Sync to bring your devices up to date.")
+            else -> hero(
+                "", R.drawable.ic_check, "Everything is synced.",
+                if (state.conflicts.isNotEmpty()) {
+                    "Your files are safe. ${if (state.conflicts.size == 1) "One thing needs" else "${state.conflicts.size} things need"} your attention."
+                } else {
+                    "Your files are safe. Nothing needs your attention."
+                },
+            )
         }
-        views.status.text = "$devices · ${Words.size(state.usage.logical)} of files"
 
-        paired = state.peers.isNotEmpty()
-        buttons()
+        if (state.peers.isEmpty()) {
+            views.action.text = "Add a device"
+            views.action.setIconResource(R.drawable.ic_plus)
+            views.action.setOnClickListener { app.pair() }
+        } else {
+            views.action.text = "Send to device"
+            views.action.setIconResource(R.drawable.ic_send)
+            views.action.setOnClickListener { sendSomething() }
+        }
+        views.sync.visibility = if (state.peers.isEmpty()) View.GONE else View.VISIBLE
+        views.sync.isEnabled = !app.syncing
 
-        showOnlyHere(state)
+        views.facts.text = listOfNotNull(
+            "${Words.size(state.usage.logical)} of files",
+            if (state.peers.isNotEmpty()) Words.devices(state.peers.size) else null,
+            synced?.let { "synced ${Words.ago(it)}" },
+        ).joinToString("  ·  ")
+
+        views.attention.removeAllViews()
         showConflicts(state.conflicts)
 
         views.recent.removeAllViews()
         if (state.recent.isEmpty()) {
-            views.recent.line("Nothing yet", "What happens between your devices shows up here.")
+            kit.empty(views.recent, R.drawable.ic_clock, "Nothing yet. What happens between your devices shows up here.")
         }
-        for (h in state.recent) {
-            val (what, detail) = Words.happened(h)
-            views.recent.line(what, detail)
+        for (h in state.recent.take(5)) {
+            val (icon, subject, line) = Words.happened(h)
+            kit.row(views.recent, icon, subject, line)
         }
-        if (state.recent.size == RECENT) {
-            views.recent.line("See everything", "") { app.go(R.id.tab_transfers) }
-        }
+        views.seeAll.visibility = if (state.recent.isEmpty()) View.GONE else View.VISIBLE
     }
 
     /**
-     * The card for files that exist on this phone and nowhere else.
-     *
-     * Three different situations, each with its own next step: no device at
-     * all; this phone's own files with nobody chosen to keep them; or a device
-     * that will take them and has not been reached yet.
+     * What to say about files that exist only on this phone, by which of three
+     * situations it is: this phone's own files with nobody chosen to keep
+     * them; or a device that will take them and has not been reached yet.
      */
-    private fun showOnlyHere(state: State) {
-        val waiting = state.outstanding.files
-        if (waiting.isEmpty()) {
-            views.keepCard.visibility = View.GONE
-            return
-        }
-        views.keepCard.visibility = View.VISIBLE
-        val count = waiting.size
-        views.keepTitle.text = if (count == 1) {
-            "1 file is only on this phone"
+    private fun onlyHereSays(state: State): String {
+        val ownWithNoKeeper = state.outstanding.files.any { it.private } && state.holders.isEmpty()
+        return if (ownWithNoKeeper) {
+            "They're in your Private Vault, and no device is keeping a backup yet. Choose one in Devices."
         } else {
-            "$count files are only on this phone"
-        }
-        val size = Words.size(state.outstanding.bytes)
-        val ownWithNoKeeper = waiting.any { it.private } && state.holders.isEmpty()
-
-        when {
-            state.peers.isEmpty() -> {
-                views.keepText.text =
-                    "$size that would be lost with the phone. Connect a device to keep a copy."
-                views.keepAction.text = "Connect a device"
-                views.keepAction.setOnClickListener { app.pair() }
-            }
-            ownWithNoKeeper -> {
-                views.keepText.text =
-                    "$size of this phone's own files, and no device is keeping them yet. " +
-                        "Choose one, and it keeps a copy where only you can get at it."
-                views.keepAction.text = "Choose a device"
-                views.keepAction.setOnClickListener { app.go(R.id.tab_devices) }
-            }
-            else -> {
-                val to = (state.holders.ifEmpty { state.peers }).joinToString(", ") { it.name }
-                views.keepText.text =
-                    "$size, waiting for $to. It goes at the next sync, when both are " +
-                        "switched on at the same time."
-                views.keepAction.text = "Sync now"
-                views.keepAction.setOnClickListener { app.sync() }
-            }
+            val to = (state.holders.ifEmpty { state.peers }).joinToString(", ") { it.name }
+            "Until then they're only on this phone. They go to $to the next time both are online."
         }
     }
 
-    /** Files two devices changed at once (brief §24). */
+    /** The state, one action's worth of context, and the mark that shows it. */
+    private fun hero(mark: String, icon: Int, title: String, says: String) {
+        val tint = when (mark) {
+            "syncing" -> R.color.green
+            "away" -> R.color.neutral
+            "attention" -> R.color.attention
+            "error" -> R.color.error
+            else -> R.color.healthy
+        }
+        views.markIcon.setImageResource(icon)
+        views.markIcon.imageTintList = ColorStateList.valueOf(kit.color(tint))
+        views.state.text = title
+        views.stateSays.text = says
+
+        // §32: a light travels round the mark while syncing -- not a spinner.
+        val moving = mark == "syncing" && !Kit.calm()
+        views.markArc.visibility = if (moving) View.VISIBLE else View.GONE
+        if (moving && turning == null) {
+            turning = ObjectAnimator.ofFloat(views.markArc, View.ROTATION, 0f, 360f).apply {
+                duration = 1600
+                repeatCount = ValueAnimator.INFINITE
+                interpolator = LinearInterpolator()
+                start()
+            }
+        } else if (!moving) {
+            turning?.cancel()
+            turning = null
+        }
+
+        // §33: when everything becomes synced, the mark settles with one soft
+        // pulse. Then nothing moves.
+        if (title == "Everything is synced." && lastTitle != null && lastTitle != title && !Kit.calm()) {
+            views.mark.scaleX = 0.92f
+            views.mark.scaleY = 0.92f
+            views.mark.animate().scaleX(1f).scaleY(1f).setDuration(600)
+                .setInterpolator(android.view.animation.OvershootInterpolator(2f)).start()
+        }
+        lastTitle = title
+    }
+
+    /** Send to device: which files, then which device. */
+    private fun sendSomething() {
+        app.chooseDevice("Send to") { peer -> app.pickFilesToSend(peer) }
+    }
+
+    /** Two versions of a file (§14): attention, and a review. */
     private fun showConflicts(conflicts: List<ConflictInfo>) {
-        views.conflictCard.visibility = if (conflicts.isEmpty()) View.GONE else View.VISIBLE
         if (conflicts.isEmpty()) return
-        views.conflictTitle.text = if (conflicts.size == 1) {
-            "Two devices changed ${conflicts[0].path.substringAfterLast('/')}"
+        val title = if (conflicts.size == 1) "1 thing needs attention" else "${conflicts.size} things need attention"
+        val says = if (conflicts.size == 1) {
+            "${conflicts[0].path.substringAfterLast('/')} has two versions."
         } else {
-            "Two devices changed ${conflicts.size} files"
+            "${conflicts.size} files have two versions."
         }
-        views.conflictAction.setOnClickListener {
-            if (conflicts.size == 1) {
-                choose(conflicts[0])
-            } else {
-                MaterialAlertDialogBuilder(app)
-                    .setTitle("Changed on two devices")
-                    .setItems(conflicts.map { it.path }.toTypedArray()) { _, which -> choose(conflicts[which]) }
-                    .setNegativeButton("Close", null)
-                    .show()
-            }
+        kit.attention(views.attention, R.drawable.ic_git_compare, title, says, "Review") {
+            if (conflicts.size == 1) review(conflicts[0]) else choose(conflicts)
         }
+    }
+
+    private fun choose(conflicts: List<ConflictInfo>) {
+        val sheet = kit.sheet().header(R.drawable.ic_git_compare, "Two versions",
+            "Both are kept. Nothing is lost whichever you choose.")
+        for (c in conflicts) {
+            sheet.action(States.icon(c.path), c.path.substringAfterLast('/')) { review(c) }
+        }
+        sheet.show()
     }
 
     /**
-     * One conflict: both versions described, three choices. Whichever is not
-     * kept goes to Recently deleted, so no choice here loses anything.
+     * One conflict: both versions described, three choices (§14). Whichever
+     * is not kept goes to Recently deleted, so no choice here loses anything.
      */
-    private fun choose(c: ConflictInfo) {
-        fun describe(s: ConflictSide) = "${s.by}, ${Words.ago(s.changedAt)} · ${Words.size(s.size)}" +
-            if (s.here) "" else " · not on this phone yet"
-        val text = "This version: " + (c.`this`?.let { describe(it) } ?: "since deleted or renamed") +
-            "\nThe other: " + describe(c.other) +
-            "\n\nEach device changed it without having seen the other's change, so neither " +
-            "replaced the other. Whichever you do not keep goes to Recently deleted."
-
-        // Keeping the other one, or both, needs its bytes here.
-        val choices = buildList {
-            add("Keep this version" to "this")
-            if (c.other.here) {
-                add("Keep the other" to "other")
-                add("Keep both" to "both")
-            }
-        }
-        MaterialAlertDialogBuilder(app)
-            .setCustomTitle(explained(c.path.substringAfterLast('/'), text))
-            .setItems(choices.map { it.first }.toTypedArray()) { _, which -> settle(c, choices[which].second) }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    /** A title with an explanation under it, for a dialog whose body is a list. */
-    private fun explained(title: String, text: String): View {
-        val pad = (20 * app.resources.displayMetrics.density).toInt()
-        return android.widget.LinearLayout(app).apply {
+    private fun review(c: ConflictInfo) {
+        fun describe(s: ConflictSide?) = if (s == null) "Since deleted or renamed" else
+            "${s.by}  ·  ${Words.ago(s.changedAt)}  ·  ${Words.size(s.size)}" +
+                if (s.here) "" else "\nNot on this phone yet"
+        val sheet = kit.sheet()
+            .header(States.icon(c.path), c.path.substringAfterLast('/'), "Two devices changed it at the same time")
+        val versions = android.widget.LinearLayout(app).apply {
             orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(pad, pad, pad, 0)
-            addView(android.widget.TextView(app).apply {
-                this.text = title
-                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_HeadlineSmall)
-            })
-            addView(android.widget.TextView(app).apply {
-                this.text = text
-                setPadding(0, pad / 2, 0, 0)
-                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
-            })
         }
+        val group = kit.group(versions)
+        kit.item(group, "This version", describe(c.`this`))
+        kit.item(group, "The other version", describe(c.other))
+        sheet.view(versions, top = 16)
+        sheet.text("Whichever you don't keep goes to Recently deleted for 30 days.")
+        sheet.action(R.drawable.ic_check, "Keep this version") { settle(c, "this") }
+        // Keeping the other one, or both, needs its bytes here.
+        if (c.other.here) {
+            sheet.action(R.drawable.ic_git_compare, "Keep the other version") { settle(c, "other") }
+            sheet.action(R.drawable.ic_copy, "Keep both") { settle(c, "both") }
+        }
+        sheet.show()
     }
 
     private fun settle(c: ConflictInfo, keep: String) {
@@ -235,7 +265,7 @@ class HomeScreen(app: MainActivity) : Screen(app) {
     }
 
     private companion object {
-        /** How many recent events Home shows; the rest are under Transfers. */
+        /** How many recent events Home reads; five are shown. */
         const val RECENT = 6
     }
 }

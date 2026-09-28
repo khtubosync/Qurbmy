@@ -1,13 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- One spacing scale, in steps of four, so screens line up with each other
-     without anybody measuring. -->
+<!-- Spacing in steps of four; corners and sizes from the direction (§45). -->
 <resources>
     <dimen name="gap_xs">4dp</dimen>
     <dimen name="gap_s">8dp</dimen>
     <dimen name="gap_m">16dp</dimen>
     <dimen name="gap_l">24dp</dimen>
     <dimen name="gap_xl">32dp</dimen>
-    <dimen name="corner">16dp</dimen>
+    <dimen name="gap_xxl">48dp</dimen>
+    <dimen name="gutter">20dp</dimen>
+
+    <dimen name="radius_s">8dp</dimen>
+    <dimen name="radius_m">14dp</dimen>
+    <dimen name="radius_l">20dp</dimen>
+    <dimen name="radius_sheet">24dp</dimen>
+    <dimen name="corner">@dimen/radius_m</dimen>
+
     <!-- Large enough to hit without looking, per the platform's own guidance. -->
     <dimen name="touch">48dp</dimen>
+    <dimen name="tile">44dp</dimen>
+    <dimen name="row">64dp</dimen>
+    <!-- Room at the foot of every scrolling place for the floating tab bar. -->
+    <dimen name="nav_clearance">128dp</dimen>
 </resources>

@@ -1,8 +1,12 @@
 package com.qurb
 
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.view.View
+import android.view.animation.LinearInterpolator
 import android.widget.EditText
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -10,31 +14,41 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.qurb.databinding.ActivityMainBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.qurb_mobile.FileEntry
 import uniffi.qurb_mobile.PeerInfo
+import uniffi.qurb_mobile.Waiting
 import java.io.File
 
 /**
- * The app: five places under a tab bar, and the actions more than one of them
- * offers.
+ * The app: four places under a tab bar (direction §25), the few places
+ * reached from them, and the actions more than one of them offers.
  *
- * Home says whether this phone's files are safe and connects devices; Vault is
- * what is on the phone; Devices is who it knows; Transfers is what is moving
- * and what happened; Settings is the rest. The screens are in their own files.
- * What lives here is what they share -- pairing, syncing, opening a file,
- * saving a copy, sending -- because each needs an activity to launch a picker
- * or a camera from, and there is one.
+ * Home says whether this phone's Qurb space is okay; Files is what is in it,
+ * with Private Vault a step inside; Devices is who it knows; Settings is the
+ * rest. The screens are in their own files. What lives here is what they
+ * share -- pairing, syncing, adding, opening, saving, sending, transfers --
+ * because each needs an activity to launch a picker or a camera from, and
+ * there is one.
  */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var views: ActivityMainBinding
+    lateinit var kit: Kit
+        private set
+
     private val screens = mutableMapOf<Int, Screen>()
+
+    /** Places reached from a tab's place, newest last: Back leaves them. */
+    private val stack = ArrayDeque<Screen>()
     private var current: Screen? = null
+
+    /** Set while the tab bar is moved to match a pushed place, so moving it
+     *  does not also go there. */
+    private var quietly = false
 
     /** Whether a sync this screen started is still running. Home shows it. */
     var syncing = false
@@ -42,6 +56,10 @@ class MainActivity : AppCompatActivity() {
 
     /** Whether this launch has freed what nothing needs yet. Once is enough. */
     private var housekept = false
+
+    /** Where files being picked go, while the picker is open. */
+    private var addingInto = ""
+    private var addingPrivate = false
 
     private val adder = registerForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments()
@@ -98,6 +116,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         views = ActivityMainBinding.inflate(layoutInflater)
+        kit = Kit(this)
         setContentView(views.root)
         insetContent()
 
@@ -106,25 +125,40 @@ class MainActivity : AppCompatActivity() {
         // cleared.
         SyncWorker.schedule(this)
 
-        val tab = savedInstanceState?.getInt(TAB) ?: R.id.tab_home
+        val tab = savedInstanceState?.getInt(TAB)?.takeIf { it in TABS } ?: R.id.tab_home
         views.tabs.selectedItemId = tab
         views.tabs.setOnItemSelectedListener { item ->
-            show(item.itemId)
-            current?.refresh()
+            if (!quietly) {
+                stack.clear()
+                show(screenFor(item.itemId))
+                current?.refresh()
+            }
             true
         }
-        views.tabs.setOnItemReselectedListener { current?.refresh() }
-        // The screen first -- the Vault goes up a folder -- then the usual.
+        views.tabs.setOnItemReselectedListener {
+            if (stack.isNotEmpty()) {
+                stack.clear()
+                show(screenFor(it.itemId))
+            }
+            current?.refresh()
+        }
+        views.transfersBar.setOnClickListener { openTransfers() }
+        // The screen first -- a folder goes up -- then a place reached from
+        // another goes back to it, then the usual.
         onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (current?.back() == true) return
+                if (stack.isNotEmpty()) {
+                    pop()
+                    return
+                }
                 isEnabled = false
                 onBackPressedDispatcher.onBackPressed()
                 isEnabled = true
             }
         })
         // Not refreshed here: onResume follows, and refreshes whatever is showing.
-        show(tab)
+        show(screenFor(tab))
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -136,38 +170,65 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         if (!::views.isInitialized) return
         current?.refresh()
+        updateDock()
         catchUp()
     }
 
-    private fun show(tab: Int) {
-        val screen = screens.getOrPut(tab) {
-            when (tab) {
-                R.id.tab_vault -> VaultScreen(this)
-                R.id.tab_devices -> DevicesScreen(this)
-                R.id.tab_transfers -> TransfersScreen(this)
-                R.id.tab_settings -> SettingsScreen(this)
-                else -> HomeScreen(this)
-            }
+    private fun screenFor(tab: Int): Screen = screens.getOrPut(tab) {
+        when (tab) {
+            R.id.tab_files -> FilesScreen(this, private = false)
+            R.id.tab_devices -> DevicesScreen(this)
+            R.id.tab_settings -> SettingsScreen(this)
+            else -> HomeScreen(this)
         }
+    }
+
+    private fun show(screen: Screen) {
         if (screen === current) return
         views.screen.removeAllViews()
+        (screen.view.parent as? android.view.ViewGroup)?.removeView(screen.view)
         views.screen.addView(screen.view)
         current = screen
+        // §35: the next place comes forward a little; nothing flies.
+        if (!Kit.calm()) {
+            screen.view.alpha = 0f
+            screen.view.translationY = kit.dp(8).toFloat()
+            screen.view.animate().alpha(1f).translationY(0f).setDuration(280)
+                .setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
+        }
+        if (views.tabs.selectedItemId != screen.tab) {
+            quietly = true
+            views.tabs.selectedItemId = screen.tab
+            quietly = false
+        }
+    }
+
+    /** Go to a place reached from another: Private Vault, Activity, Recently
+     *  deleted. Back returns. */
+    fun push(screen: Screen) {
+        stack.addLast(screen)
+        show(screen)
+        screen.refresh()
+    }
+
+    private fun pop() {
+        stack.removeLast()
+        show(stack.lastOrNull() ?: screenFor(views.tabs.selectedItemId))
+        current?.refresh()
     }
 
     /** Move to another tab, as a screen's action does ("Choose a device"). */
     fun go(tab: Int) {
-        views.tabs.selectedItemId = tab
+        stack.clear()
+        if (views.tabs.selectedItemId == tab) show(screenFor(tab)) else views.tabs.selectedItemId = tab
     }
 
     /**
-     * Keep the screens out from under the status bar and the tab bar out from
-     * under the gesture bar.
+     * Keep the screens out from under the status bar, and the floating tab
+     * bar above the gesture bar.
      *
      * Android 15 draws every app edge to edge, so without this a heading sits
      * beneath the status bar and taps near the top go to the system instead.
-     * The tab bar pads itself for the navigation bar; everything else gets the
-     * top and the sides here, once.
      */
     private fun insetContent() {
         ViewCompat.setOnApplyWindowInsetsListener(views.root) { _, insets ->
@@ -175,8 +236,12 @@ class MainActivity : AppCompatActivity() {
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
             views.screen.updatePadding(top = bars.top, left = bars.left, right = bars.right)
+            views.dock.updatePadding(bottom = bars.bottom + kit.dp(10))
             insets
         }
+        // The tab bar pads itself for the gesture bar when it is at the edge;
+        // floating, it is already above it.
+        ViewCompat.setOnApplyWindowInsetsListener(views.tabs) { _, insets -> insets }
     }
 
     /**
@@ -209,12 +274,148 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Something every screen might need to say. */
-    fun say(message: String) = Words.say(views.root, message, above = views.tabs)
+    fun say(message: String) = Words.say(views.root, message, above = views.dock)
 
     fun fail(title: String, e: Throwable) = Words.fail(this, title, e)
 
     /** After anything that changes what the engine knows. */
-    fun changed() = current?.refresh()
+    fun changed() {
+        current?.refresh()
+        updateDock()
+    }
+
+    // ----------------------------------------------------------- transfers
+
+    private var turning: ObjectAnimator? = null
+
+    /**
+     * The Transfers bar (§21, §25): there while this phone is syncing or has
+     * sent something not yet collected, and gone otherwise. A phone sends in
+     * short background windows, so it says what is waiting rather than a
+     * percentage it cannot know (docs/design/brief.md §2).
+     */
+    fun updateDock() {
+        lifecycleScope.launch {
+            val waiting = withContext(Dispatchers.IO) {
+                runCatching { Engine.open(this@MainActivity).waiting() }.getOrDefault(emptyList())
+            }
+            val bar = views.transfersBar
+            when {
+                syncing -> {
+                    views.transfersText.text = "Syncing with your devices…"
+                    views.transfersIcon.setImageResource(R.drawable.ic_refresh_cw)
+                    if (turning == null && !Kit.calm()) {
+                        turning = ObjectAnimator.ofFloat(views.transfersIcon, View.ROTATION, 0f, 360f).apply {
+                            duration = 1400
+                            repeatCount = ValueAnimator.INFINITE
+                            interpolator = LinearInterpolator()
+                            start()
+                        }
+                    }
+                }
+                waiting.isNotEmpty() -> {
+                    views.transfersText.text = if (waiting.size == 1) {
+                        "${waiting[0].path.substringAfterLast('/')} is waiting for ${waiting[0].to}"
+                    } else {
+                        "${waiting.size} files waiting to be collected"
+                    }
+                    views.transfersIcon.setImageResource(R.drawable.ic_arrow_up_down)
+                }
+            }
+            if (!syncing) {
+                turning?.cancel()
+                turning = null
+                views.transfersIcon.rotation = 0f
+            }
+            val show = syncing || waiting.isNotEmpty()
+            if (show && bar.visibility != View.VISIBLE) {
+                bar.visibility = View.VISIBLE
+                if (!Kit.calm()) {
+                    bar.alpha = 0f
+                    bar.translationY = kit.dp(12).toFloat()
+                    bar.animate().alpha(1f).translationY(0f).setDuration(320).start()
+                }
+            } else if (!show) {
+                bar.visibility = View.GONE
+            }
+        }
+    }
+
+    /** What is moving and what finished, in a sheet from the Transfers bar. */
+    fun openTransfers() {
+        lifecycleScope.launch {
+            val (waiting, history) = try {
+                withContext(Dispatchers.IO) {
+                    val engine = Engine.open(this@MainActivity)
+                    engine.waiting() to engine.history(100u, null)
+                }
+            } catch (e: Exception) {
+                fail("Could not read what is moving", e)
+                return@launch
+            }
+            val sheet = kit.sheet().header(R.drawable.ic_arrow_up_down, "Transfers",
+                "What you sent on purpose, and what was sent to you")
+            val list = android.widget.LinearLayout(this@MainActivity).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+            }
+            if (syncing) {
+                kit.groupTitle(list, "Active")
+                kit.row(list, R.drawable.ic_refresh_cw, "Syncing with your devices", iconTint = R.color.green)
+            }
+            kit.groupTitle(list, "Waiting to be collected")
+            if (waiting.isEmpty()) kit.text(list, "Nothing waiting. Files you send wait here until the device collects them.")
+            for (w in waiting) {
+                kit.row(
+                    list, States.icon(w.path), w.path.substringAfterLast('/'),
+                    "Waiting for ${w.to}  ·  ${Words.size(w.size)}",
+                    trail = kit.button("Stop", Kit.Style.SECONDARY, small = true) {
+                        sheet.dismiss()
+                        cancelSend(w)
+                    },
+                )
+            }
+            val done = history.filter { Words.finished(it) != null }.take(8)
+            if (done.isNotEmpty()) {
+                kit.groupTitle(list, "Done")
+                for (h in done) {
+                    val failed = h.kind == "failed" || h.kind == "cancelled"
+                    kit.row(
+                        list,
+                        if (failed) R.drawable.ic_circle_alert else R.drawable.ic_circle_check,
+                        (h.path ?: "").substringAfterLast('/'),
+                        "${Words.finished(h)}  ·  ${Words.ago(h.at)}",
+                        iconTint = if (failed) R.color.error else R.color.healthy,
+                    )
+                }
+            }
+            sheet.view(list, top = 4).show()
+        }
+    }
+
+    private fun cancelSend(w: Waiting) {
+        kit.sheet()
+            .header(States.icon(w.path), "Stop sending ${w.path.substringAfterLast('/')}?")
+            .text("${w.to} hasn't collected it yet, so it never arrives there.")
+            .buttons("Stop sending", danger = true, secondary = "Keep sending") {
+                lifecycleScope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            Engine.open(this@MainActivity).cancelSend(w.path, w.toFingerprint)
+                        }
+                        say("Stopped")
+                    } catch (e: Exception) {
+                        // Most likely collected between the list and the tap:
+                        // the engine refuses then, and says why.
+                        fail("Could not stop that", e)
+                    } finally {
+                        changed()
+                    }
+                }
+            }
+            .show()
+    }
+
+    // ---------------------------------------------------------------- sync
 
     fun sync() {
         if (syncing) return
@@ -233,20 +434,21 @@ class MainActivity : AppCompatActivity() {
                     // devices on its own Wi-Fi answering.
                     Engine.hearingTheNetwork(this@MainActivity) { engine.syncWithin(25u) }
                 }
+                if (outcome.reached > 0u) Engine.noteSynced(this@MainActivity)
                 say(
                     when {
                         outcome.reached == 0u && outcome.unreachable == 0u && outcome.timedOut ->
-                            "Ran out of time before reaching a device. Sync again."
+                            "Ran out of time before reaching a device. Try again."
                         outcome.reached == 0u && outcome.unreachable == 0u ->
                             "No devices connected yet"
                         outcome.reached == 0u ->
-                            "No device answered. It has to be switched on and running qurb."
+                            "No device answered. It has to be switched on and running Qurb."
                         outcome.adopted == 0u && outcome.conflicts == 0u ->
-                            "Up to date"
+                            "Everything is synced"
                         else -> buildString {
                             append("${Words.files(outcome.adopted.toInt())} updated")
                             if (outcome.conflicts > 0u) {
-                                append(", ${outcome.conflicts} changed on two devices at once")
+                                append(", ${outcome.conflicts} with two versions")
                             }
                             if (outcome.timedOut) append(" — ran out of time, sync again")
                         }
@@ -261,44 +463,43 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ------------------------------------------------------------- pairing
+
     /**
-     * Connect a device: scan the code it shows, or type it.
+     * Add a device: scan the code it shows, show one here, or type one.
      *
      * The code carries the other device's whole identity, which is why it
      * travels across the room by camera rather than over the network.
      */
     fun pair() {
-        // A list rather than buttons: three ways to connect do not fit in a
-        // dialog's button row without stacking, and a stacked row puts Cancel
-        // between them. Scanning first, because it is what anyone will
-        // actually do; showing a code is how two phones connect with no
-        // computer; typing is the fallback nobody does twice.
-        val ways = listOf<Pair<String, () -> Unit>>(
-            "Scan the other device's code" to { scanner.launch(Intent(this, ScanActivity::class.java)) },
-            "Show a code on this phone" to { ShowCode.show(this) },
-            "Type a code" to { typeCode() },
-        )
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Connect a device")
-            .setItems(ways.map { it.first }.toTypedArray()) { _, which -> ways[which].second() }
-            .setNegativeButton("Cancel", null)
+        // Scanning first, because it is what anyone will actually do; showing
+        // a code is how two phones connect with no computer; typing is the
+        // fallback nobody does twice.
+        kit.sheet()
+            .header(R.drawable.ic_monitor_smartphone, "Add a device",
+                "Your computer or another phone. It joins with a code, once.")
+            .action(R.drawable.ic_qr_code, "Scan the other device's code") {
+                scanner.launch(Intent(this, ScanActivity::class.java))
+            }
+            .action(R.drawable.ic_smartphone, "Show a code on this phone") { ShowCode.show(this) }
+            .action(R.drawable.ic_keyboard, "Type a code") { typeCode() }
             .show()
     }
 
     /** The fallback, for a phone with no camera or a refused permission. */
     private fun typeCode() {
         val input = EditText(this).apply {
-            hint = "qurb1-..."
-            setPadding(48, 32, 48, 8)
+            hint = "qurb1-…"
+            setPadding(kit.dp(18), kit.dp(14), kit.dp(18), kit.dp(14))
+            background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.glass_group)
         }
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Type the code")
-            .setView(input)
-            .setPositiveButton("Connect") { _, _ ->
+        kit.sheet()
+            .header(R.drawable.ic_keyboard, "Type the code", "The code the other device is showing")
+            .view(input, top = 16)
+            .buttons("Connect") {
                 val code = input.text.toString().trim()
                 if (code.isNotEmpty()) joinWith(code)
             }
-            .setNegativeButton("Cancel", null)
             .show()
     }
 
@@ -316,11 +517,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** The Vault folder files being picked go into. */
-    private var addingInto = ""
+    // --------------------------------------------------------------- files
 
-    fun pickFilesToAdd(into: String = "") {
+    /** Add files, into `into` in the area being looked at: Files, or Private
+     *  Vault -- whatever Keep new files private says. */
+    fun pickFilesToAdd(into: String, private: Boolean) {
         addingInto = into
+        addingPrivate = private
         adder.launch(arrayOf("*/*"))
     }
 
@@ -334,10 +537,10 @@ class MainActivity : AppCompatActivity() {
             var added = 0
             try {
                 for (uri in uris) {
-                    Engine.importUri(this@MainActivity, uri, addingInto)
+                    Engine.importUri(this@MainActivity, uri, addingInto, addingPrivate)
                     added++
                 }
-                say("Added ${Words.files(added)}")
+                say("Added ${Words.files(added)}${if (addingPrivate) " to Private Vault" else ""}")
             } catch (e: Exception) {
                 fail(if (added == 0) "Could not add that file" else "Added $added, then stopped", e)
             } finally {
@@ -355,20 +558,15 @@ class MainActivity : AppCompatActivity() {
                 fail("Could not read your devices", e)
                 return@launch
             }
+            val sheet = kit.sheet().header(R.drawable.ic_send, title)
             if (peers.isEmpty()) {
-                MaterialAlertDialogBuilder(this@MainActivity)
-                    .setTitle(title)
-                    .setMessage("No devices connected yet. Connect one first.")
-                    .setPositiveButton("Connect a device") { _, _ -> pair() }
-                    .setNegativeButton("Cancel", null)
-                    .show()
-                return@launch
+                sheet.text("No devices yet. Add one first.")
+                    .buttons("Add a device") { pair() }
             }
-            MaterialAlertDialogBuilder(this@MainActivity)
-                .setTitle(title)
-                .setItems(peers.map { it.name }.toTypedArray()) { _, which -> then(peers[which]) }
-                .setNegativeButton("Cancel", null)
-                .show()
+            for (peer in peers) {
+                sheet.action(States.device(peer.name), peer.name) { then(peer) }
+            }
+            sheet.show()
         }
     }
 
@@ -385,7 +583,7 @@ class MainActivity : AppCompatActivity() {
                     Engine.sendUri(this@MainActivity, uri, to.fingerprint)
                     sent++
                 }
-                say("${Words.files(sent)} for ${to.name}. It collects them at the next sync.")
+                say("${Words.files(sent)} ready for ${to.name}. It collects them the next time it's online.")
             } catch (e: Exception) {
                 fail(if (sent == 0) "Could not send that" else "Sent $sent, then stopped", e)
             } finally {
@@ -395,8 +593,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Send a file already on this phone. The engine keeps its own copy until
-     * the other device collects it, so this works while that device is off.
+     * Send a file already on this phone (§17). The engine keeps its own copy
+     * until the other device collects it, so this works while that device is
+     * off.
      */
     fun send(entry: FileEntry, to: PeerInfo) {
         lifecycleScope.launch {
@@ -406,7 +605,7 @@ class MainActivity : AppCompatActivity() {
                     Engine.open(this@MainActivity)
                         .sendFile(source.absolutePath, entry.path.substringAfterLast('/'), to.fingerprint)
                 }
-                say("Sending to ${to.name}. It collects it at the next sync.")
+                say("Ready for ${to.name}. It collects it the next time it's online.")
             } catch (e: Exception) {
                 fail("Could not send that", e)
             } finally {
@@ -438,6 +637,16 @@ class MainActivity : AppCompatActivity() {
      * anywhere they keep things. The folder is this app's private storage, so
      * a file that lives only there is invisible to everything else.
      */
+    fun saveCopy(entry: FileEntry) {
+        pendingSave = entry
+        try {
+            saver.launch(entry.path.substringAfterLast('/'))
+        } catch (e: Exception) {
+            pendingSave = null
+            fail("Could not open the save dialog", e)
+        }
+    }
+
     /** Save several files at once, into a folder the person picks. */
     fun saveAll(entries: List<FileEntry>) {
         pendingSaveAll = entries
@@ -485,16 +694,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    fun saveCopy(entry: FileEntry) {
-        pendingSave = entry
-        try {
-            saver.launch(entry.path.substringAfterLast('/'))
-        } catch (e: Exception) {
-            pendingSave = null
-            fail("Could not open the save dialog", e)
-        }
-    }
-
     /**
      * Stream a stored file out to where the person picked. Exported to a cache
      * file and copied from there rather than held in memory: `export` writes a
@@ -534,5 +733,6 @@ class MainActivity : AppCompatActivity() {
 
     private companion object {
         const val TAB = "tab"
+        val TABS = setOf(R.id.tab_home, R.id.tab_files, R.id.tab_devices, R.id.tab_settings)
     }
 }

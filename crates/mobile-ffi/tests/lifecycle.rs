@@ -593,3 +593,46 @@ fn a_file_browser_sees_the_index_including_what_was_freed() {
     assert_eq!(found, ["album/deep/two.jpg", "album/one.jpg"]);
 }
 
+
+/// Files and Private Vault are the same browser over two areas: *Add files*
+/// puts a file in the one being looked at, whatever the privacy setting says,
+/// and each lists only its own -- folders included.
+#[test]
+fn each_area_lists_its_own_and_adds_into_itself() {
+    let dir = scratch();
+    let staging = scratch();
+    let root = dir.path().display().to_string();
+    create(root.clone()).unwrap();
+    // A phone's setting: new files private. Adding into Files overrides it.
+    let private = qurb_mobile::Settings { own_files_private: true, ..Default::default() };
+    let qurb = Qurb::open_with(root, None, private).unwrap();
+
+    for (path, area_private) in [
+        ("shared.txt", false),
+        ("Trips/map.pdf", false),
+        ("Passport.pdf", true),
+        ("Tax/2025.pdf", true),
+    ] {
+        let source = staging.path().join("source");
+        std::fs::write(&source, path.as_bytes()).unwrap();
+        qurb.import_into(source.display().to_string(), path.into(), area_private).unwrap();
+    }
+
+    let files = qurb.browse_in(String::new(), false).unwrap();
+    assert_eq!(files.folders, ["Trips"]);
+    assert_eq!(files.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["shared.txt"]);
+    assert!(files.files.iter().all(|f| !f.private));
+
+    let vault = qurb.browse_in(String::new(), true).unwrap();
+    assert_eq!(vault.folders, ["Tax"], "a folder of private files is not a folder of the shared area");
+    assert_eq!(vault.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["Passport.pdf"]);
+    assert!(vault.files.iter().all(|f| f.private));
+
+    let found: Vec<_> = qurb.search_in("pdf".into(), 10, true).unwrap().into_iter().map(|f| f.path).collect();
+    assert_eq!(found, ["Passport.pdf", "Tax/2025.pdf"]);
+    let found: Vec<_> = qurb.search_in("pdf".into(), 10, false).unwrap().into_iter().map(|f| f.path).collect();
+    assert_eq!(found, ["Trips/map.pdf"]);
+
+    // Everything, as before, for whatever asks without an area.
+    assert_eq!(qurb.browse(String::new()).unwrap().folders, ["Tax", "Trips"]);
+}

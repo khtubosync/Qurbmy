@@ -22,21 +22,33 @@ link-time optimisation does; the debug build stays quick.
 
 ## What it does
 
-Five places under a tab bar, plus setup, scanning and the share sheet:
+Designed from the owner's direction
+([docs/design/direction.md](../docs/design/direction.md), decision
+[0048](../docs/decisions/0048-the-design-direction.md)), in the same language
+as the desktop window: Qurb green on a quiet environment, Inter, Lucide icons,
+glass surfaces. Four places under a floating tab bar, the places reached from
+them, and the sheets that rise over them:
 
-| screen | what it is for |
+| place | what it is for |
 |---|---|
-| Home | which devices this phone knows; a card, shown only while it is true, saying how many files exist on this phone and nowhere else and what to do about it; what happened lately. The big button is *Connect a device* until one is connected, and *Sync now* after |
-| Vault | the files folder by folder, with search across all of them and sorting by name, newest or largest, and where each file's bytes are: on this phone and another device, only on this phone, or on another device and not here. Tapping one offers what that allows — open, save a copy, send to a device, free phone space, download, rename, move to another folder, delete (into Recently deleted). ⋯ makes a new folder, saves everything in the folder to the phone at once, or opens Recently deleted. Add files adds into the folder being looked at. Back goes up a folder |
-| Home, conflicts | a card when two devices changed a file, with both versions and the choices ([0043](../docs/decisions/0043-settling-a-conflict.md)) |
-| Settings, Folders | which devices each folder is on, and whether this phone keeps it or downloads each file when opened ([0044](../docs/decisions/0044-sharing-with-chosen-devices.md), [0045](../docs/decisions/0045-a-folder-kept-remotely.md)) |
-| Settings, Recently deleted | files deleted here or elsewhere, kept 30 days, restorable ([0042](../docs/decisions/0042-recently-deleted.md)) |
-| Devices | the connected devices, which of them keep this phone's files, a way to send one files, and removing one after saying what that does ([0041](../docs/decisions/0041-removing-a-device.md)). *Connect a device* scans another device's code, shows one on this phone for the other to scan or type, or takes one typed |
-| Transfers | what this phone has sent that has not been collected, with a way to stop it, and the history |
-| Settings | this phone's name, *Keep new files private*, the recovery phrase shown again, what qurb takes in space and a way to free what nothing needs, background sync, the rendezvous service, the version |
+| Home | is my Qurb space okay? One state — *Everything is synced*, *Syncing…*, files waiting to reach your devices, *Add your first device* — with a ring that turns while syncing; one action, *Send to device*; a line of facts and *Sync now*; attention when a file has two versions ([0043](../docs/decisions/0043-settling-a-conflict.md)); Recent, and *See all* for Activity. Pulling down syncs |
+| Files | the shared space, folder by folder: search across all of them, breadcrumbs, folders as tiles apart from files, and each file's state in words — *On this phone*, *Available elsewhere*, *Only copy here*, *Downloading*. Tapping a file opens a sheet: its details, then open, keep on this phone, free local space (never the only copy), send to a device, save a copy, rename, move, delete (into Recently deleted). ⋯ sorts, makes a folder, saves everything here to the phone. *Add files* adds into the shared space. Back goes up a folder |
+| Private Vault | a step inside Files: this phone's own files, in the same browser. *Add files* here adds privately, whatever *Keep new files private* says |
+| Devices | this phone and each paired device as cards, with when each was last here; a device's sheet chooses whether it keeps a backup of the Private Vault, sends it files, and removes it after saying what that does ([0041](../docs/decisions/0041-removing-a-device.md)). *Add* scans a code, shows one on this phone, or takes one typed |
+| Settings | grouped lists: this phone and its key, devices, storage (space, who has each folder — [0044](../docs/decisions/0044-sharing-with-chosen-devices.md), [0045](../docs/decisions/0045-a-folder-kept-remotely.md) — Recently deleted, freeing unused space), privacy, notifications, the recovery phrase, appearance, and advanced (background sync, rendezvous, relay, version) |
+| Activity | from Home: everything this phone did, newest first |
+| Recently deleted | from Files and Settings: 30 days, restore everywhere or delete for good ([0042](../docs/decisions/0042-recently-deleted.md)) |
+| Transfers | a bar above the tabs while this phone syncs or has sent something not yet collected; it opens a sheet with what is waiting (stoppable) and what finished |
 | setup | create an identity, show the 24 words and have three of them typed back; or restore from them |
 | scan | the camera, reading the code another device shows when connecting |
-| share | anything on the phone, from the system share sheet: saved to My Vault, or sent to one paired device |
+| share | anything on the phone, from the system share sheet: saved to Private Vault, saved to Files, or sent to one paired device |
+
+Light only for now: the dark theme is designed after the light one is
+approved. Sheets blur what is behind them where the phone does that (Android
+12 and later, when the device allows); elsewhere a surface is a translucent
+fill over the still environment, which looks the same and costs nothing.
+Motion follows the phone's animation setting: with animations off, nothing
+moves.
 
 **Files added on the phone are private by default** — decision
 [0036](../docs/decisions/0036-a-phone-keeps-its-own-files.md). They go to no

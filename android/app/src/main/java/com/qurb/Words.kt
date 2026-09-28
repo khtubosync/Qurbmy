@@ -5,17 +5,16 @@ import android.view.View
 import androidx.core.content.ContextCompat
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
-import uniffi.qurb_mobile.Available
-import uniffi.qurb_mobile.FileEntry
 import uniffi.qurb_mobile.Happening
 import uniffi.qurb_mobile.QurbException
 
 /**
  * How the app says things, in one place.
  *
- * The product's vocabulary is deliberate -- *on this phone*, *kept on*, *free
- * phone space*, *sent*, never *cloud* or *upload* -- and a screen that
- * improvised its own wording would drift from it. So every screen asks here.
+ * The vocabulary is the direction's (docs/design/direction.md §11, §52): *on
+ * this phone*, *available elsewhere*, *only copy here*, *free local space*,
+ * *send to device* -- never replica, chunk, peer or evict. A screen that
+ * improvised its own wording would drift from it, so every screen asks here.
  */
 object Words {
 
@@ -45,87 +44,83 @@ object Words {
 
     private fun plural(n: Long, unit: String) = "$n $unit${if (n == 1L) "" else "s"} ago"
 
-    /**
-     * Where a file's bytes are, as one short line, with the colour of its dot.
-     *
-     * `keeper` is the one other device that can be named as having it, when
-     * there is exactly one that could; otherwise the line says "another
-     * device" rather than guess. The third case is the one that matters: a
-     * file on this phone and nowhere else is lost with the phone, and is never
-     * offered as space to free.
-     */
-    fun where(context: Context, file: FileEntry, keeper: String?): Pair<String, Int> {
-        val kept = keeper ?: "another device"
-        val shared = if (file.private) "" else " · shared"
-        return when (file.available) {
-            Available.HERE ->
-                "${size(file.size)} · on this phone and on $kept$shared" to
-                    ContextCompat.getColor(context, R.color.safe)
-            Available.ONLY_HERE ->
-                "${size(file.size)} · only on this phone$shared" to
-                    ContextCompat.getColor(context, R.color.notice)
-            Available.ELSEWHERE ->
-                "${size(file.size)} · on $kept, not on this phone$shared" to
-                    ContextCompat.getColor(context, R.color.ink_soft)
-        }
-    }
-
     fun files(n: Int) = if (n == 1) "1 file" else "$n files"
 
-    /** One line of history, in words rather than the engine's event names. */
-    fun happened(h: Happening): Pair<String, String> {
-        val what = h.path ?: h.device ?: ""
+    fun devices(n: Int) = if (n == 1) "1 device" else "$n devices"
+
+    /**
+     * One entry of history: its icon, its subject -- the file, or the device
+     * for a pairing -- and what happened, in words rather than the engine's
+     * event names.
+     */
+    fun happened(h: Happening): Triple<Int, String, String> {
+        val subject = h.path?.substringAfterLast('/') ?: h.device ?: ""
         val who = h.device ?: "another device"
-        val headline = when (h.kind) {
-            "stored" -> "Added $what"
-            "deleted" -> "Deleted $what"
-            "received" -> if (h.detail?.startsWith("sent to this device") == true) {
-                "$who sent $what"
-            } else {
-                "$what arrived"
-            }
-            "sent" -> "Sending $what to $who"
-            "collected" -> "$who has $what"
-            "evicted" -> "Freed phone space: $what"
-            "restored" -> "Downloaded $what again"
-            "conflicted" -> "Two devices changed $what"
-            "paired" -> "Connected to $what"
-            "removed" -> "Removed $what from this phone"
-            "cancelled" -> "Stopped sending $what"
-            "failed" -> "Could not finish $what"
-            else -> what.ifEmpty { h.kind }
+        val (icon, what) = when (h.kind) {
+            "stored" -> R.drawable.ic_hard_drive to "Saved on this phone"
+            "deleted" -> R.drawable.ic_trash_2 to "Deleted"
+            "received" -> R.drawable.ic_download to
+                if (h.detail?.startsWith("sent to this device") == true) "Sent to you by $who" else "Arrived from $who"
+            "sent" -> R.drawable.ic_send to "Ready for $who"
+            "collected" -> R.drawable.ic_circle_check to "Collected by $who"
+            "evicted" -> R.drawable.ic_cloud_off to "Local space freed"
+            "restored" -> R.drawable.ic_rotate_ccw to "Restored"
+            "conflicted" -> R.drawable.ic_git_compare to "Changed here and on $who"
+            "paired" -> R.drawable.ic_monitor_smartphone to "Added to your devices"
+            "removed" -> R.drawable.ic_x to "Removed from this phone"
+            "cancelled" -> R.drawable.ic_x to "Send cancelled"
+            "failed" -> R.drawable.ic_circle_alert to "Didn't finish"
+            else -> R.drawable.ic_info to h.kind
         }
-        // The detail only where it adds something: why it failed, what a
-        // conflict was filed as. A connection's detail is the device's name,
-        // which the headline already says.
-        val extra = h.detail?.takeIf {
-            h.kind in setOf("failed", "conflicted") && it.isNotBlank()
+        // The detail only where it adds something: why it failed. A
+        // connection's detail is the device's name, which the subject says.
+        val extra = h.detail?.takeIf { h.kind == "failed" && it.isNotBlank() }
+        return Triple(icon, subject, listOfNotNull(what, ago(h.at), extra).joinToString("  ·  "))
+    }
+
+    /** What a finished transfer somebody meant came to, or null for sync. */
+    fun finished(h: Happening): String? {
+        val who = h.device ?: "another device"
+        return when (h.kind) {
+            "received" -> if (h.detail?.startsWith("sent to this device") == true) "Received from $who" else null
+            "collected" -> "Sent to $who"
+            "cancelled" -> "Taken back before $who collected it"
+            "failed" -> "Didn't finish"
+            else -> null
         }
-        return headline to listOfNotNull(ago(h.at), extra).joinToString(" · ")
     }
 
     /**
-     * The 24 words laid out to copy onto paper: numbered, two columns, in a
-     * fixed-width face so the columns line up. The realistic failure is losing
-     * one's place halfway down the list.
+     * The 24 words laid out to copy onto paper (§47): numbered, in order,
+     * three to a row, each on a tile -- the same as the desktop draws them.
+     * The realistic failure is losing one's place halfway down the list.
      */
     fun phraseView(context: Context, phrase: String): View {
         val words = phrase.trim().split(Regex("\\s+"))
-        val half = (words.size + 1) / 2
-        val rows = (0 until half).joinToString("\n") { row ->
-            val left = "%2d. %-9s".format(row + 1, words[row])
-            val right = words.getOrNull(row + half)?.let { "%2d. %s".format(row + half + 1, it) } ?: ""
-            "$left   $right"
-        }
         val scale = context.resources.displayMetrics.density
-        return android.widget.TextView(context).apply {
-            text = rows
-            typeface = android.graphics.Typeface.MONOSPACE
-            textSize = 16f
-            setLineSpacing(0f, 1.25f)
-            setTextColor(ContextCompat.getColor(context, R.color.ink))
-            setPadding((24 * scale).toInt(), (8 * scale).toInt(), (24 * scale).toInt(), 0)
+        val grid = android.widget.GridLayout(context).apply {
+            columnCount = 3
+            useDefaultMargins = false
         }
+        words.forEachIndexed { i, word ->
+            grid.addView(android.widget.TextView(context).apply {
+                text = android.text.SpannableStringBuilder().apply {
+                    append("${i + 1}  ", android.text.style.ForegroundColorSpan(
+                        ContextCompat.getColor(context, R.color.text_3)
+                    ), 0)
+                    append(word)
+                }
+                setTextAppearance(R.style.Text_Name)
+                background = ContextCompat.getDrawable(context, R.drawable.tile)
+                setPadding((10 * scale).toInt(), (9 * scale).toInt(), (6 * scale).toInt(), (9 * scale).toInt())
+                maxLines = 1
+            }, android.widget.GridLayout.LayoutParams().apply {
+                width = 0
+                columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f)
+                setMargins((3 * scale).toInt(), (3 * scale).toInt(), (3 * scale).toInt(), (3 * scale).toInt())
+            })
+        }
+        return grid
     }
 
     /** Say a failure, in words a person can act on. */

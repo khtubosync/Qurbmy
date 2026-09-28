@@ -1,13 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A setting or a fact: a label, what it is now, and optionally a switch. -->
+<!-- One item of a settings group (§23): what it is, a line about it, and what
+     it is now — a value, a switch, or a way further in. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:minHeight="@dimen/touch"
-    android:background="?attr/selectableItemBackground"
+    android:background="@drawable/row_bg"
     android:gravity="center_vertical"
+    android:minHeight="56dp"
     android:orientation="horizontal"
-    android:paddingHorizontal="@dimen/gap_m"
+    android:paddingHorizontal="16dp"
     android:paddingVertical="12dp">
 
     <LinearLayout
@@ -20,14 +22,14 @@
             android:id="@+id/label"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textAppearance="@style/Text.Body" />
+            android:textAppearance="@style/Text.Name" />
 
         <TextView
             android:id="@+id/value"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
-            android:textAppearance="@style/Text.Quiet" />
+            android:textAppearance="@style/Text.Meta" />
     </LinearLayout>
 
     <com.google.android.material.materialswitch.MaterialSwitch
@@ -35,5 +37,17 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="@dimen/gap_m"
-        android:visibility="gone" />
+        android:visibility="gone"
+        app:thumbTint="@color/switch_thumb"
+        app:trackTint="@color/switch_track" />
+
+    <ImageView
+        android:id="@+id/chevron"
+        android:layout_width="18dp"
+        android:layout_height="18dp"
+        android:layout_marginStart="@dimen/gap_s"
+        android:importantForAccessibility="no"
+        android:src="@drawable/ic_chevron_right"
+        android:visibility="gone"
+        app:tint="@color/text_3" />
 </LinearLayout>

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Marks a sheet that has begun its list of actions. -->
+    <item name="sheet_actions" type="id" />
+</resources>

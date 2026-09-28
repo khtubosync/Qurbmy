@@ -2,39 +2,52 @@ package com.qurb
 
 import android.view.View
 import android.widget.EditText
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import android.widget.LinearLayout
+import androidx.core.content.ContextCompat
 import com.qurb.databinding.ScreenPageBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.qurb_mobile.DeletedFile
+import uniffi.qurb_mobile.PeerInfo
 import uniffi.qurb_mobile.ShareTarget
 import uniffi.qurb_mobile.SharedFolder
 import uniffi.qurb_mobile.Usage
 
 /**
- * The rest: this phone's name and privacy default, what qurb costs in space,
- * how syncing is arranged, and what version this is.
+ * Settings (direction §23): grouped lists, quieter than everything else, in
+ * the direction's order -- this phone, devices, storage, privacy,
+ * notifications, recovery, appearance, advanced.
  */
 class SettingsScreen(app: MainActivity) : Screen(app) {
 
     private val views = ScreenPageBinding.inflate(app.layoutInflater)
     override val view: View get() = views.root
+    override val tab = R.id.tab_settings
 
     init {
         views.title.text = "Settings"
+        views.refresh.setColorSchemeResources(R.color.green)
         views.refresh.setOnRefreshListener { refresh() }
     }
+
+    private class State(
+        val usage: Usage,
+        val background: String,
+        val deleted: List<DeletedFile>,
+        val peers: List<PeerInfo>,
+    )
 
     override fun refresh() {
         scope.launch {
             try {
-                val (usage, background, deleted) = withContext(Dispatchers.IO) {
+                val state = withContext(Dispatchers.IO) {
                     // `state` waits on WorkManager's own database; off the main
                     // thread like everything else.
-                    Triple(engine().usage(), SyncWorker.state(app), engine().recentlyDeleted())
+                    val engine = engine()
+                    State(engine.usage(), SyncWorker.state(app), engine.recentlyDeleted(), engine.peers())
                 }
-                show(usage, background, deleted)
+                show(state)
             } catch (e: Exception) {
                 app.fail("Could not read the settings", e)
             } finally {
@@ -43,66 +56,69 @@ class SettingsScreen(app: MainActivity) : Screen(app) {
         }
     }
 
-    private fun show(usage: Usage, background: String, deleted: List<DeletedFile>) {
+    private fun show(state: State) {
         val page = views.sections
         page.removeAllViews()
 
-        page.heading("This phone")
-        page.setting("Name", "${android.os.Build.MODEL ?: "phone"} — what your other devices call it")
-        val private = Engine.ownFilesPrivate(app)
-        page.setting(
-            "Keep new files private",
-            if (private) {
-                "Files added here stay on this phone, and on devices you choose to keep them"
-            } else {
-                "Files added here go to all your devices"
-            },
-        ).apply {
-            toggle.visibility = View.VISIBLE
-            toggle.isChecked = private
-            root.setOnClickListener { toggle.toggle() }
-            toggle.setOnCheckedChangeListener { _, on -> setPrivate(on) }
+        kit.groupTitle(page, "This phone")
+        var group = kit.group(page)
+        kit.item(group, "Name", "${android.os.Build.MODEL ?: "Phone"} — what your other devices call it")
+        kit.item(group, "Key protection",
+            "In the Android Keystore, behind this phone's own lock. Nobody without the phone unlocked can use it.")
+
+        kit.groupTitle(page, "Devices")
+        group = kit.group(page)
+        kit.item(group, "Your devices",
+            if (state.peers.isEmpty()) "None yet" else state.peers.joinToString(", ") { it.name }) {
+            app.go(R.id.tab_devices)
         }
 
-        page.heading("Your key")
-        page.setting(
-            "Recovery phrase",
-            "The 24 words that are your key. Show them to write out a new copy.",
-        ) { warnThenShowPhrase() }
+        kit.groupTitle(page, "Storage")
+        group = kit.group(page)
+        kit.item(group, "Your files", Words.size(state.usage.logical))
+        kit.item(group, "Qurb on this phone", Words.size(state.usage.onDisk))
+        kit.item(group, "Who has each folder",
+            "Which devices each folder is on, and whether this phone keeps it") { chooseFolder() }
+        kit.item(group, "Recently deleted",
+            if (state.deleted.isEmpty()) "Nothing. Files deleted on any device are kept 30 days"
+            else "${Words.files(state.deleted.size)}, ${Words.size(state.deleted.sumOf { it.size })} — restorable for 30 days") {
+            app.push(DeletedScreen(app))
+        }
+        kit.item(group, "Free unused space", "Clears what nothing needs any more", chevron = false) { tidy() }
 
-        page.heading("Space")
-        page.setting("Your files", Words.size(usage.logical))
-        page.setting("qurb on this phone", Words.size(usage.onDisk))
-        page.setting(
-            "Recently deleted",
-            if (deleted.isEmpty()) {
-                "Nothing. Files deleted here or on another device are kept 30 days"
-            } else {
-                "${Words.files(deleted.size)}, ${Words.size(deleted.sumOf { it.size })} — " +
-                    "kept 30 days, and restorable"
-            },
-        ) { if (deleted.isNotEmpty()) RecentlyDeleted.show(app) }
-        page.setting("Free unused space", "Clears what nothing needs any more") { tidy() }
+        kit.groupTitle(page, "Privacy")
+        group = kit.group(page)
+        val private = Engine.ownFilesPrivate(app)
+        kit.toggle(group, "Keep new files private",
+            if (private) "Files that arrive on this phone from other apps go to your Private Vault"
+            else "Files that arrive on this phone from other apps go to all your devices",
+            private) { setPrivate(it) }
 
-        page.heading("Folders")
-        page.setting(
-            "Who has each folder",
-            "Which devices each is on, and whether it is kept on this phone",
-        ) { chooseFolder() }
+        kit.groupTitle(page, "Notifications")
+        group = kit.group(page)
+        kit.item(group, "On this phone",
+            "Qurb doesn't raise notifications here yet. What was sent to you is in Transfers, from Home.")
 
-        page.heading("Syncing")
-        page.setting("Background sync", background) { explainBackground() }
-        page.setting("Rendezvous service", Engine.signalUrl(app)) { editSignal() }
-        page.setting(
-            "Relay",
-            Engine.relayAddress(app) ?: "None — devices must reach each other directly",
-        ) { editRelay() }
+        kit.groupTitle(page, "Recovery")
+        group = kit.group(page)
+        kit.item(group, "Recovery phrase", "The 24 words that are your key. Show them to write out a new copy.") {
+            warnThenShowPhrase()
+        }
 
-        page.heading("About")
+        kit.groupTitle(page, "Appearance")
+        group = kit.group(page)
+        kit.item(group, "Theme", "Light. A dark theme comes after this one is settled.")
+        kit.item(group, "Motion", if (Kit.calm()) "Reduced, as this phone's settings ask" else "Full; follows this phone's animation settings")
+
+        kit.groupTitle(page, "Advanced")
+        group = kit.group(page)
+        kit.item(group, "Background sync", state.background) { explainBackground() }
+        kit.item(group, "Rendezvous service", Engine.signalUrl(app)) { editSignal() }
+        kit.item(group, "Relay", Engine.relayAddress(app) ?: "None — devices must reach each other directly") { editRelay() }
         val version = runCatching {
             app.packageManager.getPackageInfo(app.packageName, 0).versionName
         }.getOrNull() ?: "unknown"
-        page.setting("Version", "$version\n${uniffi.qurb_mobile.engineVersion()}")
+        kit.item(group, "Version", "$version\n${uniffi.qurb_mobile.engineVersion()}")
     }
 
     /**
@@ -111,34 +127,28 @@ class SettingsScreen(app: MainActivity) : Screen(app) {
      * Not a secret kept from the person holding the phone: anyone who can
      * open this app can read every file already, so the words give away
      * nothing new (decision 0033). But they are the key, so the screen says
-     * so first, and the window is kept out of screenshots while they are on it.
+     * so first, and the sheet is kept out of screenshots while they are on it.
      */
     private fun warnThenShowPhrase() {
-        MaterialAlertDialogBuilder(app)
-            .setTitle("Show your recovery phrase?")
-            .setMessage(
-                "Anyone who sees these 24 words can read every file you keep in " +
-                    "qurb, on any device. Make sure nobody is looking."
-            )
-            .setPositiveButton("Show") { _, _ ->
+        kit.sheet()
+            .header(R.drawable.ic_key_round, "Show your recovery phrase?")
+            .text("Anyone who sees these 24 words can read every file you keep in Qurb, on any device. " +
+                "Make sure nobody is looking.")
+            .buttons("Show") {
                 scope.launch {
                     try {
                         val phrase = withContext(Dispatchers.IO) { engine().recoveryPhrase() }
-                        MaterialAlertDialogBuilder(app)
-                            .setTitle("Your recovery phrase")
-                            .setView(Words.phraseView(app, phrase))
-                            .setPositiveButton("Hide", null)
-                            .create()
-                            .apply {
-                                window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
-                            }
+                        kit.sheet()
+                            .header(R.drawable.ic_key_round, "Your recovery phrase", "Numbered, in order")
+                            .view(Words.phraseView(app, phrase), top = 16)
+                            .buttons("Hide", secondary = "Close") {}
+                            .secure()
                             .show()
                     } catch (e: Exception) {
                         app.fail("Could not show the words", e)
                     }
                 }
             }
-            .setNegativeButton("Cancel", null)
             .show()
     }
 
@@ -156,8 +166,8 @@ class SettingsScreen(app: MainActivity) : Screen(app) {
     }
 
     /**
-     * Which devices a folder is shared with (decision 0044): the folders,
-     * then the devices for the one chosen.
+     * Which devices a folder is on (decision 0044), and whether this phone
+     * keeps it or downloads each file when opened (0045).
      */
     private fun chooseFolder() {
         scope.launch {
@@ -167,40 +177,40 @@ class SettingsScreen(app: MainActivity) : Screen(app) {
                 app.fail("Could not read the folders", e)
                 return@launch
             }
-            if (folders.isEmpty()) {
-                app.say("No folders yet")
-                return@launch
-            }
-            val names = folders.map { f ->
-                val who = if (f.everyone) {
-                    "every device"
-                } else {
-                    f.members.joinToString(", ") { id -> devices.find { it.id == id }?.name ?: "a removed device" }
+            val sheet = kit.sheet().header(R.drawable.ic_folder, "Who has each folder",
+                "A folder is on every device unless you choose")
+            if (folders.isEmpty()) sheet.text("No folders yet. Folders appear here once they hold a file.")
+            for (f in folders) {
+                val who = if (f.everyone) "Every device" else f.members.joinToString(", ") { id ->
+                    devices.find { it.id == id }?.name ?: "a removed device"
                 }
-                "${f.folder}\n$who" + if (f.remote) " · on this phone only when opened" else ""
+                sheet.action(R.drawable.ic_folder, f.folder + "  ·  " + who +
+                    if (f.remote) "  ·  downloaded when opened" else "") { folderSheet(f, devices) }
             }
-            MaterialAlertDialogBuilder(app)
-                .setTitle("Folders")
-                .setItems(names.toTypedArray()) { _, which -> folderActions(folders[which], devices) }
-                .setNegativeButton("Close", null)
-                .show()
+            sheet.show()
         }
     }
 
-    private fun folderActions(folder: SharedFolder, devices: List<ShareTarget>) {
-        val actions = listOf<Pair<String, () -> Unit>>(
-            "Choose devices…" to { chooseDevices(folder, devices) },
-            if (folder.remote) {
-                "Keep on this phone" to { keepHere(folder.folder) }
-            } else {
-                "Free space: download only when opened" to { keepRemotely(folder.folder) }
-            },
-        )
-        MaterialAlertDialogBuilder(app)
-            .setTitle(folder.folder)
-            .setItems(actions.map { it.first }.toTypedArray()) { _, which -> actions[which].second() }
-            .setNegativeButton("Cancel", null)
-            .show()
+    private fun folderSheet(folder: SharedFolder, devices: List<ShareTarget>) {
+        val sheet = kit.sheet().header(R.drawable.ic_folder, folder.folder,
+            "A device you leave out keeps what it has, and gets nothing new")
+        val chosen = devices.associate { it.id to (folder.everyone || it.id in folder.members) }.toMutableMap()
+        val box = LinearLayout(app).apply { orientation = LinearLayout.VERTICAL }
+        val group = kit.group(box)
+        for (d in devices) {
+            kit.toggle(group, d.name, if (d.here) "This phone" else "", chosen[d.id] == true) { chosen[d.id] = it }
+        }
+        sheet.view(box, top = 16)
+        sheet.action(
+            if (folder.remote) R.drawable.ic_download else R.drawable.ic_cloud_off,
+            if (folder.remote) "Keep this folder on this phone" else "Free local space: download files when opened",
+        ) { if (folder.remote) keepHere(folder.folder) else keepRemotely(folder.folder) }
+        sheet.buttons("Save") {
+            val members = chosen.filterValues { it }.keys.toList()
+            // All ticked is no rule at all, so a device paired later is in too.
+            setSharing(folder.folder, if (members.size == devices.size) emptyList() else members)
+        }
+        sheet.show()
     }
 
     /** Decision 0045: listed here, fetched when opened, never the only copy freed. */
@@ -210,7 +220,7 @@ class SettingsScreen(app: MainActivity) : Screen(app) {
                 val r = withContext(Dispatchers.IO) { engine().keepRemotely(folder) }
                 val kept = if (r.kept.isEmpty()) "" else
                     " ${Words.files(r.kept.size)} stayed: this phone has the only copy."
-                app.say("Freed ${Words.size(r.bytes)}.$kept")
+                app.say("Freed ${Words.size(r.bytes)}. Nothing was deleted.$kept")
             } catch (e: Exception) {
                 app.fail("Could not free that folder", e)
             } finally {
@@ -233,29 +243,12 @@ class SettingsScreen(app: MainActivity) : Screen(app) {
         }
     }
 
-    private fun chooseDevices(folder: SharedFolder, devices: List<ShareTarget>) {
-        val ticked = BooleanArray(devices.size) { folder.everyone || devices[it].id in folder.members }
-        MaterialAlertDialogBuilder(app)
-            .setTitle(folder.folder)
-            .setMultiChoiceItems(devices.map { it.name }.toTypedArray(), ticked) { _, which, on ->
-                ticked[which] = on
-            }
-            .setPositiveButton("Save") { _, _ ->
-                val chosen = devices.filterIndexed { i, _ -> ticked[i] }.map { it.id }
-                // All ticked is no rule at all, so a device paired later is in too.
-                setSharing(folder.folder, if (chosen.size == devices.size) emptyList() else chosen)
-            }
-            .setNeutralButton("Every device") { _, _ -> setSharing(folder.folder, emptyList()) }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
     private fun setSharing(folder: String, members: List<String>) {
         scope.launch {
             try {
                 withContext(Dispatchers.IO) { engine().setSharing(folder, members) }
                 app.say(
-                    if (members.isEmpty()) "$folder is on every device"
+                    if (members.isEmpty()) "$folder is on all your devices"
                     else "Saved. A device left out keeps what it has, and gets nothing new."
                 )
                 SyncWorker.runNow(app)
@@ -269,9 +262,7 @@ class SettingsScreen(app: MainActivity) : Screen(app) {
         scope.launch {
             try {
                 val tidied = withContext(Dispatchers.IO) { engine().housekeep() }
-                app.say(
-                    if (tidied.freed > 0uL) "Freed ${Words.size(tidied.freed)}" else "Nothing to free"
-                )
+                app.say(if (tidied.freed > 0uL) "Freed ${Words.size(tidied.freed)}" else "Nothing to free")
             } catch (e: Exception) {
                 app.fail("Could not free space", e)
             } finally {
@@ -287,22 +278,26 @@ class SettingsScreen(app: MainActivity) : Screen(app) {
      * that says so.
      */
     private fun explainBackground() {
-        MaterialAlertDialogBuilder(app)
-            .setTitle("Background sync")
-            .setMessage(
-                "Android decides when this runs. Fifteen minutes is the shortest period it " +
-                    "accepts, and an idle phone may go much longer between attempts.\n\n" +
-                    "Both devices have to be switched on at the same moment for a sync to " +
-                    "happen, so a computer that is off is missed until next time."
-            )
-            .setPositiveButton("OK", null)
-            .setNeutralButton("Run one now") { _, _ ->
+        kit.sheet()
+            .header(R.drawable.ic_refresh_cw, "Background sync")
+            .text("Android decides when this runs. Fifteen minutes is the shortest period it accepts, " +
+                "and an idle phone may go much longer between attempts. With push, another device " +
+                "wakes this phone when it has something.\n\nBoth devices have to be on at the same " +
+                "moment for a sync to happen, so a computer that is off is missed until next time.")
+            .buttons("Run one now", secondary = "Close") {
                 // Through the scheduler rather than directly, so this exercises
                 // the same path the periodic schedule uses.
                 SyncWorker.runNow(app)
                 app.say("Queued. It runs when Android allows.")
             }
             .show()
+    }
+
+    private fun field(start: String, hint: String): EditText = EditText(app).apply {
+        setText(start)
+        this.hint = hint
+        setPadding(kit.dp(16), kit.dp(14), kit.dp(16), kit.dp(14))
+        background = ContextCompat.getDrawable(app, R.drawable.glass_group)
     }
 
     /**
@@ -312,36 +307,34 @@ class SettingsScreen(app: MainActivity) : Screen(app) {
      * every sync after.
      */
     private fun editRelay() {
-        val input = EditText(app).apply {
-            setText(Engine.relayAddress(app).orEmpty())
-            hint = "relay.example.com:9001"
-            setPadding(48, 32, 48, 8)
+        val input = field(Engine.relayAddress(app).orEmpty(), "relay.example.com:9001")
+        val says = android.widget.TextView(app).apply {
+            setTextAppearance(R.style.Text_Meta)
+            setTextColor(kit.color(R.color.error))
+            visibility = View.GONE
         }
-        val dialog = MaterialAlertDialogBuilder(app)
-            .setTitle("Relay")
-            .setMessage(
-                "When this phone and another device cannot reach each other directly — " +
-                    "common on mobile data — their encrypted traffic goes through a relay " +
-                    "instead. It cannot read it.\n\nRun `qurb relay` on a server of your own " +
-                    "and enter its address and port. Leave it empty for none."
-            )
-            .setView(input)
-            .setPositiveButton("Save", null)
-            .setNegativeButton("Cancel", null)
-            .create()
-        dialog.show()
-        dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE).setOnClickListener {
+        val sheet = kit.sheet()
+            .header(R.drawable.ic_arrow_up_down, "Relay")
+            .text("When this phone and another device can't reach each other directly — common on " +
+                "mobile data — their encrypted traffic goes through a relay instead. It can't read it.\n\n" +
+                "Run `qurb relay` on a server of your own and enter its address and port. Leave it " +
+                "empty for none.")
+            .view(input, top = 14)
+            .view(says, top = 6)
+        val save = kit.button("Save") {
             val text = input.text.toString().trim()
             val problem = if (text.isEmpty()) null else uniffi.qurb_mobile.relayAddressProblem(text)
             if (problem != null) {
-                input.error = problem
-                return@setOnClickListener
+                says.text = problem
+                says.visibility = View.VISIBLE
+                return@button
             }
             Engine.setRelayAddress(app, text.ifEmpty { null })
-            dialog.dismiss()
+            sheet.dismiss()
             app.say(if (text.isEmpty()) "No relay" else "Saved")
             refresh()
         }
+        sheet.view(save, top = 16).show()
     }
 
     /**
@@ -349,24 +342,18 @@ class SettingsScreen(app: MainActivity) : Screen(app) {
      * `qurb signal` and point the phone at it.
      */
     private fun editSignal() {
-        val input = EditText(app).apply {
-            setText(Engine.signalUrl(app))
-            setPadding(48, 32, 48, 8)
-        }
-        MaterialAlertDialogBuilder(app)
-            .setTitle("Rendezvous service")
-            .setMessage(
-                "Two devices find each other through this when they are not on the same " +
-                    "network. Run `qurb signal` on a server of your own and enter the address " +
-                    "it prints — wss://… for one reachable from anywhere."
-            )
-            .setView(input)
-            .setPositiveButton("Save") { _, _ ->
+        val input = field(Engine.signalUrl(app), "wss://…")
+        kit.sheet()
+            .header(R.drawable.ic_link, "Rendezvous service")
+            .text("Two devices find each other through this when they're not on the same network. " +
+                "Run `qurb signal` on a server of your own and enter the address it prints — wss://… " +
+                "for one reachable from anywhere. It never sees your files.")
+            .view(input, top = 14)
+            .buttons("Save") {
                 Engine.setSignalUrl(app, input.text.toString().trim())
                 app.say("Saved")
                 refresh()
             }
-            .setNegativeButton("Cancel", null)
             .show()
     }
 }

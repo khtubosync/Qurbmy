@@ -1,11 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Five places, which is as many as a bottom bar holds. The brief lists six;
-     Activity lives under Transfers, since what happened and what is moving are
-     the same question asked at different times. -->
+<!-- Four places (direction §25). Private Vault is reached from Files, Activity
+     from Home, Transfers from a bar that appears only while something moves;
+     none of them takes a permanent slot. -->
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:id="@+id/tab_home" android:icon="@drawable/ic_home" android:title="Home" />
-    <item android:id="@+id/tab_vault" android:icon="@drawable/ic_vault" android:title="Vault" />
-    <item android:id="@+id/tab_devices" android:icon="@drawable/ic_devices" android:title="Devices" />
-    <item android:id="@+id/tab_transfers" android:icon="@drawable/ic_transfers" android:title="Transfers" />
+    <item android:id="@+id/tab_home" android:icon="@drawable/ic_house" android:title="Home" />
+    <item android:id="@+id/tab_files" android:icon="@drawable/ic_folder" android:title="Files" />
+    <item android:id="@+id/tab_devices" android:icon="@drawable/ic_monitor_smartphone" android:title="Devices" />
     <item android:id="@+id/tab_settings" android:icon="@drawable/ic_settings" android:title="Settings" />
 </menu>

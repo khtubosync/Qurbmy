@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The mark's glyph, for the small tile beside the name. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="32dp" android:height="32dp"
+    android:viewportWidth="32" android:viewportHeight="32">
+    <path android:pathData="M8.2,14.4 a6.2,6.2 0 1,0 12.4,0 a6.2,6.2 0 1,0 -12.4,0"
+        android:strokeColor="#FFFFFF" android:strokeWidth="2.6" />
+    <path android:pathData="M20.6,11 V24.5"
+        android:strokeColor="#FFFFFF" android:strokeWidth="2.6" android:strokeLineCap="round" />
+    <path android:pathData="M12.5,14.4 a1.9,1.9 0 1,0 3.8,0 a1.9,1.9 0 1,0 -3.8,0"
+        android:fillColor="#BDE7D6" />
+</vector>

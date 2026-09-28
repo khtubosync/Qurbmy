@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Dark icons in the status bar, over the paper-coloured light theme.
-         Without it the clock and battery are white on near-white. -->
+    <!-- Dark icons in the status bar, over the light environment. -->
     <bool name="light_bars">true</bool>
 </resources>

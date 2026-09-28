@@ -1,33 +1,77 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A scrolling page of sections, filled from code. Transfers and Settings. -->
+<!-- A scrolling page of sections, filled from code: Devices, Settings, and
+     the places reached from others (Activity, Recently deleted), which show
+     the way back above their title. -->
 <androidx.swiperefreshlayout.widget.SwipeRefreshLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/refresh"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <ScrollView
+    <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
-        android:layout_height="match_parent">
+        android:layout_height="match_parent"
+        android:clipToPadding="false"
+        android:paddingBottom="@dimen/nav_clearance">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:paddingBottom="@dimen/gap_xl">
+            android:paddingHorizontal="@dimen/gutter"
+            android:paddingTop="12dp">
 
             <TextView
-                android:id="@+id/title"
+                android:id="@+id/back"
                 android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:layout_marginStart="-6dp"
+                android:background="@drawable/row_bg"
+                android:drawablePadding="6dp"
+                android:gravity="center_vertical"
+                android:paddingHorizontal="6dp"
+                android:textAppearance="@style/Text.Quiet"
+                android:visibility="gone"
+                app:drawableStartCompat="@drawable/ic_arrow_left" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginHorizontal="@dimen/gap_m"
-                android:layout_marginTop="24dp"
-                android:textAppearance="@style/Text.Title" />
+                android:layout_marginTop="8dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/title"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:accessibilityHeading="true"
+                    android:textAppearance="@style/Text.Display" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/action"
+                    style="@style/Widget.Qurb.Button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="44dp"
+                    android:visibility="gone"
+                    app:iconSize="18dp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/subtitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textAppearance="@style/Text.Quiet"
+                android:visibility="gone" />
 
             <LinearLayout
                 android:id="@+id/sections"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
                 android:orientation="vertical" />
         </LinearLayout>
-    </ScrollView>
+    </androidx.core.widget.NestedScrollView>
 </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>

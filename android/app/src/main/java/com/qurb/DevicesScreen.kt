@@ -1,20 +1,19 @@
 package com.qurb
 
-import android.view.LayoutInflater
+import android.content.res.ColorStateList
 import android.view.View
-import android.view.ViewGroup
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.qurb.databinding.RowDeviceBinding
-import com.qurb.databinding.ScreenListBinding
+import android.widget.LinearLayout
+import com.qurb.databinding.CardDeviceBinding
+import com.qurb.databinding.ScreenPageBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.qurb_mobile.PeerInfo
 
 /**
- * The devices this phone knows, and which of them keep its files.
+ * Devices (direction §16): my phone, my laptop -- never nodes. What each is,
+ * its name, when it was last here; and, for each, whether it keeps a backup
+ * of this phone's Private Vault.
  *
  * Keeping is the choice decision 0036 is about: this phone's own files go to
  * no other device unless the person picks one to keep them, and the device
@@ -23,23 +22,24 @@ import uniffi.qurb_mobile.PeerInfo
  */
 class DevicesScreen(app: MainActivity) : Screen(app) {
 
-    private val views = ScreenListBinding.inflate(app.layoutInflater)
+    private val views = ScreenPageBinding.inflate(app.layoutInflater)
     override val view: View get() = views.root
+    override val tab = R.id.tab_devices
 
-    private val devices = DeviceAdapter()
+    /** A device just added, to materialise as it appears (§34). */
+    private var arrived: Set<String> = emptySet()
+    private var known: Set<String>? = null
 
     init {
         views.title.text = "Devices"
-        views.subtitle.text = "A device that keeps your files has a copy of what this phone " +
-            "adds, where only you can get at it."
-        views.action.text = "Connect a device"
-        views.action.setIconResource(R.drawable.ic_link)
+        views.subtitle.text = "Your devices, and when each was last here."
+        views.subtitle.visibility = View.VISIBLE
+        views.action.text = "Add"
+        views.action.setIconResource(R.drawable.ic_plus)
+        views.action.visibility = View.VISIBLE
         views.action.setOnClickListener { app.pair() }
-        views.empty.text = "No devices yet.\n\nOpen qurb on your computer, go to Devices and " +
-            "choose Show a code. Then tap Connect a device here."
+        views.refresh.setColorSchemeResources(R.color.green)
         views.refresh.setOnRefreshListener { refresh() }
-        views.list.layoutManager = LinearLayoutManager(app)
-        views.list.adapter = devices
     }
 
     override fun refresh() {
@@ -49,8 +49,10 @@ class DevicesScreen(app: MainActivity) : Screen(app) {
                     val engine = engine()
                     engine.peers() to engine.holders().map { it.fingerprint }.toSet()
                 }
-                devices.submit(peers, holders)
-                views.empty.visibility = if (peers.isEmpty()) View.VISIBLE else View.GONE
+                val now = peers.map { it.fingerprint }.toSet()
+                arrived = known?.let { now - it } ?: emptySet()
+                known = now
+                show(peers, holders)
             } catch (e: Exception) {
                 app.fail("Could not read your devices", e)
             } finally {
@@ -59,45 +61,112 @@ class DevicesScreen(app: MainActivity) : Screen(app) {
         }
     }
 
-    private fun choose(peer: PeerInfo, keeps: Boolean) {
-        val actions = listOf<Pair<String, () -> Unit>>(
-            (if (keeps) "Stop keeping my files here" else "Keep my files here") to {
-                if (keeps) stopKeeping(peer) else keep(peer)
-            },
-            "Send files…" to { app.pickFilesToSend(peer) },
-            "Remove this device…" to { askToRemove(peer) },
-        )
-        MaterialAlertDialogBuilder(app)
-            .setTitle(peer.name)
-            .setItems(actions.map { it.first }.toTypedArray()) { _, which -> actions[which].second() }
-            .setNegativeButton("Cancel", null)
-            .show()
+    private fun show(peers: List<PeerInfo>, holders: Set<String>) {
+        val page = views.sections
+        page.removeAllViews()
+
+        // Two to a row: this phone first, then the others.
+        val cards = mutableListOf<View>()
+        cards += card(page, R.drawable.ic_smartphone, android.os.Build.MODEL ?: "This phone",
+            "This phone", on = true, extra = null, onTap = null)
+        for (peer in peers) {
+            val seen = peer.lastSeen?.let { "Last seen ${Words.ago(it)}" } ?: "Not seen yet"
+            val card = card(page, States.device(peer.name), peer.name, seen, on = false,
+                extra = if (peer.fingerprint in holders) "Keeps a backup of your Private Vault" else null) {
+                open(peer, peer.fingerprint in holders)
+            }
+            if (peer.fingerprint in arrived && !Kit.calm()) materialise(card)
+            cards += card
+        }
+        for (pair in cards.chunked(2)) {
+            val row = LinearLayout(app).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, 0, 0, 0)
+            }
+            for (card in pair) row.addView(card)
+            if (pair.size == 1) row.addView(View(app), LinearLayout.LayoutParams(0, 1, 1f))
+            page.addView(row, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = -kit.dp(5); marginEnd = -kit.dp(5) })
+        }
+
+        if (peers.isEmpty()) {
+            kit.empty(page, R.drawable.ic_monitor_smartphone,
+                "Add your computer or another phone, and your files move between them. On a computer, " +
+                    "open Qurb, go to Devices and choose Add a device.",
+                "Add a device") { app.pair() }
+        }
+    }
+
+    private fun card(
+        parent: LinearLayout,
+        icon: Int,
+        name: String,
+        presence: String,
+        on: Boolean,
+        extra: String?,
+        onTap: (() -> Unit)?,
+    ): View {
+        val card = CardDeviceBinding.inflate(app.layoutInflater, parent, false)
+        card.icon.setImageResource(icon)
+        card.icon.imageTintList = ColorStateList.valueOf(kit.color(R.color.text_2))
+        card.name.text = name
+        card.presence.text = presence
+        card.dot.backgroundTintList = ColorStateList.valueOf(kit.color(if (on) R.color.healthy else R.color.border_strong))
+        if (on) card.presence.setTextColor(kit.color(R.color.healthy))
+        card.extra.visibility = if (extra == null) View.GONE else View.VISIBLE
+        card.extra.text = extra
+        if (onTap != null) card.root.setOnClickListener { onTap() } else card.root.isClickable = false
+        return card.root
+    }
+
+    /** §34: translucent outline, soft glow, solid -- this device has entered
+     *  your Qurb space. */
+    private fun materialise(card: View) {
+        card.alpha = 0f
+        card.scaleX = 0.94f
+        card.scaleY = 0.94f
+        card.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(700)
+            .setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
+    }
+
+    /** A device's details, and what can be done about it. */
+    private fun open(peer: PeerInfo, keeps: Boolean) {
+        val seen = peer.lastSeen?.let { "Last seen ${Words.ago(it)}" } ?: "Not seen yet"
+        val sheet = kit.sheet().header(States.device(peer.name), peer.name, seen)
+        val facts = LinearLayout(app).apply { orientation = LinearLayout.VERTICAL }
+        val group = kit.group(facts)
+        kit.toggle(group, "Keep a backup of my Private Vault",
+            if (keeps) "${peer.name} keeps a copy of what this phone keeps private, where nobody using it sees it."
+            else "Choose this, and this phone can free its own copies of private files without losing them.",
+            keeps) { on ->
+            sheet.dismiss()
+            if (on) keep(peer) else stopKeeping(peer)
+        }
+        kit.item(group, "Added", Words.ago(peer.pairedAt))
+        sheet.view(facts, top = 16)
+        sheet.action(R.drawable.ic_send, "Send files…") { app.pickFilesToSend(peer) }
+        sheet.action(R.drawable.ic_x, "Remove this device…", danger = true) { askToRemove(peer) }
+        sheet.text("Identity ${peer.short}", R.style.Text_Meta)
+        sheet.show()
     }
 
     private fun keep(peer: PeerInfo) {
-        MaterialAlertDialogBuilder(app)
-            .setTitle("Keep your files on ${peer.name}?")
-            .setMessage(
-                "${peer.name} keeps a copy of the files this phone adds, starting at the next " +
-                    "sync. Nobody using ${peer.name} sees them; they are yours, and come back " +
-                    "to this phone when you ask.\n\n" +
-                    "Once it has a file, this phone can free its own copy to save space."
-            )
-            .setPositiveButton("Keep them there") { _, _ -> setKeeping(peer, true) }
-            .setNegativeButton("Cancel", null)
+        kit.sheet()
+            .header(R.drawable.ic_lock_keyhole, "Keep your Private Vault on ${peer.name}?")
+            .text("${peer.name} keeps a copy of the files this phone keeps private, starting at the next " +
+                "sync. Nobody using ${peer.name} sees them; they're yours, and come back to this phone " +
+                "when you ask.\n\nOnce it has a file, this phone can free its own copy to save space.")
+            .buttons("Keep them there", onSecondary = { refresh() }) { setKeeping(peer, true) }
             .show()
     }
 
     private fun stopKeeping(peer: PeerInfo) {
-        MaterialAlertDialogBuilder(app)
-            .setTitle("Stop keeping your files on ${peer.name}?")
-            .setMessage(
-                "Nothing new goes to ${peer.name}. What it already has, it keeps: this phone " +
-                    "does not reach into another device.\n\n" +
-                    "A file this phone freed because ${peer.name} had it is still there."
-            )
-            .setPositiveButton("Stop") { _, _ -> setKeeping(peer, false) }
-            .setNegativeButton("Cancel", null)
+        kit.sheet()
+            .header(R.drawable.ic_lock_keyhole, "Stop keeping your files on ${peer.name}?")
+            .text("Nothing new goes to ${peer.name}. What it already has, it keeps: this phone doesn't " +
+                "reach into another device.\n\nA file this phone freed because ${peer.name} had it is still there.")
+            .buttons("Stop", onSecondary = { refresh() }) { setKeeping(peer, false) }
             .show()
     }
 
@@ -114,66 +183,35 @@ class DevicesScreen(app: MainActivity) : Screen(app) {
                 app.fail("Could not check what removing it would do", e)
                 return@launch
             }
-            val lines = mutableListOf(
-                "This phone stops trusting ${peer.name}: it can no longer connect to this " +
-                    "phone or sync with it. It keeps its key and everything already on it — " +
-                    "removing it deletes nothing there."
-            )
+            val sheet = kit.sheet().header(States.device(peer.name), "Remove ${peer.name}?")
+            sheet.text("This phone stops trusting ${peer.name}: it can no longer connect or sync here. " +
+                "It keeps its key and everything already on it — removing it deletes nothing there.")
             if (plan.holdsOurs) {
-                lines += "${peer.name} keeps this phone's own files. After this, nothing new " +
-                    "goes there, and this phone cannot get anything back from it."
+                sheet.text("${peer.name} keeps a backup of your Private Vault. After this, nothing new goes " +
+                    "there, and this phone can't get anything back from it.")
             }
             if (plan.onlyThere.isNotEmpty()) {
-                lines += "${Words.files(plan.onlyThere.size)} freed from this phone " +
+                sheet.text("${Words.files(plan.onlyThere.size)} freed from this phone " +
                     "${if (plan.onlyThere.size == 1) "is" else "are"} kept only on ${peer.name}. " +
-                    "Once it is removed, they cannot be downloaded again."
+                    "Once it's removed, they can't be downloaded again.", color = R.color.error)
             }
             if (plan.waiting > 0u) {
-                lines += "${Words.files(plan.waiting.toInt())} waiting for it to collect will be cancelled."
+                sheet.text("${Words.files(plan.waiting.toInt())} waiting for it to collect will be cancelled.")
             }
-            lines += "Only on this phone: your other devices go on trusting it until you " +
-                "remove it there too."
-
-            val kept = plan.kept.toInt()
             var deleteKept = false
-            val dialog = MaterialAlertDialogBuilder(app)
-                .setTitle("Remove ${peer.name}?")
-                .setPositiveButton("Remove device") { _, _ -> remove(peer, deleteKept) }
-                .setNegativeButton("Cancel", null)
+            val kept = plan.kept.toInt()
             if (kept > 0) {
                 // A choice rather than a side effect: these may be the only
                 // copy of that device's own files anywhere.
-                dialog.setMultiChoiceItems(
-                    arrayOf(
-                        "Also delete the ${Words.files(kept)} (${Words.size(plan.keptBytes)}) " +
-                            "this phone keeps for it"
-                    ),
-                    booleanArrayOf(false),
-                ) { _, _, checked -> deleteKept = checked }
-                // A dialog with items shows no message, so the explanation
-                // goes in the title's place above the list.
-                dialog.setCustomTitle(removalText(peer, lines))
-            } else {
-                dialog.setMessage(lines.joinToString("\n\n"))
+                val group = LinearLayout(app).apply { orientation = LinearLayout.VERTICAL }
+                kit.toggle(kit.group(group), "Also delete what this phone keeps for it",
+                    "${Words.files(kept)}, ${Words.size(plan.keptBytes)}", false) { deleteKept = it }
+                sheet.view(group, top = 14)
             }
-            dialog.show()
-        }
-    }
-
-    private fun removalText(peer: PeerInfo, lines: List<String>): View {
-        val pad = (20 * app.resources.displayMetrics.density).toInt()
-        return android.widget.LinearLayout(app).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(pad, pad, pad, 0)
-            addView(android.widget.TextView(app).apply {
-                text = "Remove ${peer.name}?"
-                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_HeadlineSmall)
-            })
-            addView(android.widget.TextView(app).apply {
-                text = lines.joinToString("\n\n")
-                setPadding(0, pad / 2, 0, 0)
-                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
-            })
+            sheet.text("Only on this phone: your other devices go on trusting it until you remove it there too.",
+                R.style.Text_Meta)
+            sheet.buttons("Remove device", danger = true) { remove(peer, deleteKept) }
+            sheet.show()
         }
     }
 
@@ -196,42 +234,12 @@ class DevicesScreen(app: MainActivity) : Screen(app) {
                 withContext(Dispatchers.IO) {
                     if (keep) engine().addHolder(peer.fingerprint) else engine().removeHolder(peer.fingerprint)
                 }
-                app.say(if (keep) "${peer.name} keeps your files from the next sync" else "Stopped")
+                app.say(if (keep) "${peer.name} keeps your Private Vault from the next sync" else "Stopped")
             } catch (e: Exception) {
                 app.fail("Could not change that", e)
             } finally {
                 app.changed()
             }
-        }
-    }
-
-    private inner class DeviceAdapter : RecyclerView.Adapter<DeviceHolder>() {
-        private var peers: List<PeerInfo> = emptyList()
-        private var keepers: Set<String> = emptySet()
-
-        fun submit(next: List<PeerInfo>, holders: Set<String>) {
-            peers = next
-            keepers = holders
-            notifyDataSetChanged()
-        }
-
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = DeviceHolder(
-            RowDeviceBinding.inflate(LayoutInflater.from(parent.context), parent, false)
-        )
-
-        override fun onBindViewHolder(holder: DeviceHolder, position: Int) =
-            holder.bind(peers[position], peers[position].fingerprint in keepers)
-
-        override fun getItemCount() = peers.size
-    }
-
-    private inner class DeviceHolder(private val row: RowDeviceBinding) : RecyclerView.ViewHolder(row.root) {
-        fun bind(peer: PeerInfo, keeps: Boolean) {
-            row.root.setOnClickListener { choose(peer, keeps) }
-            row.name.text = peer.name
-            val seen = peer.lastSeen?.let { "Last reached ${Words.ago(it)}" } ?: "Not reached yet"
-            row.detail.text = "$seen · ${peer.short}"
-            row.keeps.visibility = if (keeps) View.VISIBLE else View.GONE
         }
     }
 }

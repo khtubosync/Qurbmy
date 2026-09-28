@@ -123,7 +123,12 @@ object Engine {
      * indexed here and now; reaching another device is a separate matter that
      * happens whenever one is next reachable.
      */
-    suspend fun importUri(context: Context, uri: android.net.Uri, into: String = ""): String =
+    suspend fun importUri(
+        context: Context,
+        uri: android.net.Uri,
+        into: String = "",
+        private: Boolean? = null,
+    ): String =
         withContext(Dispatchers.IO) {
             val folder = into.trim('/')
             val leaf = safeName(displayName(context, uri))
@@ -135,7 +140,11 @@ object Engine {
                         requireNotNull(input) { "could not read that file" }.copyTo(output)
                     }
                 }
-                open(context).importFile(staging.absolutePath, name)
+                // Into the area being looked at when there is one -- Files or
+                // Private Vault -- and where the privacy setting says otherwise.
+                val engine = open(context)
+                if (private == null) engine.importFile(staging.absolutePath, name)
+                else engine.importInto(staging.absolutePath, name, private)
                 name
             } finally {
                 staging.delete()
@@ -279,6 +288,21 @@ object Engine {
      * phone's photographs are its owner's until they send them somewhere.
      * Files already here stay where they are either way.
      */
+    /**
+     * When this phone last reached another device, in Unix seconds, or null
+     * if it never has: what lets Home say "synced" honestly, since a phone
+     * has no running daemon to ask. Set by a sync from the app and by the
+     * background worker, whenever a device answered.
+     */
+    fun lastSynced(context: Context): Long? =
+        context.getSharedPreferences("qurb", Context.MODE_PRIVATE).getLong("last_reached_at", 0L)
+            .takeIf { it > 0 }
+
+    fun noteSynced(context: Context) {
+        context.getSharedPreferences("qurb", Context.MODE_PRIVATE).edit()
+            .putLong("last_reached_at", System.currentTimeMillis() / 1000).apply()
+    }
+
     fun ownFilesPrivate(context: Context): Boolean =
         context.getSharedPreferences("qurb", Context.MODE_PRIVATE).getBoolean("own_private", true)
 

@@ -1,162 +1,155 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Home: are my devices there, is anything only on this phone, what happened.
-     One big action: connecting a device until there is one, because everything
-     else starts there, and syncing after. The second button is how to connect
-     another. Negative margins are start and end rather than horizontal:
-     Android ignores a negative layout_marginHorizontal. -->
+<!-- Home (direction §5): is my Qurb space okay? One state, one action, a line
+     of facts, attention only when something needs a decision, a little that
+     is recent. Pulling down syncs. -->
 <androidx.swiperefreshlayout.widget.SwipeRefreshLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/refresh"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <ScrollView
+    <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
-        android:layout_height="match_parent">
+        android:layout_height="match_parent"
+        android:clipToPadding="false"
+        android:paddingBottom="@dimen/nav_clearance">
 
         <LinearLayout
-            android:id="@+id/content"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="@dimen/gap_m">
+            android:paddingHorizontal="@dimen/gutter"
+            android:paddingTop="12dp">
 
-            <TextView
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/gap_s"
-                android:text="qurb"
-                android:textAppearance="@style/Text.Title" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/qurb_mark" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:text="Qurb"
+                    android:textAppearance="@style/Text.Section" />
+            </LinearLayout>
+
+            <FrameLayout
+                android:id="@+id/mark"
+                android:layout_width="68dp"
+                android:layout_height="68dp"
+                android:layout_marginTop="40dp"
+                android:background="@drawable/mark">
+
+                <ImageView
+                    android:id="@+id/mark_arc"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/mark_arc"
+                    android:visibility="gone" />
+
+                <ImageView
+                    android:id="@+id/mark_icon"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:layout_gravity="center"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/ic_check"
+                    app:tint="@color/healthy" />
+            </FrameLayout>
 
             <TextView
-                android:id="@+id/status"
+                android:id="@+id/state"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/gap_xs"
+                android:layout_marginTop="20dp"
+                android:accessibilityHeading="true"
+                android:textAppearance="@style/Text.Hero" />
+
+            <TextView
+                android:id="@+id/state_says"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
                 android:textAppearance="@style/Text.Quiet" />
 
             <com.google.android.material.button.MaterialButton
-                android:id="@+id/primary"
+                android:id="@+id/action"
+                style="@style/Widget.Qurb.Button"
                 android:layout_width="match_parent"
-                android:layout_height="72dp"
-                android:layout_marginTop="@dimen/gap_l"
-                android:textSize="18sp"
-                app:cornerRadius="@dimen/corner"
-                app:icon="@drawable/ic_link"
+                android:layout_height="54dp"
+                android:layout_marginTop="28dp"
+                android:text="Send to device"
+                app:icon="@drawable/ic_send"
                 app:iconGravity="textStart" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/secondary"
-                style="@style/Widget.Material3.Button.TonalButton"
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/touch"
-                android:layout_marginTop="@dimen/gap_s"
-                android:text="Connect another device"
-                android:visibility="gone"
-                app:icon="@drawable/ic_link"
-                app:iconGravity="textStart" />
-
-            <com.google.android.material.progressindicator.LinearProgressIndicator
-                android:id="@+id/progress"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/gap_s"
-                android:indeterminate="true"
-                android:visibility="gone" />
+                android:layout_marginTop="6dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-            <!-- Shown only while it is true: a file on this phone and nowhere
-                 else is lost with the phone. -->
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/keep_card"
-                style="@style/Card"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/gap_l"
-                android:visibility="gone"
-                app:cardBackgroundColor="@color/notice_soft">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
+                <TextView
+                    android:id="@+id/facts"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical">
+                    android:layout_weight="1"
+                    android:textAppearance="@style/Text.Meta" />
 
-                    <TextView
-                        android:id="@+id/keep_title"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:textAppearance="@style/Text.Body"
-                        android:textStyle="bold" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/sync"
+                    style="@style/Widget.Qurb.Button.Text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Sync now"
+                    app:icon="@drawable/ic_refresh_cw"
+                    app:iconSize="18dp" />
+            </LinearLayout>
 
-                    <TextView
-                        android:id="@+id/keep_text"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/gap_xs"
-                        android:textAppearance="@style/Text.Quiet" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/keep_action"
-                        style="@style/Widget.Material3.Button.TextButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/gap_xs"
-                        android:text="Choose a device" />
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
-            <!-- Shown only while there is one: two devices changed a file, both
-                 versions are kept, and somebody has a choice to make. -->
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/conflict_card"
-                style="@style/Card"
+            <LinearLayout
+                android:id="@+id/attention"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/gap_m"
-                android:visibility="gone">
+                android:orientation="vertical" />
 
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:id="@+id/conflict_title"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:textAppearance="@style/Text.Body"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/gap_xs"
-                        android:text="Nothing was lost: both versions are kept. Choose which you want."
-                        android:textAppearance="@style/Text.Quiet" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/conflict_action"
-                        style="@style/Widget.Material3.Button.TextButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/gap_xs"
-                        android:text="Choose" />
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
-            <TextView
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/gap_l"
-                android:text="Recently"
-                android:textAppearance="@style/Text.Heading" />
+                android:layout_marginTop="24dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:accessibilityHeading="true"
+                    android:text="Recent"
+                    android:textAppearance="@style/Text.Section" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/see_all"
+                    style="@style/Widget.Qurb.Button.Text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="See all" />
+            </LinearLayout>
 
             <LinearLayout
                 android:id="@+id/recent"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="-16dp"
-                android:layout_marginEnd="-16dp"
+                android:layout_marginHorizontal="-8dp"
                 android:orientation="vertical" />
         </LinearLayout>
-    </ScrollView>
+    </androidx.core.widget.NestedScrollView>
 </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>

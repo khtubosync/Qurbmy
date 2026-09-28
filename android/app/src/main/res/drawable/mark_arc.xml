@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The light that travels round the status mark while syncing (§32). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="64dp" android:height="64dp"
+    android:viewportWidth="64" android:viewportHeight="64">
+    <path android:pathData="M32,1 A31,31 0 0 1 63,32"
+        android:strokeColor="#F26FAF98" android:strokeWidth="2" android:strokeLineCap="round" />
+</vector>

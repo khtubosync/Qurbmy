@@ -1,30 +1,60 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The palette, light.
+<!-- The palette: docs/design/direction.md §8, the same as the desktop's.
 
-     Warm and calm rather than technical: an off-white with a little warmth in
-     it, a deep terracotta for the few things that are actions, and a sage green
-     that means "safe": a file another device also has, a device that is
-     connected. Amber is kept for the one state worth noticing: a file that is
-     only on this phone. Everything else is ink on paper.
+     Light only for now. Dark is designed after the light one is approved
+     (docs/design/brief.md §1), and the app is kept light until then, so the
+     night palette of the old design does not return underneath the new one.
 
-     The same names are defined for night in values-night/colors.xml, so no
-     layout ever names a colour, only a role. -->
+     Layouts name roles, never hex values. -->
 <resources>
-    <color name="paper">#FBF8F4</color>
+    <color name="bg">#F7F7F4</color>
     <color name="surface">#FFFFFF</color>
-    <color name="surface_soft">#F3EEE7</color>
-    <color name="line">#E7E0D6</color>
-    <color name="ink">#1F1B16</color>
-    <color name="ink_soft">#6A6158</color>
+    <color name="surface_2">#F0F0EC</color>
+    <color name="text">#171816</color>
+    <color name="text_2">#5F625C</color>
+    <color name="text_3">#8A8D86</color>
+    <color name="border">#E2E3DD</color>
+    <color name="border_strong">#D2D4CD</color>
 
-    <color name="primary">#9A4A22</color>
+    <color name="green">#2F6B57</color>
+    <color name="green_hover">#285B4A</color>
+    <color name="green_pressed">#214B3D</color>
+    <color name="green_soft">#E8F0EC</color>
+    <!-- The luminous green, only ever faint: the environment and the light
+         that means Qurb is moving something (§28). -->
+    <color name="glow">#6FAF98</color>
+    <color name="glow_faint">#296FAF98</color>
+
+    <color name="healthy">#287052</color>
+    <color name="healthy_bg">#E8F3EC</color>
+    <color name="attention">#946A24</color>
+    <color name="attention_bg">#F7F0DD</color>
+    <color name="error">#A3423A</color>
+    <color name="error_bg">#F7E9E7</color>
+    <color name="neutral">#626A68</color>
+    <color name="neutral_bg">#ECEEEC</color>
+
+    <!-- The three glass materials (§6), as fills over the still environment:
+         clear for the tab bar, frosted for cards, elevated for sheets. -->
+    <color name="glass_clear">#8CFFFFFF</color>
+    <color name="glass_frosted">#A6FFFFFF</color>
+    <color name="glass_elevated">#F7FCFCFA</color>
+    <color name="glass_edge">#B3FFFFFF</color>
+    <color name="hairline">#12171816</color>
+    <color name="scrim">#33171816</color>
+
+    <!-- The old role names, for the screens that still say them. -->
+    <color name="paper">@color/bg</color>
+    <color name="surface_soft">@color/surface_2</color>
+    <color name="line">@color/border</color>
+    <color name="ink">@color/text</color>
+    <color name="ink_soft">@color/text_2</color>
+    <color name="primary">@color/green</color>
     <color name="on_primary">#FFFFFF</color>
-    <color name="primary_soft">#F9DDCD</color>
-    <color name="on_primary_soft">#3A1706</color>
-
-    <color name="safe">#3D6A58</color>
-    <color name="safe_soft">#D9EBE1</color>
-    <color name="notice">#8A5A00</color>
-    <color name="notice_soft">#F8E6C2</color>
-    <color name="error">#B3261E</color>
+    <color name="primary_soft">@color/green_soft</color>
+    <color name="on_primary_soft">@color/green_pressed</color>
+    <color name="safe">@color/healthy</color>
+    <color name="safe_soft">@color/healthy_bg</color>
+    <color name="notice">@color/attention</color>
+    <color name="notice_soft">@color/attention_bg</color>
 </resources>

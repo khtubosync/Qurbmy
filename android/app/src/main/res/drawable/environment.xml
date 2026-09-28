@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The environment behind the glass (§7): warm off-white, a breath of green,
+     a cool neutral and a warm one, far too faint to read as shapes. Still:
+     it is the window's background, drawn once. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item><color android:color="@color/bg" /></item>
+    <item>
+        <shape>
+            <gradient android:type="radial" android:centerX="0.0" android:centerY="0.0"
+                android:gradientRadius="75%p" android:startColor="#476FAF98" android:endColor="#006FAF98" />
+        </shape>
+    </item>
+    <item>
+        <shape>
+            <gradient android:type="radial" android:centerX="1.0" android:centerY="0.12"
+                android:gradientRadius="60%p" android:startColor="#6BC4D0D8" android:endColor="#00C4D0D8" />
+        </shape>
+    </item>
+    <item>
+        <shape>
+            <gradient android:type="radial" android:centerX="0.85" android:centerY="1.0"
+                android:gradientRadius="80%p" android:startColor="#8CEADEC4" android:endColor="#00EADEC4" />
+        </shape>
+    </item>
+    <item>
+        <shape>
+            <gradient android:type="radial" android:centerX="0.2" android:centerY="0.85"
+                android:gradientRadius="55%p" android:startColor="#1F6FAF98" android:endColor="#006FAF98" />
+        </shape>
+    </item>
+</layer-list>

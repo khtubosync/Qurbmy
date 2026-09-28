@@ -10,7 +10,6 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.lifecycle.lifecycleScope
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -42,44 +41,57 @@ object ShowCode {
             }
             val qr = withContext(Dispatchers.IO) { runCatching { qrCode(offer.code()) }.getOrNull() }
 
-            val density = app.resources.displayMetrics.density
-            val pad = (20 * density).toInt()
+            val kit = app.kit
             val status = TextView(app).apply {
-                setPadding(0, pad / 2, 0, 0)
-                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
+                gravity = Gravity.CENTER
+                setTextAppearance(R.style.Text_Quiet)
             }
             val body = LinearLayout(app).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER_HORIZONTAL
-                setPadding(pad, pad / 2, pad, 0)
                 if (qr != null) {
-                    val size = (240 * density).toInt()
+                    // On a white tile whatever surrounds it: a scanner finds a
+                    // code by its finder patterns against a light ground.
+                    val size = kit.dp(232)
                     addView(ImageView(app).apply {
                         setImageDrawable(BitmapDrawable(app.resources, draw(qr)).apply { isFilterBitmap = false })
                         scaleType = ImageView.ScaleType.FIT_CENTER
+                        setBackgroundColor(Color.WHITE)
+                        setPadding(kit.dp(12), kit.dp(12), kit.dp(12), kit.dp(12))
+                        clipToOutline = true
+                        outlineProvider = object : android.view.ViewOutlineProvider() {
+                            override fun getOutline(view: android.view.View, outline: android.graphics.Outline) {
+                                outline.setRoundRect(0, 0, view.width, view.height, kit.dp(18).toFloat())
+                            }
+                        }
                     }, LinearLayout.LayoutParams(size, size))
                 }
+                addView(status, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = kit.dp(14) })
                 addView(TextView(app).apply {
                     text = "Or read this out, or type it:"
-                    setPadding(0, pad / 2, 0, 0)
-                    setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
+                    setTextAppearance(R.style.Text_Meta)
+                    setPadding(0, kit.dp(18), 0, kit.dp(4))
                 })
                 addView(TextView(app).apply {
                     text = offer.spoken()
                     typeface = Typeface.MONOSPACE
+                    textSize = 13f
                     setTextIsSelectable(true)
+                    setTextColor(kit.color(R.color.text))
                 })
-                addView(status)
             }
 
-            val dialog = MaterialAlertDialogBuilder(app)
-                .setTitle("Scan this on the other device")
-                .setView(body)
-                .setNegativeButton("Stop showing it", null)
-                // However it closes -- the button, back, a tap outside -- the
+            val sheet = kit.sheet()
+                .header(R.drawable.ic_qr_code, "Scan this on the other device", "It works once, for five minutes")
+                .view(body, top = 18)
+                // However it closes -- the button, back, a swipe down -- the
                 // code stops working with it.
-                .setOnDismissListener { offer.cancel() }
-                .show()
+                .onDismiss { offer.cancel() }
+            sheet.buttons("Done", secondary = "Stop showing it") {}
+            sheet.show()
+            val dialog = sheet.dialog
             // A code that goes dark while somebody fetches the other device is
             // a code they have to ask for again.
             dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -88,7 +100,7 @@ object ShowCode {
                 while (isActive) {
                     val left = offer.expiresAt() - System.currentTimeMillis() / 1000
                     status.text = if (left > 0) {
-                        "Waiting — this code works for ${left / 60}:${"%02d".format(left % 60)}, once"
+                        "Waiting — this code works for ${left / 60}:${"%02d".format(left % 60)}"
                     } else {
                         "That code has expired. Close this and show a new one."
                     }

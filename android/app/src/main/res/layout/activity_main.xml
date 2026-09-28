@@ -1,23 +1,75 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The shell: whichever screen is showing, and the five places under it. -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- The shell: the environment (the window's background), whichever place is
+     showing, and over it a glass tab bar that floats above the gesture bar,
+     with the Transfers bar above it while something moves or waits. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/root"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="?android:colorBackground"
-    android:orientation="vertical">
+    android:layout_height="match_parent">
 
     <FrameLayout
         android:id="@+id/screen"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1" />
+        android:layout_height="match_parent" />
 
-    <com.google.android.material.bottomnavigation.BottomNavigationView
-        android:id="@+id/tabs"
+    <LinearLayout
+        android:id="@+id/dock"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:menu="@menu/tabs"
-        app:labelVisibilityMode="labeled" />
-</LinearLayout>
+        android:layout_gravity="bottom"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:orientation="vertical"
+        android:paddingHorizontal="@dimen/gap_m"
+        android:paddingBottom="10dp">
+
+        <LinearLayout
+            android:id="@+id/transfers_bar"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="10dp"
+            android:background="@drawable/nav_glass"
+            android:elevation="6dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="@dimen/gap_m"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/transfers_icon"
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:importantForAccessibility="no"
+                android:src="@drawable/ic_arrow_up_down"
+                app:tint="@color/green" />
+
+            <TextView
+                android:id="@+id/transfers_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/gap_s"
+                android:textAppearance="@style/Text.Name"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <com.google.android.material.bottomnavigation.BottomNavigationView
+            android:id="@+id/tabs"
+            android:layout_width="match_parent"
+            android:layout_height="68dp"
+            android:background="@drawable/nav_glass"
+            android:elevation="8dp"
+            app:elevation="8dp"
+            app:itemActiveIndicatorStyle="@style/Nav.Indicator"
+            app:itemIconSize="22dp"
+            app:itemIconTint="@color/tab"
+            app:itemPaddingBottom="8dp"
+            app:itemPaddingTop="8dp"
+            app:itemTextAppearanceActive="@style/Nav.Label"
+            app:itemTextAppearanceInactive="@style/Nav.Label"
+            app:itemTextColor="@color/tab"
+            app:labelVisibilityMode="labeled"
+            app:menu="@menu/tabs" />
+    </LinearLayout>
+</FrameLayout>
