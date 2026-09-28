@@ -30,6 +30,7 @@ pub mod device;
 pub mod path;
 pub mod reconcile;
 pub mod resolve;
+pub mod sharing;
 pub mod version;
 
 pub use clock::{Causality, VersionVector};

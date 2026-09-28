@@ -70,3 +70,4 @@ is worth more than a tidy directory.
 | [0041](0041-removing-a-device.md) | Removing a device | Accepted — built on the desktop, the phone and the command line |
 | [0042](0042-recently-deleted.md) | Recently deleted | Accepted — built on the desktop, the phone and the command line |
 | [0043](0043-settling-a-conflict.md) | Settling a conflict | Accepted — built on the desktop, the phone and the command line |
+| [0044](0044-sharing-with-chosen-devices.md) | Sharing a folder with chosen devices | Accepted — built on the desktop, the phone and the command line |

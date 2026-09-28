@@ -181,10 +181,12 @@ impl PlanStats {
 }
 
 impl Engine {
-    /// What this device would tell a peer it has.
+    /// This device's shared area, all of it: its own side of a plan.
     ///
     /// Tombstones included. A peer not told about a deletion still holds the
-    /// file, offers it back, and the deletion undoes itself.
+    /// file, offers it back, and the deletion undoes itself. What a *peer* is
+    /// shown is [`tree_for`](Self::tree_for), which leaves out folders shared
+    /// without it (decision 0044).
     pub fn tree(&self) -> Result<Vec<FileVersion>> {
         Ok(self.store().shared_tree()?)
     }
@@ -235,6 +237,8 @@ impl Engine {
     /// calls this too, never added it: asking for a freed shared file back on
     /// a phone did nothing, pass after pass. One planning function for both.
     pub fn plan_with(&self, remote: &[FileVersion], peer: Option<&DeviceId>) -> Result<Vec<Action>> {
+        let remote = self.shared_with(remote, peer)?;
+        let remote = remote.as_slice();
         let mut actions = self.plan_against(remote)?;
         if let Some(owner) = peer {
             actions.extend(self.holding(remote, owner)?);
@@ -242,6 +246,49 @@ impl Engine {
         actions.extend(self.own_wanted(remote)?);
         actions.extend(self.wanted_actions()?);
         Ok(actions)
+    }
+
+    /// What of a peer's list this device takes, given the sharing rules
+    /// (decision 0044).
+    ///
+    /// The peer's own server already leaves out what it should not show this
+    /// device, but by its copy of the rules, which may be behind; and a device
+    /// left out of a folder still has its old copy, and still offers it. So
+    /// this device checks by its own rules too: nothing under a folder shared
+    /// without the peer, or without this device, is taken from it -- and a
+    /// change to a folder's rule is taken only from a device the folder is
+    /// shared with, so a device left out cannot write itself back in.
+    ///
+    /// What is left out looks, to the planner, like something the peer simply
+    /// does not have, which is exactly what it should be.
+    fn shared_with(&self, remote: &[FileVersion], peer: Option<&DeviceId>) -> Result<Vec<FileVersion>> {
+        let rules = self.store().sharing()?;
+        if rules.is_empty() && !remote.iter().any(|v| qurb_sync::sharing::is_rule_path(&v.path)) {
+            return Ok(remote.to_vec());
+        }
+        let me = self.store().device_id()?;
+        Ok(remote
+            .iter()
+            .filter(|version| {
+                if version.area != Area::Shared {
+                    return true;
+                }
+                if let Some(folder) = qurb_sync::sharing::rule_folder(&version.path) {
+                    let allowed = peer.is_some_and(|p| rules.may_change(&folder, p));
+                    if !allowed {
+                        tracing::warn!(folder, "refused a sharing change from a device the folder is not shared with");
+                    }
+                    return allowed;
+                }
+                match rules.covering(&version.path) {
+                    None => true,
+                    Some((_, members)) => {
+                        members.contains(&me) && peer.is_some_and(|p| members.contains(p))
+                    }
+                }
+            })
+            .cloned()
+            .collect())
     }
 
     /// What to keep, or drop, for `owner`.

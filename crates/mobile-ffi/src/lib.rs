@@ -1047,6 +1047,55 @@ impl Qurb {
         Ok(())
     }
 
+    /// Folders, and which devices each is shared with (decision 0044).
+    pub fn sharing(&self) -> Result<Vec<SharedFolder>, QurbError> {
+        let engine = self.engine()?;
+        Ok(engine
+            .store()
+            .folder_sharing()?
+            .into_iter()
+            .map(|(folder, members)| SharedFolder {
+                folder,
+                everyone: members.is_none(),
+                members: members.unwrap_or_default().iter().map(|d| d.to_hex()).collect(),
+            })
+            .collect())
+    }
+
+    /// The devices a folder can be shared with: this phone first, then every
+    /// paired device, each by the device id a rule names.
+    pub fn share_targets(&self) -> Result<Vec<ShareTarget>, QurbError> {
+        let engine = self.engine()?;
+        let store = engine.store();
+        let mut out = vec![ShareTarget {
+            id: store.device_id()?.to_hex(),
+            name: "This phone".into(),
+            here: true,
+        }];
+        for peer in store.db().trusted_peers()? {
+            out.push(ShareTarget { id: peer.device_id.to_hex(), name: peer.name, here: false });
+        }
+        Ok(out)
+    }
+
+    /// Share a folder with exactly these devices, or with every device when
+    /// `members` is empty.
+    pub fn set_sharing(&self, folder: String, members: Vec<String>) -> Result<(), QurbError> {
+        let members: std::collections::BTreeSet<qurb_sync::DeviceId> = members
+            .iter()
+            .map(|hex| {
+                qurb_sync::DeviceId::from_hex(hex)
+                    .ok_or_else(|| QurbError::NotFound { detail: format!("not a device: {hex}") })
+            })
+            .collect::<Result<_, _>>()?;
+        let mut engine = self.engine()?;
+        match members.is_empty() {
+            true => engine.store_mut().clear_sharing(&folder)?,
+            false => engine.store_mut().set_sharing(&folder, &members)?,
+        }
+        Ok(())
+    }
+
     /// Files two devices changed without either seeing the other (brief §24).
     pub fn conflicts(&self) -> Result<Vec<ConflictInfo>, QurbError> {
         let engine = self.engine()?;
@@ -1778,6 +1827,25 @@ pub fn qr_code(text: String) -> Result<QrCode, QurbError> {
         width: code.width() as u32,
         dark: code.to_colors().into_iter().map(|c| c == qrcode::Color::Dark).collect(),
     })
+}
+
+/// A folder and who it is shared with. See [`Qurb::sharing`].
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct SharedFolder {
+    pub folder: String,
+    /// Shared with every device: no rule.
+    pub everyone: bool,
+    /// Device ids, in hex, when not everyone.
+    pub members: Vec<String>,
+}
+
+/// A device a folder can be shared with. See [`Qurb::share_targets`].
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ShareTarget {
+    pub id: String,
+    pub name: String,
+    /// This phone.
+    pub here: bool,
 }
 
 /// One side of a conflict. See [`Qurb::conflicts`].

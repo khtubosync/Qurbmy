@@ -8,6 +8,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.qurb_mobile.DeletedFile
+import uniffi.qurb_mobile.ShareTarget
+import uniffi.qurb_mobile.SharedFolder
 import uniffi.qurb_mobile.Usage
 
 /**
@@ -81,6 +83,12 @@ class SettingsScreen(app: MainActivity) : Screen(app) {
             },
         ) { if (deleted.isNotEmpty()) showDeleted(deleted) }
         page.setting("Free unused space", "Clears what nothing needs any more") { tidy() }
+
+        page.heading("Folders")
+        page.setting(
+            "Shared folders",
+            "Which devices each folder is on. Every device, unless you choose.",
+        ) { chooseFolder() }
 
         page.heading("Syncing")
         page.setting("Background sync", background) { explainBackground() }
@@ -200,6 +208,70 @@ class SettingsScreen(app: MainActivity) : Screen(app) {
                 app.fail("Could not delete it", e)
             } finally {
                 refresh()
+            }
+        }
+    }
+
+    /**
+     * Which devices a folder is shared with (decision 0044): the folders,
+     * then the devices for the one chosen.
+     */
+    private fun chooseFolder() {
+        scope.launch {
+            val (folders, devices) = try {
+                withContext(Dispatchers.IO) { engine().sharing() to engine().shareTargets() }
+            } catch (e: Exception) {
+                app.fail("Could not read the folders", e)
+                return@launch
+            }
+            if (folders.isEmpty()) {
+                app.say("No folders yet")
+                return@launch
+            }
+            val names = folders.map { f ->
+                val who = if (f.everyone) {
+                    "every device"
+                } else {
+                    f.members.joinToString(", ") { id -> devices.find { it.id == id }?.name ?: "a removed device" }
+                }
+                "${f.folder}\n$who"
+            }
+            MaterialAlertDialogBuilder(app)
+                .setTitle("Shared folders")
+                .setItems(names.toTypedArray()) { _, which -> chooseDevices(folders[which], devices) }
+                .setNegativeButton("Close", null)
+                .show()
+        }
+    }
+
+    private fun chooseDevices(folder: SharedFolder, devices: List<ShareTarget>) {
+        val ticked = BooleanArray(devices.size) { folder.everyone || devices[it].id in folder.members }
+        MaterialAlertDialogBuilder(app)
+            .setTitle(folder.folder)
+            .setMultiChoiceItems(devices.map { it.name }.toTypedArray(), ticked) { _, which, on ->
+                ticked[which] = on
+            }
+            .setPositiveButton("Save") { _, _ ->
+                val chosen = devices.filterIndexed { i, _ -> ticked[i] }.map { it.id }
+                // All ticked is no rule at all, so a device paired later is in too.
+                setSharing(folder.folder, if (chosen.size == devices.size) emptyList() else chosen)
+            }
+            .setNeutralButton("Every device") { _, _ -> setSharing(folder.folder, emptyList()) }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun setSharing(folder: String, members: List<String>) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { engine().setSharing(folder, members) }
+                app.say(
+                    if (members.isEmpty()) "$folder is on every device"
+                    else "Saved. A device left out keeps what it has, and gets nothing new."
+                )
+                SyncWorker.runNow(app)
+            } catch (e: Exception) {
+                app.fail("Could not change that", e)
             }
         }
     }

@@ -837,6 +837,33 @@ the window's new panels in WebKitGTK, and the desktop smoke test for
 regressions. Not yet: either on the phone, and a real conflict between the
 laptop and the phone.
 
+## A folder shared with chosen devices
+
+**2026-09-28.** Brief §23, with the semantics the project owner chose:
+a folder can be on some devices instead of all; the chosen ones sync it both
+ways; the others are never sent it; a device left out keeps what it had.
+[Decision 0044](../decisions/0044-sharing-with-chosen-devices.md) has the table
+of answers the brief asks for.
+
+The rules are small files in `.qurb-sharing/` that sync like anything else, so
+no protocol changed; each device derives index tables from them and the three
+queries that decide what a peer may see — the tree, a chunk, a content hash —
+filter by them. Receiving is filtered too, by the receiver's own rules, and a
+change to a rule is taken only from a device the folder is shared with.
+
+Building it found that a device's *own* side of every plan was built with the
+same query a peer is served with: once that query left out restricted folders,
+a device could not see its own copy and fetched it again on every sync. The
+two are separate queries now.
+
+How it was checked: three devices in `crates/engine/tests/sharing.rs`, each
+serving the others only what its rules allow — a folder not reaching a device;
+the left-out device rewriting the rule file to include itself, refused
+everywhere; keeping an old copy and receiving nothing new; changes made in that
+old copy going nowhere; sharing with everyone again; chunk and content requests
+refused by hash; and the refusals for nesting, nobody, the root, the rules
+directory and `../`. Not yet: between real devices.
+
 ## Still to do
 
 - **Running the *daemon* as a service** — a user unit, a launch agent, a

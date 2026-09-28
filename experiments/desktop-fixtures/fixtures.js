@@ -202,6 +202,20 @@ const ANSWERS = {
   ],
   settle_conflict: ({ keep }) => (keep === "both" ? "notes/plan (phone).md" : "notes/plan.md"),
 
+  sharing: () => ({
+    folders: [
+      { folder: "Family Photos", everyone: false, members: ["aa", "bb"] },
+      { folder: "notes", everyone: true, members: [] },
+      { folder: "work", everyone: true, members: [] },
+    ],
+    devices: [
+      { id: "aa", name: "This computer", here: true },
+      { id: "bb", name: "phone", here: false },
+      { id: "cc", name: "spare laptop", here: false },
+    ],
+  }),
+  set_sharing: () => null,
+
   recently_deleted: () => [
     { id: 2, path: "photos/IMG_0007.jpg", size: "2311043", at: now - 7200, by: "phone", why: null },
     {

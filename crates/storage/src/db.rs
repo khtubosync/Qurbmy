@@ -24,7 +24,7 @@ use std::path::Path;
 ///
 /// Migrations are append-only. Editing one that has already shipped would leave
 /// databases in the field at a schema nobody can reproduce.
-const MIGRATIONS: &[&str] = &[V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13];
+const MIGRATIONS: &[&str] = &[V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14];
 
 const V1: &str = r#"
 CREATE TABLE IF NOT EXISTS chunks (
@@ -416,6 +416,50 @@ CREATE TABLE IF NOT EXISTS trash (
 ) STRICT;
 "#;
 
+const V14: &str = r#"
+-- Which devices a folder in the shared area is shared with (decision 0044).
+--
+-- Derived, not authoritative: the rules are small files under .qurb-sharing/
+-- that sync like any other, and these tables are rebuilt from them whenever
+-- they change, so that what a device may see can be answered in SQL along
+-- with everything else a query already filters on. A folder with no row here
+-- is shared with every device.
+CREATE TABLE IF NOT EXISTS shares (
+    folder TEXT PRIMARY KEY
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS share_members (
+    folder    TEXT NOT NULL REFERENCES shares (folder) ON DELETE CASCADE,
+    device_id BLOB NOT NULL,
+    PRIMARY KEY (folder, device_id)
+) STRICT;
+
+-- What the rule files looked like when the tables were last built, so that
+-- rebuilding is skipped when nothing changed.
+CREATE TABLE IF NOT EXISTS shares_stamp (
+    id    INTEGER PRIMARY KEY CHECK (id = 1),
+    stamp TEXT NOT NULL
+) STRICT;
+"#;
+
+/// Excludes the sharing rules themselves from anything a person is shown or a
+/// storage cap may drop. For a query over `files` with no alias.
+const NOT_RULES: &str = "substr(path, 1, 14) <> '.qurb-sharing/'";
+/// The same, for a query that calls `files` `f`.
+const NOT_RULES_F: &str = "substr(f.path, 1, 14) <> '.qurb-sharing/'";
+
+/// A shared-area row's `path` lies outside every folder shared without the
+/// device in SQL parameter `device` -- the per-device half of what it may see
+/// (decision 0044). A NULL device is in no folder's list.
+fn shared_with(path: &str, device: &str) -> String {
+    format!(
+        "NOT EXISTS (SELECT 1 FROM shares s
+                      WHERE ({path} = s.folder OR substr({path}, 1, length(s.folder) + 1) = s.folder || '/')
+                        AND NOT EXISTS (SELECT 1 FROM share_members m
+                                         WHERE m.folder = s.folder AND m.device_id = {device}))"
+    )
+}
+
 pub struct Db {
     conn: Connection,
 }
@@ -733,6 +777,7 @@ impl Db {
                FROM files
               WHERE deleted_at IS NULL
                 AND scope IS NULL
+                AND substr(path, 1, 14) <> '.qurb-sharing/'
                 AND (?1 IS NULL OR path = ?1 OR path LIKE ?2 ESCAPE '\\')
               ORDER BY path
               LIMIT ?3 OFFSET ?4",
@@ -747,7 +792,7 @@ impl Db {
     /// How many live files the shared area holds, for paging.
     pub fn live_count(&self) -> Result<usize> {
         let n: i64 = self.conn.query_row(
-            "SELECT count(*) FROM files WHERE deleted_at IS NULL AND scope IS NULL",
+            &format!("SELECT count(*) FROM files WHERE deleted_at IS NULL AND scope IS NULL AND {NOT_RULES}"),
             [],
             |r| r.get(0),
         )?;
@@ -776,6 +821,7 @@ impl Db {
                FROM files
               WHERE deleted_at IS NULL
                 AND scope IS NULL
+                AND substr(path, 1, 14) <> '.qurb-sharing/'
                 AND path LIKE ?1 ESCAPE '\\'
               ORDER BY updated_at DESC, path
               LIMIT ?2",
@@ -804,6 +850,9 @@ impl Db {
               WHERE f.deleted_at IS NULL
                 AND f.materialised = 1
                 AND (f.scope IS NULL OR f.scope = (SELECT device_id FROM local WHERE id = 1))
+                -- A rule file is never freed: unreadable, it would close its
+                -- folder to everybody.
+                AND substr(f.path, 1, 14) <> '.qurb-sharing/'
                 AND EXISTS (
                       SELECT 1 FROM replicas r
                        WHERE r.content_hash = f.content_hash AND r.private = 0
@@ -1071,7 +1120,8 @@ impl Db {
             Audience::Ourselves => self.all_versions(),
             Audience::Unplaced => {
                 let mut stmt = self.conn.prepare(&format!(
-                    "SELECT {FILE_COLUMNS} FROM files WHERE scope IS NULL ORDER BY path"
+                    "SELECT {FILE_COLUMNS} FROM files WHERE scope IS NULL AND {} ORDER BY path",
+                    shared_with("path", "NULL")
                 ))?;
                 let rows = stmt.query_map([], file_row)?;
                 rows.map(|row| Ok(row_to_version(&row?))).collect()
@@ -1082,10 +1132,12 @@ impl Db {
                 // from something sent to it privately by looking at the path,
                 // and it has exactly one chance to file it correctly.
                 let mut out = Vec::new();
+                // The shared area, less any folder shared without it.
                 let mut shared = self.conn.prepare(&format!(
-                    "SELECT {FILE_COLUMNS} FROM files WHERE scope IS NULL ORDER BY path"
+                    "SELECT {FILE_COLUMNS} FROM files WHERE scope IS NULL AND {} ORDER BY path",
+                    shared_with("path", "?1")
                 ))?;
-                for row in shared.query_map([], file_row)? {
+                for row in shared.query_map(params![asker.as_bytes().as_slice()], file_row)? {
                     out.push(row_to_version(&row?));
                 }
                 // Its vault: what was sent to it, and what this device keeps
@@ -1118,6 +1170,26 @@ impl Db {
                 Ok(out)
             }
         }
+    }
+
+    /// The folders at the top of the shared area, by name.
+    pub fn top_folders(&self) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT DISTINCT substr(path, 1, instr(path, '/') - 1) AS folder FROM files
+              WHERE scope IS NULL AND deleted_at IS NULL AND instr(path, '/') > 0 AND {NOT_RULES}
+              ORDER BY folder"
+        ))?;
+        let rows = stmt.query_map([], |r| r.get(0))?;
+        rows.collect::<std::result::Result<_, _>>().map_err(Into::into)
+    }
+
+    /// Every version in the shared area, sharing rules or not.
+    pub fn shared_versions(&self) -> Result<Vec<FileVersion>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {FILE_COLUMNS} FROM files WHERE scope IS NULL ORDER BY path"
+        ))?;
+        let rows = stmt.query_map([], file_row)?;
+        rows.map(|row| Ok(row_to_version(&row?))).collect()
     }
 
     /// Whether any live file claims this path, in the shared area or in any
@@ -1243,6 +1315,7 @@ impl Db {
                FROM files f
               WHERE f.deleted_at IS NULL
                 AND (f.scope IS NULL OR f.scope = (SELECT device_id FROM local WHERE id = 1))
+                AND {NOT_RULES_F}
                 AND ({condition})
               ORDER BY f.path
               {tail}"
@@ -1657,15 +1730,18 @@ impl Db {
         let visible: Option<i64> = self
             .conn
             .query_row(
-                "SELECT 1
-                   FROM file_chunks fc
-                   JOIN files f ON f.id = fc.file_id
-                  WHERE fc.chunk_hash = ?1
-                    AND (f.scope IS NULL
-                         OR f.scope = ?2
-                         OR (f.scope = (SELECT device_id FROM local WHERE id = 1)
-                             AND EXISTS (SELECT 1 FROM holders h WHERE h.device_id = ?2)))
-                  LIMIT 1",
+                &format!(
+                    "SELECT 1
+                       FROM file_chunks fc
+                       JOIN files f ON f.id = fc.file_id
+                      WHERE fc.chunk_hash = ?1
+                        AND ((f.scope IS NULL AND {})
+                             OR f.scope = ?2
+                             OR (f.scope = (SELECT device_id FROM local WHERE id = 1)
+                                 AND EXISTS (SELECT 1 FROM holders h WHERE h.device_id = ?2)))
+                      LIMIT 1",
+                    shared_with("f.path", "?2")
+                ),
                 params![hash.as_bytes().as_slice(), owner],
                 |r| r.get(0),
             )
@@ -1686,13 +1762,16 @@ impl Db {
         let visible: Option<i64> = self
             .conn
             .query_row(
-                "SELECT 1 FROM files
-                  WHERE content_hash = ?1
-                    AND (scope IS NULL
-                         OR scope = ?2
-                         OR (scope = (SELECT device_id FROM local WHERE id = 1)
-                             AND EXISTS (SELECT 1 FROM holders h WHERE h.device_id = ?2)))
-                  LIMIT 1",
+                &format!(
+                    "SELECT 1 FROM files
+                      WHERE content_hash = ?1
+                        AND ((scope IS NULL AND {})
+                             OR scope = ?2
+                             OR (scope = (SELECT device_id FROM local WHERE id = 1)
+                                 AND EXISTS (SELECT 1 FROM holders h WHERE h.device_id = ?2)))
+                      LIMIT 1",
+                    shared_with("path", "?2")
+                ),
                 params![content.as_bytes().as_slice(), owner],
                 |r| r.get(0),
             )
@@ -2015,13 +2094,91 @@ impl Db {
         Ok(n > 0)
     }
 
-        /// Live paths in the folder -- the shared area and this device's own
+        /// A stamp of the rule files as the index has them: changes whenever any
+    /// is added, changed or deleted. Asked by path range, which the path
+    /// index serves, rather than by a pattern it cannot.
+    pub fn sharing_stamp(&self) -> Result<String> {
+        Ok(self.conn.query_row(
+            "SELECT coalesce(group_concat(path || ':' || hex(content_hash) || ':'
+                                          || coalesce(deleted_at, ''), '|'), '')
+               FROM (SELECT path, content_hash, deleted_at FROM files
+                      WHERE scope IS NULL AND path >= '.qurb-sharing/' AND path < '.qurb-sharing0'
+                      ORDER BY path)",
+            [],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// The stamp the share tables were last built from.
+    pub fn shares_stamp(&self) -> Result<Option<String>> {
+        self.conn
+            .query_row("SELECT stamp FROM shares_stamp WHERE id = 1", [], |r| r.get(0))
+            .optional()
+            .map_err(Into::into)
+    }
+
+    /// Live rule files in the shared area.
+    pub fn live_rule_paths(&self) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT path FROM files
+              WHERE scope IS NULL AND deleted_at IS NULL
+                AND path >= '.qurb-sharing/' AND path < '.qurb-sharing0'
+              ORDER BY path",
+        )?;
+        let rows = stmt.query_map([], |r| r.get(0))?;
+        rows.collect::<std::result::Result<_, _>>().map_err(Into::into)
+    }
+
+    /// Replace the share tables with `rules`, built from the rule files whose
+    /// stamp is `stamp`.
+    pub fn replace_shares(&self, rules: &qurb_sync::sharing::Rules, stamp: &str) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM share_members", [])?;
+        tx.execute("DELETE FROM shares", [])?;
+        for (folder, members) in rules.iter() {
+            tx.execute("INSERT INTO shares (folder) VALUES (?1)", params![folder])?;
+            for device in members {
+                tx.execute(
+                    "INSERT INTO share_members (folder, device_id) VALUES (?1, ?2)",
+                    params![folder, device.as_bytes().as_slice()],
+                )?;
+            }
+        }
+        tx.execute(
+            "INSERT INTO shares_stamp (id, stamp) VALUES (1, ?1)
+             ON CONFLICT (id) DO UPDATE SET stamp = excluded.stamp",
+            params![stamp],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The rules as the share tables have them.
+    pub fn shares(&self) -> Result<qurb_sync::sharing::Rules> {
+        let mut rules: std::collections::BTreeMap<String, std::collections::BTreeSet<DeviceId>> =
+            std::collections::BTreeMap::new();
+        let mut folders = self.conn.prepare("SELECT folder FROM shares")?;
+        for folder in folders.query_map([], |r| r.get::<_, String>(0))? {
+            rules.insert(folder?, Default::default());
+        }
+        let mut members = self.conn.prepare("SELECT folder, device_id FROM share_members")?;
+        for row in members.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Vec<u8>>(1)?)))? {
+            let (folder, raw) = row?;
+            if let (Some(set), Some(device)) = (rules.get_mut(&folder), to_device(raw)) {
+                set.insert(device);
+            }
+        }
+        Ok(qurb_sync::sharing::Rules::new(rules))
+    }
+
+    /// Live paths in the folder -- the shared area and this device's own
     /// vault -- containing `text`, in path order.
     pub fn folder_paths_containing(&self, text: &str) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare(
             "SELECT path FROM files
               WHERE deleted_at IS NULL
                 AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1))
+                AND substr(path, 1, 14) <> '.qurb-sharing/'
                 AND instr(path, ?1) > 0
               ORDER BY path",
         )?;

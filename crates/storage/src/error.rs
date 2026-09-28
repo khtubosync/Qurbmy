@@ -51,6 +51,10 @@ pub enum Error {
     #[error("{path} is not on this device yet; download it first")]
     NotHere { path: String },
 
+    /// A sharing rule that cannot be made (decision 0044).
+    #[error("{why}")]
+    Sharing { why: String },
+
     /// A path that is not a conflict copy was given as one.
     #[error("{path} is not a conflict copy")]
     NotAConflict { path: String },

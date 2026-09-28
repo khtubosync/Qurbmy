@@ -179,6 +179,16 @@
         <p class="quiet">Nothing was lost: both versions are kept. Choose which you want.</p>
         <ul id="conflict-list" class="rows conflicts"></ul>
       </div>
+      <!-- Which devices each folder is shared with (decision 0044). Folded
+           away: set once and rarely looked at again. -->
+      <details id="sharing-box" class="hidden">
+        <summary>Folders, and which devices have them</summary>
+        <p class="quiet">
+          A folder is on every device unless you choose. A device you leave out
+          keeps what it already has, and gets nothing new.
+        </p>
+        <ul id="sharing-list" class="rows"></ul>
+      </details>
       <input id="find" type="search" placeholder="Search names…" autocomplete="off" spellcheck="false">
       <p id="crumbs" class="quiet"></p>
       <ul id="file-list" class="rows"></ul>

@@ -904,6 +904,76 @@ pub fn cancel_send(hosted: Host<'_>, path: String, to: String) -> Answer<()> {
         .map_err(failed)
 }
 
+/// Folders and who they are shared with (decision 0044), and the devices a
+/// folder could be shared with.
+#[derive(Serialize)]
+pub struct Sharing {
+    folders: Vec<SharedFolder>,
+    devices: Vec<ShareTarget>,
+}
+
+#[derive(Serialize)]
+pub struct SharedFolder {
+    folder: String,
+    /// Shared with every device: no rule.
+    everyone: bool,
+    /// Device ids, in hex, when not everyone.
+    members: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct ShareTarget {
+    /// The device id, in hex: what a rule names.
+    id: String,
+    name: String,
+    /// This computer.
+    here: bool,
+}
+
+#[tauri::command]
+pub fn sharing(hosted: Host<'_>) -> Answer<Sharing> {
+    hosted
+        .with_store(|store| {
+            let me = store.device_id()?;
+            let mut devices = vec![ShareTarget { id: me.to_hex(), name: "This computer".into(), here: true }];
+            for peer in store.db().trusted_peers()? {
+                devices.push(ShareTarget { id: peer.device_id.to_hex(), name: peer.name, here: false });
+            }
+            let folders = store
+                .folder_sharing()?
+                .into_iter()
+                .map(|(folder, members)| SharedFolder {
+                    folder,
+                    everyone: members.is_none(),
+                    members: members.unwrap_or_default().iter().map(|d| d.to_hex()).collect(),
+                })
+                .collect();
+            Ok(Sharing { folders, devices })
+        })
+        .map_err(failed)
+}
+
+/// Share a folder with exactly these devices (ids in hex), or with every
+/// device when `members` is empty.
+#[tauri::command]
+pub fn set_sharing(hosted: Host<'_>, folder: String, members: Vec<String>) -> Answer<()> {
+    let members: std::collections::BTreeSet<qurb_sync::DeviceId> = members
+        .iter()
+        .map(|hex| qurb_sync::DeviceId::from_hex(hex).ok_or_else(|| format!("not a device: {hex}")))
+        .collect::<Answer<_>>()?;
+    hosted
+        .with_store_mut(|store| {
+            match members.is_empty() {
+                true => store.clear_sharing(&folder)?,
+                false => store.set_sharing(&folder, &members)?,
+            }
+            Ok(())
+        })
+        .map_err(failed)?;
+    hosted.nudge();
+    Ok(())
+}
+
 /// One side of a conflict, as the window shows it.
 #[derive(Serialize)]
 pub struct Side {

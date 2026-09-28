@@ -29,6 +29,7 @@ Five places under a tab bar, plus setup, scanning and the share sheet:
 | Home | which devices this phone knows; a card, shown only while it is true, saying how many files exist on this phone and nowhere else and what to do about it; what happened lately. The big button is *Connect a device* until one is connected, and *Sync now* after |
 | Vault | every file, and where its bytes are: on this phone and another device, only on this phone, or on another device and not here. Tapping one offers what that allows — open, save a copy, send to a device, free phone space, download, delete |
 | Home, conflicts | a card when two devices changed a file, with both versions and the choices ([0043](../docs/decisions/0043-settling-a-conflict.md)) |
+| Settings, Shared folders | which devices each folder is on ([0044](../docs/decisions/0044-sharing-with-chosen-devices.md)) |
 | Settings, Recently deleted | files deleted here or elsewhere, kept 30 days, restorable ([0042](../docs/decisions/0042-recently-deleted.md)) |
 | Devices | the connected devices, which of them keep this phone's files, a way to send one files, and removing one after saying what that does ([0041](../docs/decisions/0041-removing-a-device.md)) |
 | Transfers | what this phone has sent that has not been collected, with a way to stop it, and the history |

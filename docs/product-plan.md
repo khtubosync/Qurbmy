@@ -251,6 +251,10 @@ Since 2026-09-28:
 - **Conflicts** (§24): found on every device, shown with both versions, and
   settled by keeping one, the other, or both —
   [0043](decisions/0043-settling-a-conflict.md).
+- **Sharing** (§23), decided and built: a folder shared with chosen devices,
+  two-way among them, never sent to the others, a device left out keeping what
+  it had — [0044](decisions/0044-sharing-with-chosen-devices.md). §4.6 is
+  settled; step 9 is done except for what 0044 lists as not done.
 - **Recovering a deleted file**: Recently deleted on every device, 30 days,
   restored everywhere — [0042](decisions/0042-recently-deleted.md). Building it
   found a device unable ever to take back bytes it had deleted.
@@ -376,8 +380,8 @@ device", and choosing which devices share a folder is the general case.
    [0037](decisions/0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md).
 5. ~~**The storage question in the first run.**~~ Decided —
    [0038](decisions/0038-the-storage-question-during-setup.md), amending 0033.
-6. **What sharing means** (§23) — copy or reference, whether deletion
-   propagates, how access is withdrawn. Before step 9.
+6. ~~**What sharing means** (§23)~~ — decided 2026-09-28: chosen devices,
+   [0044](decisions/0044-sharing-with-chosen-devices.md).
 7. **Replica eviction**, before any storage screen promises it for replicas.
 8. **Selective sync for ordinary devices** — extending `PinSet` beyond
    replicas, and what happens to content a device un-pins.

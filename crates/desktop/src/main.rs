@@ -119,6 +119,8 @@ fn run() -> Result<()> {
             commands::send_files,
             commands::cancel_send,
             commands::removal_plan,
+            commands::sharing,
+            commands::set_sharing,
             commands::conflicts,
             commands::settle_conflict,
             commands::recently_deleted,

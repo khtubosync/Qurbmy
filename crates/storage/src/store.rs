@@ -1224,6 +1224,141 @@ impl Store {
         Ok(trashed)
     }
 
+    /// Rebuild the share tables from the rule files, if those changed since
+    /// they were last built (decision 0044).
+    ///
+    /// A rule file that cannot be read is taken as a folder shared with
+    /// nobody: closed, not open. Its bytes not being here yet is not a reason
+    /// to show the folder to everyone.
+    pub fn refresh_shares(&self) -> Result<()> {
+        let stamp = self.db.sharing_stamp()?;
+        if self.db.shares_stamp()?.as_deref() == Some(stamp.as_str()) {
+            return Ok(());
+        }
+        let mut rules = std::collections::BTreeMap::new();
+        for path in self.db.live_rule_paths()? {
+            let Some(folder) = qurb_sync::sharing::rule_folder(&path) else { continue };
+            let members = match self.read_file(&path) {
+                Ok(bytes) => qurb_sync::sharing::parse_members(&String::from_utf8_lossy(&bytes)),
+                Err(e) => {
+                    tracing::warn!(path, error = %e, "a sharing rule cannot be read; its folder is closed");
+                    Default::default()
+                }
+            };
+            rules.insert(folder, members);
+        }
+        let rules = qurb_sync::sharing::Rules::new(rules);
+        // Nested rules are refused when made here; one that arrives nested
+        // anyway (made by hand, or on two devices at once) is kept -- both
+        // folders closed as their rules say -- and said.
+        for (folder, _) in rules.iter() {
+            if let Some(other) = rules.nests(folder) {
+                tracing::warn!(folder, other, "two sharing rules nest; both apply");
+            }
+        }
+        self.db.replace_shares(&rules, &stamp)
+    }
+
+    /// The sharing rules in force: which folders are shared with which
+    /// devices. A folder with no rule is shared with every device.
+    pub fn sharing(&self) -> Result<qurb_sync::sharing::Rules> {
+        self.refresh_shares()?;
+        self.db.shares()
+    }
+
+    /// Every folder a person might share, and who it is shared with: the
+    /// folders at the top of the shared area, and any folder that has a rule
+    /// wherever it is. `None` is every device.
+    pub fn folder_sharing(
+        &self,
+    ) -> Result<Vec<(String, Option<std::collections::BTreeSet<DeviceId>>)>> {
+        let rules = self.sharing()?;
+        let mut folders: std::collections::BTreeMap<String, Option<_>> =
+            self.db.top_folders()?.into_iter().map(|f| (f, None)).collect();
+        for (folder, members) in rules.iter() {
+            folders.insert(folder.clone(), Some(members.clone()));
+        }
+        Ok(folders.into_iter().collect())
+    }
+
+    /// Share `folder` with exactly `members`, from now on, on every device.
+    ///
+    /// Written as a rule file that syncs like any other. Refused when it would
+    /// nest inside or around another shared folder, when it names nobody, and
+    /// when this device is not one the folder is shared with now -- the other
+    /// devices would refuse the change, so it is refused here first.
+    pub fn set_sharing(
+        &mut self,
+        folder: &str,
+        members: &std::collections::BTreeSet<DeviceId>,
+    ) -> Result<()> {
+        let folder = folder.trim_matches('/');
+        let rules = self.sharing()?;
+        let me = self.device_id()?;
+        if !qurb_sync::sharing::valid_folder(folder) {
+            return Err(Error::Sharing { why: format!("{folder:?} cannot be shared on its own") });
+        }
+        if let Some(other) = rules.nests(folder) {
+            return Err(Error::Sharing {
+                why: format!("{other} is already shared on its own, and one shared folder cannot hold another"),
+            });
+        }
+        if members.is_empty() {
+            return Err(Error::Sharing { why: "a folder has to be shared with at least one device".into() });
+        }
+        if !rules.may_change(folder, &me) {
+            return Err(Error::Sharing {
+                why: format!("{folder} is not shared with this device, so this device cannot change who it is shared with"),
+            });
+        }
+        self.write_rule(folder, Some(members))
+    }
+
+    /// Share `folder` with every device again.
+    pub fn clear_sharing(&mut self, folder: &str) -> Result<()> {
+        let folder = folder.trim_matches('/');
+        let me = self.device_id()?;
+        if !self.sharing()?.may_change(folder, &me) {
+            return Err(Error::Sharing {
+                why: format!("{folder} is not shared with this device, so this device cannot change who it is shared with"),
+            });
+        }
+        self.write_rule(folder, None)
+    }
+
+    fn write_rule(
+        &mut self,
+        folder: &str,
+        members: Option<&std::collections::BTreeSet<DeviceId>>,
+    ) -> Result<()> {
+        let Some(root) = self.tree.clone() else {
+            return Err(Error::Sharing { why: "a device with no folder has no rules to change".into() });
+        };
+        let path = qurb_sync::sharing::rule_path(folder);
+        let disk = root.join(&path);
+        match members {
+            Some(members) => {
+                let dir = root.join(qurb_sync::sharing::SHARING_DIR);
+                std::fs::create_dir_all(&dir).map_err(|e| Error::io(&dir, e))?;
+                std::fs::write(&disk, qurb_sync::sharing::encode_members(members))
+                    .map_err(|e| Error::io(&disk, e))?;
+                self.put_file(&path, &disk)?;
+            }
+            None => {
+                if self.db.folder_row(&path)?.is_some() {
+                    match std::fs::remove_file(&disk) {
+                        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                            return Err(Error::io(&disk, e))
+                        }
+                        _ => {}
+                    }
+                    self.delete_file(&path)?;
+                }
+            }
+        }
+        self.refresh_shares()
+    }
+
     /// Every conflict waiting for somebody to say which version they want.
     ///
     /// Found by name -- a conflict copy's name says what it is a version of
@@ -1551,6 +1686,9 @@ impl Store {
     /// See [`db::Audience`], which distinguishes the three cases this depends
     /// on getting right.
     pub fn tree_for(&self, audience: db::Audience<'_>) -> Result<Vec<FileVersion>> {
+        // Sharing rules as the rule files say now, before answering anybody:
+        // a rule that arrived since the last answer must already hold.
+        self.refresh_shares()?;
         self.db.versions_for(audience)
     }
 
@@ -1583,10 +1721,14 @@ impl Store {
         self.db.all_versions()
     }
 
-    /// The shared area only: what this device advertises to a peer with
-    /// nothing waiting for it.
+    /// The shared area only, all of it: this device's own side of a plan.
+    ///
+    /// Not what any peer is shown -- that is [`tree_for`](Self::tree_for),
+    /// which leaves out folders shared without the peer. This device sees
+    /// its own copy of those; planning without them would have it fetch them
+    /// again on every sync, not knowing it had them.
     pub fn shared_tree(&self) -> Result<Vec<FileVersion>> {
-        self.db.versions_for(db::Audience::Unplaced)
+        self.db.shared_versions()
     }
 
     /// This device's identity.

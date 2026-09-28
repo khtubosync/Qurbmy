@@ -508,3 +508,9 @@ button.primary.danger { background: var(--warn); border-color: var(--warn); }
 .rows.conflicts dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 6px 0; }
 .rows.conflicts dd { margin: 0; }
 .rows.conflicts .strong { font-weight: 600; margin: 0 0 4px; }
+
+#sharing-box { margin-bottom: 14px; }
+#sharing-box summary { cursor: pointer; }
+.rows li.sharing { flex-wrap: wrap; }
+.rows li.sharing .picker { flex-basis: 100%; margin: 6px 0 4px; }
+.picker .check { display: block; margin: 2px 0; }

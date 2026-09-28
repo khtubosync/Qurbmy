@@ -36,6 +36,9 @@ qurb — private cloud storage
   qurb conflicts [dir] [keep <copy> this|other|both]
                                       files two devices changed at once, and
                                         settling one: nothing is lost either way
+  qurb share [dir] [<folder> with <device>,... | everyone]
+                                      which devices a folder is shared with
+                                        (this = this device)
   qurb deleted [dir]                  recently deleted files, restorable for 30 days
   qurb restore [dir] <#n or path>     put a recently deleted file back, everywhere
   qurb holders [dir] [add|remove <device>]
@@ -175,6 +178,16 @@ fn run() -> Result<()> {
                 _ => (qurb_cli::profiles::current().context("no folder is set up yet")?, rest),
             };
             conflicts(&root, rest)
+        }
+        "share" => {
+            let rest = &args[1..];
+            let (root, rest) = match rest.first() {
+                Some(first) if PathBuf::from(first).join(".qurb").is_dir() => {
+                    (PathBuf::from(first), &rest[1..])
+                }
+                _ => (qurb_cli::profiles::current().context("no folder is set up yet")?, rest),
+            };
+            share(&root, rest)
         }
         "deleted" => {
             let (root, _) = split_path(&args)?;
@@ -810,6 +823,65 @@ fn conflicts(root: &Path, rest: &[String]) -> Result<()> {
             Ok(())
         }
         _ => bail!("qurb conflicts [dir] [keep <copy> this|other|both]"),
+    }
+}
+
+/// Which devices each folder is shared with, or change one (decision 0044).
+fn share(root: &Path, rest: &[String]) -> Result<()> {
+    let (_, _, mut store, _) = open(root)?;
+    let names = store.db().device_names()?;
+    let me = store.device_id()?;
+    let name = |id: &qurb_sync::DeviceId| -> String {
+        match *id == me {
+            true => "this device".into(),
+            false => names.get(id).cloned().unwrap_or_else(|| id.short()),
+        }
+    };
+    match rest {
+        [] => {
+            let folders = store.folder_sharing()?;
+            if folders.is_empty() {
+                println!("no folders yet");
+            }
+            for (folder, members) in folders {
+                match members {
+                    None => println!("  {folder}  — every device"),
+                    Some(members) => println!(
+                        "  {folder}  — {}",
+                        members.iter().map(name).collect::<Vec<_>>().join(", ")
+                    ),
+                }
+            }
+            println!("\n`qurb share <folder> with this,phone` or `... everyone` changes one, on every device.");
+            Ok(())
+        }
+        [folder, with, everyone] if with == "with" && everyone == "everyone" => {
+            store.clear_sharing(folder)?;
+            println!("{folder} is shared with every device");
+            Ok(())
+        }
+        [folder, with, list] if with == "with" => {
+            let view = qurb_cli::View::new(&store, 0);
+            let mut members = std::collections::BTreeSet::new();
+            for text in list.split(',').map(str::trim).filter(|t| !t.is_empty()) {
+                if text == "this" {
+                    members.insert(me);
+                    continue;
+                }
+                match view.device_named(text)? {
+                    qurb_cli::Recipient::One(device) => members.insert(device.id),
+                    _ => bail!("no single paired device called {text} — see `qurb status`"),
+                };
+            }
+            store.set_sharing(folder, &members)?;
+            println!(
+                "{folder} is shared with {}",
+                members.iter().map(name).collect::<Vec<_>>().join(", ")
+            );
+            println!("  a device left out keeps what it has; nothing new reaches it");
+            Ok(())
+        }
+        _ => bail!("qurb share [dir] [<folder> with <device>,... | everyone]"),
     }
 }
 

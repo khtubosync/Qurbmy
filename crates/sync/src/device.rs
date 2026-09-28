@@ -28,6 +28,23 @@ impl DeviceId {
     pub fn short(&self) -> String {
         self.0[..4].iter().map(|b| format!("{b:02x}")).collect()
     }
+
+    /// All 64 hex characters, lower case: the same as `Display`.
+    pub fn to_hex(&self) -> String {
+        self.to_string()
+    }
+
+    /// Read back what [`to_hex`](Self::to_hex) wrote; `None` for anything else.
+    pub fn from_hex(text: &str) -> Option<Self> {
+        if text.len() != 64 {
+            return None;
+        }
+        let mut bytes = [0u8; 32];
+        for (i, byte) in bytes.iter_mut().enumerate() {
+            *byte = u8::from_str_radix(text.get(i * 2..i * 2 + 2)?, 16).ok()?;
+        }
+        Some(Self(bytes))
+    }
 }
 
 impl fmt::Display for DeviceId {

@@ -527,6 +527,79 @@ function fileRow(f) {
   return row;
 }
 
+/** The folder whose devices are being chosen, so a redraw leaves it open. */
+let choosingFor = null;
+
+/** Folders, and which devices each is shared with (decision 0044). */
+async function drawSharing() {
+  const box = $("sharing-box");
+  const list = $("sharing-list");
+  let sharing;
+  try {
+    sharing = await invoke("sharing");
+  } catch (e) {
+    box.classList.add("hidden");
+    return;
+  }
+  box.classList.toggle("hidden", sharing.folders.length === 0);
+  list.replaceChildren();
+  const nameOf = (id) => sharing.devices.find((d) => d.id === id)?.name ?? "a removed device";
+
+  for (const f of sharing.folders) {
+    const row = el("li", "sharing");
+    row.append(el("span", "name", f.folder));
+    row.append(el("span", "when",
+      f.everyone ? "every device" : f.members.map(nameOf).join(", ")));
+    const choose = el("button", "act small", "Choose devices…");
+    row.append(choose);
+
+    const picker = el("div", "picker");
+    picker.hidden = choosingFor !== f.folder;
+    for (const d of sharing.devices) {
+      const label = el("label", "check");
+      const box = el("input");
+      box.type = "checkbox";
+      box.value = d.id;
+      box.checked = f.everyone || f.members.includes(d.id);
+      label.append(box, ` ${d.name}`);
+      picker.append(label);
+    }
+    const says = el("p", "warn");
+    says.hidden = true;
+    const buttons = el("div", "buttons");
+    const save = el("button", "act primary small", "Save");
+    const everyone = el("button", "act small", "Every device");
+    const apply = async (members) => {
+      save.disabled = everyone.disabled = true;
+      try {
+        await invoke("set_sharing", { folder: f.folder, members });
+        choosingFor = null;
+        drawSharing();
+      } catch (e) {
+        save.disabled = everyone.disabled = false;
+        says.textContent = String(e);
+        says.hidden = false;
+      }
+    };
+    save.addEventListener("click", () => {
+      const ticked = [...picker.querySelectorAll("input:checked")].map((b) => b.value);
+      // Every device ticked is the same as no rule: say it that way, so a
+      // device paired later is included too.
+      apply(ticked.length === sharing.devices.length ? [] : ticked);
+    });
+    everyone.addEventListener("click", () => apply([]));
+    buttons.append(save, everyone);
+    picker.append(says, buttons);
+    row.append(picker);
+
+    choose.addEventListener("click", () => {
+      choosingFor = picker.hidden ? f.folder : null;
+      picker.hidden = !picker.hidden;
+    });
+    list.append(row);
+  }
+}
+
 /** Files two devices changed at once, at the top of the Files screen. */
 async function drawConflicts() {
   const box = $("conflict-box");
@@ -1519,7 +1592,7 @@ async function save(bytes) {
 
 function refreshScreen() {
   if (screen === "home") { drawHome(); drawConflictNotice(); }
-  if (screen === "files") { drawConflicts(); drawFiles(); drawDeleted(); }
+  if (screen === "files") { drawConflicts(); drawSharing(); drawFiles(); drawDeleted(); }
   if (screen === "devices") drawDevices();
   if (screen === "activity") drawActivity();
   if (screen === "storage") drawStorage();
