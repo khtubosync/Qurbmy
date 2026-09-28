@@ -14,6 +14,7 @@ experiments/service-capacity/measure.sh signal 1000 4000 9000
 experiments/service-capacity/measure.sh signal-tls 1000 4000
 experiments/service-capacity/measure.sh relay-idle 1000
 experiments/service-capacity/measure.sh relay "1 512" "8 128"
+experiments/service-capacity/idle-daemon.sh <a set-up, paired folder>
 ```
 
 ## Conditions
@@ -70,6 +71,21 @@ About 4–5 CPU-seconds per GiB relayed, on this CPU.
 The worst introduction in every run was about 40 ms, against a p95 near
 0.1 ms. Not investigated; it looks like scheduling on a machine running the load
 and the service at once.
+
+**An idle laptop daemon** (`idle-daemon.sh <a set-up, paired folder>`), its
+only peer offline, over three minutes, with the rendezvous service on loopback:
+
+| | before, 2026-09-27 | after, 2026-09-28 |
+|---|---|---|
+| CPU | 0.02 s (0.011% of a core) | 0.01 s (0.006%) |
+| wakeups, all 14 threads | 493 (2.7 a second) | 197 (1.1 a second) |
+| resident memory | 14.7 MB | 13.9 MB |
+
+The change: the daemon checked the index for new pairings and sends every five
+seconds; the window hosting it now says so when it pairs or sends, the check
+runs every thirty seconds as a backstop, and the connected-devices display is
+refreshed only while a device is connected. What remains is mostly the
+twenty-second local-network beacon and the two-minute backstop sweep.
 
 ## What it says about a small server
 

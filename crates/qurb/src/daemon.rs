@@ -37,14 +37,20 @@ use tokio::sync::mpsc;
 /// when it changed, or a machine coming back from sleep.
 const SWEEP_INTERVAL: Duration = Duration::from_secs(120);
 
-/// How often to look for devices paired since the last check.
+/// How often to look for devices paired, and files sent, since the last check.
 ///
-/// Much shorter than a sweep because it is much cheaper — a handful of rows
-/// describing one person's own devices — and because the wait is felt. Someone
-/// who has just scanned a pairing code is watching the screen, and two minutes
-/// of nothing reads as "it did not work", which is how people end up pairing
-/// twice.
-const TRUST_INTERVAL: Duration = Duration::from_secs(5);
+/// The backstop, now. The window that hosts the daemon says so the moment it
+/// pairs or sends -- see [`Daemon::nudged_by`] -- which is when the wait is
+/// felt: someone who has just scanned a pairing code is watching the screen.
+/// What remains is the terminal doing either while the window runs, which
+/// waits for this. It was five seconds, and each check opens the index: an
+/// idle daemon woke 2.7 times a second with it, and 1.1 times after this
+/// change (experiments/service-capacity, `idle-daemon.sh`).
+const TRUST_INTERVAL: Duration = Duration::from_secs(30);
+
+/// How often to notice that a connected device went away, while any is
+/// connected. In memory only, and not at all while nothing is connected.
+const LINKS_INTERVAL: Duration = Duration::from_secs(10);
 
 /// How often to collect garbage and check the storage limit.
 ///
@@ -78,6 +84,10 @@ pub struct Daemon {
     /// Optional because the terminal front end has no use for it: its account
     /// of the daemon is the log. An interface supplies one.
     status: Option<crate::status::Publisher>,
+    /// Said to when something this daemon should look at has just happened in
+    /// the same process -- a device paired, a file sent -- so it looks now
+    /// rather than at the next [`TRUST_INTERVAL`].
+    nudge: Option<std::sync::Arc<tokio::sync::Notify>>,
     /// Set when this daemon is a storage-only replica, and then saying what it
     /// holds. `None` is an ordinary device with a folder someone looks at.
     ///
@@ -103,8 +113,16 @@ impl Daemon {
             identity,
             config,
             status: None,
+            nudge: None,
             pins: None,
         }
+    }
+
+    /// Look for new pairings and sends whenever `nudge` is notified, as well
+    /// as on the slow timer.
+    pub fn nudged_by(mut self, nudge: std::sync::Arc<tokio::sync::Notify>) -> Self {
+        self.nudge = Some(nudge);
+        self
     }
 
     /// Publish status to `publisher` as the daemon runs.
@@ -483,6 +501,8 @@ impl Daemon {
 
         let mut timer = tokio::time::interval(SWEEP_INTERVAL);
         let mut trust_timer = tokio::time::interval(TRUST_INTERVAL);
+        let mut links_timer = tokio::time::interval(LINKS_INTERVAL);
+        let nudge = self.nudge.clone();
         let mut maintenance = tokio::time::interval(MAINTENANCE_INTERVAL);
         maintenance.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -552,7 +572,34 @@ impl Daemon {
                     tokio::task::block_in_place(|| self.housekeep(&mut engine));
                 }
 
-                // A device paired just now, rather than at the next sweep.
+                // Something happened in this process that the checks below
+                // would find: look now. `pending()` with nobody to nudge, as
+                // for the watcher.
+                _ = async {
+                    match &nudge {
+                        Some(nudge) => nudge.notified().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    if self.refresh_trust(&trust, &mut peers) {
+                        self.sync_all(&mut engine, &connector, &mut peers, &generation).await;
+                    }
+                    self.announce_deliveries(&engine, &connector, &peers);
+                }
+
+                // Which devices are connected, kept current between sync
+                // passes -- which may be minutes apart -- so a device that
+                // went away stops being shown as connected within the
+                // half-minute it takes the connection to time out. Only while
+                // something is connected: an arm switched off is not polled,
+                // so an idle laptop whose phone is away is not woken for it.
+                _ = links_timer.tick(), if peers.any_connected() => {
+                    peers.forget_closed();
+                    let links = peers.links();
+                    self.report(|status| status.links = links);
+                }
+
+                // A device paired, or a file sent, from another process.
                 _ = trust_timer.tick() => {
                     if self.refresh_trust(&trust, &mut peers) {
                         // Newly paired, so try it immediately: the person who
@@ -566,14 +613,6 @@ impl Daemon {
                     // alternative of a send sitting unnoticed until the next
                     // five-minute maintenance tick.
                     self.announce_deliveries(&engine, &connector, &peers);
-
-                    // Which devices are connected, kept current between sync
-                    // passes -- which may be minutes apart -- so a device that
-                    // went away stops being shown as connected within the
-                    // half-minute it takes the connection to time out.
-                    peers.forget_closed();
-                    let links = peers.links();
-                    self.report(|status| status.links = links);
                 }
 
                 // A peer said it changed. This is how news travels now; the
@@ -1142,6 +1181,10 @@ impl Peers {
             .collect();
         links.sort_by(|a, b| a.fingerprint.cmp(&b.fingerprint));
         links
+    }
+
+    fn any_connected(&self) -> bool {
+        !self.connections.is_empty()
     }
 
     fn connected(&mut self, peer: Fingerprint, client: Arc<PeerClient>) {

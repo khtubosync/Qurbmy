@@ -695,6 +695,13 @@ are on, wherever they are, without Tailscale. Getting ready for that found:
   which also measured the relay: 241 MiB/s for one transfer, 726 MiB/s for
   eight, at 4–5 CPU-seconds per GiB — over loopback on the laptop.
 
+**And the laptop's own idle cost**, measured the next day: an idle daemon with
+its phone offline used 0.02 CPU-seconds in three minutes but woke 2.7 times a
+second, most of them for a check of the index every five seconds for new
+pairings and sends. The window now tells its daemon when it pairs or sends, the
+check is a thirty-second backstop, and the connected-devices display refreshes
+only while something is connected: 1.1 wakeups a second, 0.01 CPU-seconds.
+
 The answer to "is it scalable": for one person's devices a small server is
 nowhere near any limit; by memory, it would hold tens of thousands of devices,
 and the relay's limit is the server's bandwidth and its bill. **Not yet done**:

@@ -580,6 +580,10 @@ pub fn send_files(hosted: Host<'_>, paths: Vec<String>, to: String) -> Answer<Se
             }
         }
     }
+    // Told to the device it is for now, rather than at the daemon's next check.
+    if !sent.is_empty() {
+        hosted.nudge();
+    }
 
     Ok(SendReport {
         only: (sent.len() == 1).then(|| sent[0].clone()),
@@ -619,12 +623,17 @@ pub fn start_pairing(hosted: Host<'_>) -> Answer<Invitation> {
 
     let attempt = hosted.begin_pairing(code.clone(), spoken.clone(), expires_at);
     let waiting = Arc::clone(&attempt);
+    let nudge = hosted.nudger();
     attempt.watch(tauri::async_runtime::spawn(async move {
         let outcome = match host.wait(store, &name, now).await {
-            Ok(peer) => crate::session::Pairing::Paired {
-                name: peer.name,
-                fingerprint: peer.fingerprint.short(),
-            },
+            Ok(peer) => {
+                // The daemon syncs with it now, not at its next check.
+                nudge.notify_one();
+                crate::session::Pairing::Paired {
+                    name: peer.name,
+                    fingerprint: peer.fingerprint.short(),
+                }
+            }
             // The ordinary ending when nobody types the code in time. Not an
             // error to report as one: the only useful thing to say is that the
             // code is dead and another can be had.
@@ -697,6 +706,7 @@ pub async fn join_device(hosted: Host<'_>, code: String) -> Answer<PairingState>
             }
             other => other.to_string(),
         })?;
+    hosted.nudge();
 
     Ok(PairingState {
         state: "paired",

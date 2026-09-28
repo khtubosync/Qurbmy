@@ -98,6 +98,9 @@ pub struct Hosted {
     /// invites to the same device, and only one of them could be the one on
     /// the screen.
     pairing: Mutex<Option<Arc<Attempt>>>,
+    /// Tells the daemon to look now, when the window has just paired a device
+    /// or sent a file, instead of at its next slow check.
+    nudge: Arc<tokio::sync::Notify>,
 }
 
 impl Hosted {
@@ -107,7 +110,19 @@ impl Hosted {
             running: Mutex::new(None),
             pending: Mutex::new(None),
             pairing: Mutex::new(None),
+            nudge: Arc::new(tokio::sync::Notify::new()),
         }
+    }
+
+    /// Have the daemon look for new pairings and sends now. Kept if the daemon
+    /// is busy, so a nudge made during a sync is acted on after it.
+    pub fn nudge(&self) {
+        self.nudge.notify_one();
+    }
+
+    /// The same, for a task that outlives the call that started it.
+    pub fn nudger(&self) -> Arc<tokio::sync::Notify> {
+        Arc::clone(&self.nudge)
     }
 
     pub fn root(&self) -> PathBuf {
@@ -218,6 +233,7 @@ impl Hosted {
         // loop there.
         let daemon_root = root.clone();
         let daemon_store_dir = store_dir(&root);
+        let nudge = self.nudger();
         std::thread::Builder::new()
             .name("qurb-daemon".into())
             .spawn(move || {
@@ -230,7 +246,8 @@ impl Hosted {
                     }
                 };
                 let daemon = Daemon::new(&daemon_root, &daemon_store_dir, master, identity, config)
-                    .reporting_to(publisher);
+                    .reporting_to(publisher)
+                    .nudged_by(nudge);
                 if let Err(e) = runtime.block_on(daemon.run()) {
                     tracing::error!(error = %e, "the daemon stopped");
                 }
