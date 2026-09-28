@@ -919,6 +919,8 @@ pub struct SharedFolder {
     everyone: bool,
     /// Device ids, in hex, when not everyone.
     members: Vec<String>,
+    /// Kept on this computer only remotely (decision 0045).
+    remote: bool,
 }
 
 #[derive(Serialize)]
@@ -939,10 +941,12 @@ pub fn sharing(hosted: Host<'_>) -> Answer<Sharing> {
             for peer in store.db().trusted_peers()? {
                 devices.push(ShareTarget { id: peer.device_id.to_hex(), name: peer.name, here: false });
             }
+            let remote = store.db().remote_folders()?;
             let folders = store
                 .folder_sharing()?
                 .into_iter()
                 .map(|(folder, members)| SharedFolder {
+                    remote: remote.contains(&folder),
                     folder,
                     everyone: members.is_none(),
                     members: members.unwrap_or_default().iter().map(|d| d.to_hex()).collect(),
@@ -972,6 +976,31 @@ pub fn set_sharing(hosted: Host<'_>, folder: String, members: Vec<String>) -> An
         .map_err(failed)?;
     hosted.nudge();
     Ok(())
+}
+
+/// What keeping a folder remotely did.
+#[derive(Serialize)]
+pub struct KeptRemotely {
+    freed: usize,
+    bytes: String,
+    /// Files kept because this computer has the only copy.
+    kept: Vec<String>,
+}
+
+/// Keep a folder on this computer only remotely (decision 0045).
+#[tauri::command]
+pub fn keep_remotely(hosted: Host<'_>, folder: String) -> Answer<KeptRemotely> {
+    let (freed, bytes, kept) =
+        hosted.with_store_mut(|store| Ok(store.keep_remotely(&folder)?)).map_err(failed)?;
+    Ok(KeptRemotely { freed, bytes: big(bytes), kept })
+}
+
+/// Keep a folder on this computer again. Returns how many files are asked for.
+#[tauri::command]
+pub fn keep_locally(hosted: Host<'_>, folder: String) -> Answer<usize> {
+    let asked = hosted.with_store_mut(|store| Ok(store.keep_locally(&folder)?)).map_err(failed)?;
+    hosted.nudge();
+    Ok(asked)
 }
 
 /// One side of a conflict, as the window shows it.

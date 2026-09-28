@@ -39,6 +39,9 @@ qurb — private cloud storage
   qurb share [dir] [<folder> with <device>,... | everyone]
                                       which devices a folder is shared with
                                         (this = this device)
+  qurb keep [dir] <folder> here|remote
+                                      keep a folder here, or only list it here
+                                        and fetch each file when asked for
   qurb deleted [dir]                  recently deleted files, restorable for 30 days
   qurb restore [dir] <#n or path>     put a recently deleted file back, everywhere
   qurb holders [dir] [add|remove <device>]
@@ -188,6 +191,32 @@ fn run() -> Result<()> {
                 _ => (qurb_cli::profiles::current().context("no folder is set up yet")?, rest),
             };
             share(&root, rest)
+        }
+        "keep" => {
+            let rest = &args[1..];
+            let (root, rest) = match rest.first() {
+                Some(first) if rest.len() == 3 && PathBuf::from(first).join(".qurb").is_dir() => {
+                    (PathBuf::from(first), &rest[1..])
+                }
+                _ => (qurb_cli::profiles::current().context("no folder is set up yet")?, rest),
+            };
+            let [folder, how] = rest else { bail!("qurb keep [dir] <folder> here|remote") };
+            let (_, _, mut store, _) = open(&root)?;
+            match how.as_str() {
+                "remote" => {
+                    let (freed, bytes, kept) = store.keep_remotely(folder)?;
+                    println!("{folder}: freed {freed} files ({}); new files are listed, not downloaded", human(bytes));
+                    for path in &kept {
+                        println!("  kept {path}: this device has the only copy");
+                    }
+                }
+                "here" => {
+                    let asked = store.keep_locally(folder)?;
+                    println!("{folder} is kept here; {asked} files asked for, arriving at the next sync");
+                }
+                _ => bail!("qurb keep [dir] <folder> here|remote"),
+            }
+            Ok(())
         }
         "deleted" => {
             let (root, _) = split_path(&args)?;

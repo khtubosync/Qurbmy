@@ -549,9 +549,34 @@ async function drawSharing() {
     const row = el("li", "sharing");
     row.append(el("span", "name", f.folder));
     row.append(el("span", "when",
-      f.everyone ? "every device" : f.members.map(nameOf).join(", ")));
+      (f.everyone ? "every device" : f.members.map(nameOf).join(", ")) +
+      (f.remote ? " · here only when opened" : "")));
     const choose = el("button", "act small", "Choose devices…");
-    row.append(choose);
+    // Kept here, or only listed here and fetched when opened (decision 0045).
+    const where = el("button", "act small", f.remote ? "Keep on this computer" : "Free space here");
+    where.title = f.remote
+      ? "Download everything in it, and keep what arrives"
+      : "List its files here without keeping them; each downloads when you fetch it";
+    where.addEventListener("click", async () => {
+      where.disabled = true;
+      try {
+        if (f.remote) {
+          const asked = await invoke("keep_locally", { folder: f.folder });
+          row.append(el("p", "quiet", asked ? `${asked} files are on their way back.` : "Kept here."));
+        } else {
+          const r = await invoke("keep_remotely", { folder: f.folder });
+          const kept = r.kept.length
+            ? ` ${r.kept.length} stayed: this computer has the only copy.`
+            : "";
+          row.append(el("p", "quiet", `Freed ${r.freed} files (${size(r.bytes)}).${kept}`));
+        }
+        setTimeout(drawSharing, 2500);
+      } catch (e) {
+        where.disabled = false;
+        row.append(el("p", "warn", String(e)));
+      }
+    });
+    row.append(where, choose);
 
     const picker = el("div", "picker");
     picker.hidden = choosingFor !== f.folder;

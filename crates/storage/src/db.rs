@@ -24,7 +24,7 @@ use std::path::Path;
 ///
 /// Migrations are append-only. Editing one that has already shipped would leave
 /// databases in the field at a schema nobody can reproduce.
-const MIGRATIONS: &[&str] = &[V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14];
+const MIGRATIONS: &[&str] = &[V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15];
 
 const V1: &str = r#"
 CREATE TABLE IF NOT EXISTS chunks (
@@ -439,6 +439,15 @@ CREATE TABLE IF NOT EXISTS share_members (
 CREATE TABLE IF NOT EXISTS shares_stamp (
     id    INTEGER PRIMARY KEY CHECK (id = 1),
     stamp TEXT NOT NULL
+) STRICT;
+"#;
+
+const V15: &str = r#"
+-- Folders this device keeps only remotely (decision 0045, brief §29): their
+-- files are listed and fetched when asked for, and not downloaded because
+-- another device changed them. This device's choice alone -- never synced.
+CREATE TABLE IF NOT EXISTS remote_folders (
+    folder TEXT PRIMARY KEY
 ) STRICT;
 "#;
 
@@ -927,6 +936,58 @@ impl Db {
             params![path],
         )?;
         Ok(changed > 0)
+    }
+
+    /// Whether somebody asked for this path's bytes.
+    pub fn is_wanted(&self, path: &str) -> Result<bool> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM files
+                             WHERE path = ?1 AND wanted = 1 AND deleted_at IS NULL
+                               AND (scope IS NULL OR scope = (SELECT device_id FROM local WHERE id = 1)))",
+            params![path],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Keep `folder` only remotely on this device, or stop.
+    pub fn set_kept_remotely(&self, folder: &str, remote: bool) -> Result<()> {
+        match remote {
+            true => self.conn.execute(
+                "INSERT OR IGNORE INTO remote_folders (folder) VALUES (?1)",
+                params![folder],
+            )?,
+            false => self.conn.execute("DELETE FROM remote_folders WHERE folder = ?1", params![folder])?,
+        };
+        Ok(())
+    }
+
+    /// The folders this device keeps only remotely.
+    pub fn remote_folders(&self) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare("SELECT folder FROM remote_folders ORDER BY folder")?;
+        let rows = stmt.query_map([], |r| r.get(0))?;
+        rows.collect::<std::result::Result<_, _>>().map_err(Into::into)
+    }
+
+    /// Whether `path` is in a folder this device keeps only remotely.
+    pub fn kept_remotely(&self, path: &str) -> Result<bool> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM remote_folders
+                             WHERE ?1 = folder OR substr(?1, 1, length(folder) + 1) = folder || '/')",
+            params![path],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Live shared-area paths in `folder`, and whether each is here.
+    pub fn shared_under(&self, folder: &str) -> Result<Vec<(String, bool)>> {
+        let pattern = escape_like(&format!("{}/%", folder.trim_matches('/')));
+        let mut stmt = self.conn.prepare(
+            "SELECT path, materialised FROM files
+              WHERE scope IS NULL AND deleted_at IS NULL AND path LIKE ?1 ESCAPE '\\'
+              ORDER BY path",
+        )?;
+        let rows = stmt.query_map(params![pattern], |r| Ok((r.get(0)?, r.get::<_, i64>(1)? != 0)))?;
+        rows.collect::<std::result::Result<_, _>>().map_err(Into::into)
     }
 
     /// Paths asked for that this device is not holding yet.

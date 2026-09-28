@@ -661,6 +661,19 @@ impl Engine {
                 // stop being true.
                 let was_evicted = self.store().is_materialised(&version.path)? == Some(false);
 
+                // A folder this device keeps only remotely (decision 0045):
+                // the new version is known and listed, not downloaded because
+                // another device changed it. Taken as usual when the file is
+                // here already, or somebody asked for it.
+                if version.area == Area::Shared
+                    && self.store().is_materialised(&version.path)? != Some(true)
+                    && self.store().db().kept_remotely(&version.path)?
+                    && !self.store().db().is_wanted(&version.path)?
+                {
+                    self.store_mut().know_elsewhere(version)?;
+                    return Ok(());
+                }
+
                 if let Some(parent) = path.parent() {
                     std::fs::create_dir_all(parent)
                         .map_err(|e| Error::Io { path: parent.to_path_buf(), source: e })?;

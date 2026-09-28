@@ -864,6 +864,22 @@ old copy going nowhere; sharing with everyone again; chunk and content requests
 refused by hash; and the refusals for nesting, nobody, the root, the rules
 directory and `../`. Not yet: between real devices.
 
+## A folder kept only remotely
+
+**2026-09-28.** Brief §29 and product plan §4.8. A device can keep a folder
+or only list it: files stay listed, a version arriving from another device is
+recorded rather than downloaded, and local copies are freed only where another
+device has them — the rest stay, named, because freeing the only copy would be
+deleting it. [Decision 0045](../decisions/0045-a-folder-kept-remotely.md) says
+why this is at the point a version is taken rather than the replica's
+`PinSet`, which would have made the folder look deleted.
+
+Checked by two-device engine tests (`crates/engine/tests/availability.rs`,
+four): only the copy another device has is freed; a new file is listed and not
+downloaded, and downloads when asked for; a file already here stays current;
+keeping the folder here again brings everything back and new files arrive
+again.
+
 ## Still to do
 
 - **Running the *daemon* as a service** — a user unit, a launch agent, a

@@ -1050,11 +1050,13 @@ impl Qurb {
     /// Folders, and which devices each is shared with (decision 0044).
     pub fn sharing(&self) -> Result<Vec<SharedFolder>, QurbError> {
         let engine = self.engine()?;
+        let remote = engine.store().db().remote_folders()?;
         Ok(engine
             .store()
             .folder_sharing()?
             .into_iter()
             .map(|(folder, members)| SharedFolder {
+                remote: remote.contains(&folder),
                 folder,
                 everyone: members.is_none(),
                 members: members.unwrap_or_default().iter().map(|d| d.to_hex()).collect(),
@@ -1076,6 +1078,19 @@ impl Qurb {
             out.push(ShareTarget { id: peer.device_id.to_hex(), name: peer.name, here: false });
         }
         Ok(out)
+    }
+
+    /// Keep a folder on this phone only remotely (decision 0045): its files
+    /// stay listed, local copies another device keeps are freed, and what
+    /// changes elsewhere is not downloaded until opened.
+    pub fn keep_remotely(&self, folder: String) -> Result<KeptRemotely, QurbError> {
+        let (freed, bytes, kept) = self.engine()?.store_mut().keep_remotely(&folder)?;
+        Ok(KeptRemotely { freed: freed as u32, bytes, kept })
+    }
+
+    /// Keep a folder on this phone again; everything in it is asked for.
+    pub fn keep_locally(&self, folder: String) -> Result<u32, QurbError> {
+        Ok(self.engine()?.store_mut().keep_locally(&folder)? as u32)
     }
 
     /// Share a folder with exactly these devices, or with every device when
@@ -1837,6 +1852,17 @@ pub struct SharedFolder {
     pub everyone: bool,
     /// Device ids, in hex, when not everyone.
     pub members: Vec<String>,
+    /// Kept on this phone only remotely (decision 0045).
+    pub remote: bool,
+}
+
+/// What keeping a folder remotely did. See [`Qurb::keep_remotely`].
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct KeptRemotely {
+    pub freed: u32,
+    pub bytes: u64,
+    /// Files kept because this phone has the only copy.
+    pub kept: Vec<String>,
 }
 
 /// A device a folder can be shared with. See [`Qurb::share_targets`].

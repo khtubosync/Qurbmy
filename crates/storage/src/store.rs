@@ -1479,6 +1479,93 @@ impl Store {
         unreachable!("an unbounded search ends")
     }
 
+    /// Record a version of a shared file without its bytes: listed, known to
+    /// be on the device that made it, and fetched when somebody asks. What a
+    /// folder kept only remotely does with a file that arrives (decision
+    /// 0045) -- the same state freeing a file leaves behind.
+    pub fn know_elsewhere(&mut self, version: &FileVersion) -> Result<()> {
+        let Content::File { hash, size } = &version.content else {
+            self.adopt(version, None, 0)?;
+            return Ok(());
+        };
+        let tx = self.db.conn().unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO files
+                 (path, size, content_hash, mtime_ns, created_at, updated_at, deleted_at,
+                  vector, modified_by, scope, materialised)
+             VALUES (?1, ?2, ?3, 0, unixepoch(), ?4, NULL, ?5, ?6, NULL, 0)
+             ON CONFLICT (path) WHERE scope IS NULL DO UPDATE SET
+                 size = excluded.size,
+                 content_hash = excluded.content_hash,
+                 updated_at = excluded.updated_at,
+                 deleted_at = NULL,
+                 vector = excluded.vector,
+                 modified_by = excluded.modified_by,
+                 materialised = 0",
+            rusqlite::params![
+                version.path,
+                *size as i64,
+                hash.as_slice(),
+                version.modified_at,
+                version.vector.encode(),
+                version.modified_by.as_bytes().as_slice(),
+            ],
+        )?;
+        // The chunks of whatever content the row described before, which
+        // describe nothing now; the new content's list comes with its bytes.
+        tx.execute(
+            "DELETE FROM file_chunks
+              WHERE file_id = (SELECT id FROM files WHERE path = ?1 AND scope IS NULL)",
+            rusqlite::params![version.path],
+        )?;
+        tx.commit()?;
+        self.db.note_replica(&blake3::Hash::from(*hash), &version.modified_by)
+    }
+
+    /// Keep `folder` on this device only remotely: its files stay listed, the
+    /// local copies go where another device keeps them, and what changes on
+    /// other devices is no longer downloaded here until asked for.
+    ///
+    /// A file this device holds the only copy of stays: freeing it would be
+    /// deleting it (brief §29 -- "refuse it and explain why"). Returns how many
+    /// were freed, the bytes, and the paths kept for that reason.
+    pub fn keep_remotely(&mut self, folder: &str) -> Result<(usize, u64, Vec<String>)> {
+        let folder = folder.trim_matches('/');
+        if folder.is_empty() || qurb_sync::sharing::is_rule_path(folder) {
+            return Err(Error::Sharing { why: format!("{folder:?} cannot be kept remotely on its own") });
+        }
+        self.db.set_kept_remotely(folder, true)?;
+        let (mut freed, mut bytes, mut kept) = (0, 0, Vec::new());
+        for (path, here) in self.db.shared_under(folder)? {
+            if !here {
+                continue;
+            }
+            match self.free_local(&path) {
+                Ok(n) => {
+                    freed += 1;
+                    bytes += n;
+                }
+                Err(Error::CannotEvict { .. }) => kept.push(path),
+                Err(e) => return Err(e),
+            }
+        }
+        Ok((freed, bytes, kept))
+    }
+
+    /// Keep `folder` on this device again: everything in it is asked for, and
+    /// arrives at the next sync. Returns how many files were asked for.
+    pub fn keep_locally(&mut self, folder: &str) -> Result<usize> {
+        let folder = folder.trim_matches('/');
+        self.db.set_kept_remotely(folder, false)?;
+        let mut asked = 0;
+        for (path, here) in self.db.shared_under(folder)? {
+            if !here && self.db.want(&path)? {
+                asked += 1;
+            }
+        }
+        Ok(asked)
+    }
+
     /// What is in the trash, most recently deleted first.
     pub fn recently_deleted(&self) -> Result<Vec<db::Trashed>> {
         self.db.trash()

@@ -255,12 +255,14 @@ Since 2026-09-28:
   two-way among them, never sent to the others, a device left out keeping what
   it had — [0044](decisions/0044-sharing-with-chosen-devices.md). §4.6 is
   settled; step 9 is done except for what 0044 lists as not done.
+- **Selective availability** (§29): a folder kept on a device, or only listed
+  there and fetched when asked for — [0045](decisions/0045-a-folder-kept-remotely.md).
 - **Recovering a deleted file**: Recently deleted on every device, 30 days,
   restored everywhere — [0042](decisions/0042-recently-deleted.md). Building it
   found a device unable ever to take back bytes it had deleted.
 
 Still as the inventory says: a passphrase in the
-window, selective sync, a replica freeing space, sharing, vault operations
+window, a replica freeing space, vault operations
 beyond delivery, a query for conflicts, and everything in §2.4–§2.6.
 
 ---
@@ -383,8 +385,9 @@ device", and choosing which devices share a folder is the general case.
 6. ~~**What sharing means** (§23)~~ — decided 2026-09-28: chosen devices,
    [0044](decisions/0044-sharing-with-chosen-devices.md).
 7. **Replica eviction**, before any storage screen promises it for replicas.
-8. **Selective sync for ordinary devices** — extending `PinSet` beyond
-   replicas, and what happens to content a device un-pins.
+8. ~~**Selective sync for ordinary devices**~~ — decided 2026-09-28: a
+   folder kept remotely, listed and fetched on demand, not `PinSet` —
+   [0045](decisions/0045-a-folder-kept-remotely.md).
 9. **The Android interface toolkit** — Jetpack Compose or the current XML
    views. Before step 6; the app is being rebuilt either way.
 

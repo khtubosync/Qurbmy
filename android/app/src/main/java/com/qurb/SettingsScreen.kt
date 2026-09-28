@@ -86,8 +86,8 @@ class SettingsScreen(app: MainActivity) : Screen(app) {
 
         page.heading("Folders")
         page.setting(
-            "Shared folders",
-            "Which devices each folder is on. Every device, unless you choose.",
+            "Folders",
+            "Which devices each is on, and whether it is kept on this phone",
         ) { chooseFolder() }
 
         page.heading("Syncing")
@@ -234,13 +234,59 @@ class SettingsScreen(app: MainActivity) : Screen(app) {
                 } else {
                     f.members.joinToString(", ") { id -> devices.find { it.id == id }?.name ?: "a removed device" }
                 }
-                "${f.folder}\n$who"
+                "${f.folder}\n$who" + if (f.remote) " · on this phone only when opened" else ""
             }
             MaterialAlertDialogBuilder(app)
-                .setTitle("Shared folders")
-                .setItems(names.toTypedArray()) { _, which -> chooseDevices(folders[which], devices) }
+                .setTitle("Folders")
+                .setItems(names.toTypedArray()) { _, which -> folderActions(folders[which], devices) }
                 .setNegativeButton("Close", null)
                 .show()
+        }
+    }
+
+    private fun folderActions(folder: SharedFolder, devices: List<ShareTarget>) {
+        val actions = listOf<Pair<String, () -> Unit>>(
+            "Choose devices…" to { chooseDevices(folder, devices) },
+            if (folder.remote) {
+                "Keep on this phone" to { keepHere(folder.folder) }
+            } else {
+                "Free space: download only when opened" to { keepRemotely(folder.folder) }
+            },
+        )
+        MaterialAlertDialogBuilder(app)
+            .setTitle(folder.folder)
+            .setItems(actions.map { it.first }.toTypedArray()) { _, which -> actions[which].second() }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** Decision 0045: listed here, fetched when opened, never the only copy freed. */
+    private fun keepRemotely(folder: String) {
+        scope.launch {
+            try {
+                val r = withContext(Dispatchers.IO) { engine().keepRemotely(folder) }
+                val kept = if (r.kept.isEmpty()) "" else
+                    " ${Words.files(r.kept.size)} stayed: this phone has the only copy."
+                app.say("Freed ${Words.size(r.bytes)}.$kept")
+            } catch (e: Exception) {
+                app.fail("Could not free that folder", e)
+            } finally {
+                app.changed()
+            }
+        }
+    }
+
+    private fun keepHere(folder: String) {
+        scope.launch {
+            try {
+                val asked = withContext(Dispatchers.IO) { engine().keepLocally(folder) }
+                app.say(if (asked > 0u) "${Words.files(asked.toInt())} on their way back" else "Kept here")
+                SyncWorker.runNow(app)
+            } catch (e: Exception) {
+                app.fail("Could not change that", e)
+            } finally {
+                app.changed()
+            }
         }
     }
 

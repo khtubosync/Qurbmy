@@ -530,8 +530,8 @@ qurb/
 │   │   ├── src/main.rs      init, enrol, pair, join, run, replica, status,
 │   │   │                    verify, reclaim, fetch, free, send, cancel,
 │   │   │                    holders, remove-device, conflicts, share,
-│   │   │                    deleted, restore, activity, ls, find, config,
-│   │   │                    protect
+│   │   │                    keep, deleted, restore, activity, ls, find,
+│   │   │                    config, protect
 │   │   ├── src/daemon.rs    watch, apply, sync, collect, stay under the limit
 │   │   ├── src/lock.rs      one daemon per folder, enforced not assumed
 │   │   ├── src/profiles.rs  which folders exist, so commands need no path
@@ -644,6 +644,7 @@ product around it largely is not.
 | Deletion, tombstones, restore | content survives a retention window |
 | Recently deleted | a file taken out of the folder by a deletion goes to `trash/` in the store for 30 days; restoring writes it back as a new version, so it returns everywhere — [0042](decisions/0042-recently-deleted.md) |
 | Sharing with chosen devices | a folder's devices are a rule file under `.qurb-sharing/` that syncs like any other; each device derives `shares` tables and filters what peers are shown and what it takes by them — [0044](decisions/0044-sharing-with-chosen-devices.md) |
+| A folder kept remotely | this device's choice (`remote_folders`, never synced): files listed, new versions recorded without their bytes, local copies freed where another device has them — [0045](decisions/0045-a-folder-kept-remotely.md) |
 | Conflicts settled | found by name (`qurb_sync::conflict_origin`), settled as ordinary changes; the version not kept goes to Recently deleted — [0043](decisions/0043-settling-a-conflict.md) |
 | Garbage collection | two-stage, never touches a referenced chunk; the daemon runs it every five minutes, a phone after each background sync |
 | Integrity verification | detects missing, corrupt, and orphaned chunks |
@@ -729,7 +730,7 @@ for the workspace as it stands.
 | Recovery, end to end | the phrase turns back into the user's files |
 | Key hygiene | redacted in `Debug`, wiped on drop, owner-only on disk |
 
-737 tests pass in 85 test binaries on Linux (2026-09-28, debug build, the
+741 tests pass in 86 test binaries on Linux (2026-09-28, debug build, the
 development laptop); clippy is clean. The last run on
 a Galaxy S23 was 426 of them, before this week's work — see
 [phases/phase-5-mobile.md](phases/phase-5-mobile.md).

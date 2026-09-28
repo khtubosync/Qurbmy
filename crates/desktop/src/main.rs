@@ -121,6 +121,8 @@ fn run() -> Result<()> {
             commands::removal_plan,
             commands::sharing,
             commands::set_sharing,
+            commands::keep_remotely,
+            commands::keep_locally,
             commands::conflicts,
             commands::settle_conflict,
             commands::recently_deleted,
