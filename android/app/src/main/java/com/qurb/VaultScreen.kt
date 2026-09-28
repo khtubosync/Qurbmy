@@ -58,7 +58,8 @@ class VaultScreen(app: MainActivity) : Screen(app) {
     }
 
     init {
-        views.action.setOnClickListener { app.pickFilesToAdd() }
+        // Into the folder being looked at, not the top.
+        views.action.setOnClickListener { app.pickFilesToAdd(dir) }
         views.refresh.setOnRefreshListener { refresh() }
         views.list.layoutManager = LinearLayoutManager(app)
         views.list.adapter = items
@@ -127,7 +128,13 @@ class VaultScreen(app: MainActivity) : Screen(app) {
                         Triple(emptyList(), engine.search(query, SEARCH_LIMIT.toUInt()), usage)
                     } else {
                         val listing = engine.browse(dir)
-                        Triple(listing.folders, listing.files, usage)
+                        // With the folders on disk that hold nothing yet: the
+                        // index knows files, and a folder just made is empty.
+                        val here = java.io.File(Engine.root(app), dir).listFiles()
+                            ?.filter { it.isDirectory && !it.name.startsWith(".") }
+                            ?.map { it.name }
+                            .orEmpty()
+                        Triple((listing.folders + here).distinct().sorted(), listing.files, usage)
                     }
                 }
                 views.subtitle.text =
@@ -163,6 +170,7 @@ class VaultScreen(app: MainActivity) : Screen(app) {
             if (here.isNotEmpty()) {
                 add("Save ${Words.files(here.size)} here to this phone…" to { app.saveAll(here) })
             }
+            if (query.isEmpty()) add("New folder…" to { newFolder() })
             add("Recently deleted" to { RecentlyDeleted.show(app) })
         }
         MaterialAlertDialogBuilder(app)
@@ -185,6 +193,10 @@ class VaultScreen(app: MainActivity) : Screen(app) {
                 add("Download to this phone" to { fetch(entry) })
             }
             if (entry.available == Available.HERE) add("Free phone space" to { free(entry) })
+            if (here) {
+                add("Rename…" to { rename(entry) })
+                add("Move to folder…" to { move(entry) })
+            }
             add("Delete" to { delete(entry) })
         }
         MaterialAlertDialogBuilder(app)
@@ -192,6 +204,65 @@ class VaultScreen(app: MainActivity) : Screen(app) {
             .setItems(actions.map { it.first }.toTypedArray()) { _, which -> actions[which].second() }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    /** Ask for a name, with a starting text, then act on it. */
+    private fun ask(title: String, start: String, action: String, then: (String) -> Unit) {
+        val input = android.widget.EditText(app).apply {
+            setText(start)
+            setSelection(start.substringBeforeLast('.').length.coerceAtMost(start.length))
+            setPadding(48, 32, 48, 8)
+        }
+        MaterialAlertDialogBuilder(app)
+            .setTitle(title)
+            .setView(input)
+            .setPositiveButton(action) { _, _ ->
+                val text = input.text.toString().trim().trim('/')
+                if (text.isNotEmpty()) then(text)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun rename(entry: FileEntry) {
+        val folder = entry.path.substringBeforeLast('/', "")
+        ask("Rename", entry.path.substringAfterLast('/'), "Rename") { name ->
+            moveTo(entry, if (folder.isEmpty()) name else "$folder/$name")
+        }
+    }
+
+    /** By folder path, typed: the top is an empty box. */
+    private fun move(entry: FileEntry) {
+        ask("Move to folder", entry.path.substringBeforeLast('/', ""), "Move") { folder ->
+            moveTo(entry, "$folder/${entry.path.substringAfterLast('/')}")
+        }
+    }
+
+    private fun moveTo(entry: FileEntry, to: String) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { engine().rename(entry.path, to) }
+                app.say("Now ${to.substringAfterLast('/')}")
+            } catch (e: Exception) {
+                app.fail("Could not do that", e)
+            } finally {
+                app.changed()
+            }
+        }
+    }
+
+    private fun newFolder() {
+        ask("New folder", "", "Make") { name ->
+            val path = if (dir.isEmpty()) name else "$dir/$name"
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) { engine().makeFolder(path) }
+                    open(path)
+                } catch (e: Exception) {
+                    app.fail("Could not make that folder", e)
+                }
+            }
+        }
     }
 
     /**

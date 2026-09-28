@@ -123,10 +123,12 @@ object Engine {
      * indexed here and now; reaching another device is a separate matter that
      * happens whenever one is next reachable.
      */
-    suspend fun importUri(context: Context, uri: android.net.Uri): String =
+    suspend fun importUri(context: Context, uri: android.net.Uri, into: String = ""): String =
         withContext(Dispatchers.IO) {
-            val name = freeName(context, safeName(displayName(context, uri)))
-            val staging = File(context.cacheDir, name)
+            val folder = into.trim('/')
+            val leaf = safeName(displayName(context, uri))
+            val name = freeName(context, if (folder.isEmpty()) leaf else "$folder/$leaf")
+            val staging = File(context.cacheDir, "import-${System.nanoTime()}")
             try {
                 context.contentResolver.openInputStream(uri).use { input ->
                     staging.outputStream().use { output ->

@@ -316,7 +316,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    fun pickFilesToAdd() = adder.launch(arrayOf("*/*"))
+    /** The Vault folder files being picked go into. */
+    private var addingInto = ""
+
+    fun pickFilesToAdd(into: String = "") {
+        addingInto = into
+        adder.launch(arrayOf("*/*"))
+    }
 
     /**
      * Copy files from elsewhere on the phone into it. Through the cache rather
@@ -328,7 +334,7 @@ class MainActivity : AppCompatActivity() {
             var added = 0
             try {
                 for (uri in uris) {
-                    Engine.importUri(this@MainActivity, uri)
+                    Engine.importUri(this@MainActivity, uri, addingInto)
                     added++
                 }
                 say("Added ${Words.files(added)}")

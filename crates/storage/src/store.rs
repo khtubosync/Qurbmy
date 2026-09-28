@@ -1439,6 +1439,37 @@ impl Store {
         }
     }
 
+    /// Rename or move a file in the folder, as a change made here: the new
+    /// path appears and the old one is deleted on every device, and the file
+    /// stays in the area it was in -- a shared file does not become private
+    /// by moving on a phone that files new things privately.
+    ///
+    /// Needs the file's bytes here: a file known only elsewhere has nothing to
+    /// move. Refuses a destination that is taken, in the index or on disk.
+    pub fn rename_file(&mut self, from: &str, to: &str) -> Result<()> {
+        let to = to.trim_matches('/');
+        let Some(root) = self.tree.clone() else {
+            return Err(Error::NotFound { path: from.to_string() });
+        };
+        let Some((_, scope)) = self.db.folder_row(from)? else {
+            return Err(Error::NotFound { path: from.to_string() });
+        };
+        if !qurb_sync::is_safe_path(to) || qurb_sync::sharing::is_rule_path(to) || to.is_empty() {
+            return Err(Error::Sharing { why: format!("{to:?} is not a name a file can have here") });
+        }
+        if self.db.folder_row(to)?.is_some() || root.join(to).exists() {
+            return Err(Error::Sharing { why: format!("something is already called {to}") });
+        }
+        if self.db.is_materialised(from)? != Some(true) || !root.join(from).is_file() {
+            return Err(Error::NotHere { path: from.to_string() });
+        }
+        self.rename_in_folder(&root, from, to)?;
+        if self.db.scope_of(to)? != scope {
+            self.db.set_scope(to, scope.as_ref())?;
+        }
+        Ok(())
+    }
+
     /// Move a file in the folder from one path to another, recording both
     /// sides as changes made here.
     fn rename_in_folder(&mut self, root: &Path, from: &str, to: &str) -> Result<()> {

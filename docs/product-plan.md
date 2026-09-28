@@ -261,9 +261,12 @@ Since 2026-09-28:
   restored everywhere — [0042](decisions/0042-recently-deleted.md). Building it
   found a device unable ever to take back bytes it had deleted.
 
-Still as the inventory says: a passphrase in the
-window, a replica freeing space, vault operations
-beyond delivery, a query for conflicts, and everything in §2.4–§2.6.
+- **Vault operations** on the phone: rename, move to a folder, new folder, and
+  adding into the folder being looked at; deleting goes to Recently deleted.
+  A file keeps its area when moved.
+
+Still as the inventory says: a passphrase in the window, a replica freeing
+space, and everything in §2.4–§2.6.
 
 ---
 

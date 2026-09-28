@@ -808,6 +808,24 @@ impl Qurb {
         Ok(())
     }
 
+    /// Rename or move a file, keeping it in the area it is in. See
+    /// [`qurb_storage::Store::rename_file`].
+    pub fn rename(&self, from: String, to: String) -> Result<(), QurbError> {
+        let (from, to) = (qurb_watcher::normalize(&from), qurb_watcher::normalize(to.trim_matches('/')));
+        Ok(self.engine()?.store_mut().rename_file(&from, &to)?)
+    }
+
+    /// Make an empty folder, for files to be added or moved into. Nothing to
+    /// sync until something is in it: the index knows files, not folders.
+    pub fn make_folder(&self, path: String) -> Result<(), QurbError> {
+        let path = qurb_watcher::normalize(path.trim_matches('/'));
+        if path.is_empty() || !qurb_sync::is_safe_path(&path) || qurb_sync::sharing::is_rule_path(&path) {
+            return Err(QurbError::NotFound { detail: format!("{path:?} is not a folder name that can be used") });
+        }
+        std::fs::create_dir_all(self.root.join(&path))
+            .map_err(|e| QurbError::Storage { detail: e.to_string() })
+    }
+
     /// Remove a file from the synced tree.
     ///
     /// Tombstoned rather than erased, so the deletion reaches other devices

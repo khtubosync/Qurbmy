@@ -1149,6 +1149,15 @@ Vault**, or **Send to** any paired device (brief §39) — and asks only when a
 device is paired to send to. Sent that way, a file goes to that device alone
 and is not added to the phone's Vault.
 
+**Renaming and moving** a file from the Vault, and making a folder, came with
+it. A file keeps its area when it moves: a phone files new things privately
+(decision 0036), and a shared file renamed there must not quietly become
+private — which to every other device would look like a deletion.
+`Store::rename_file` writes the new path in the old one's area, and
+`crates/engine/tests/renaming.rs` checks both directions across two devices.
+A folder made on the phone is on disk only until something is put in it: the
+index knows files, not folders.
+
 Built and compiled; **not yet run on the phone**.
 
 ## Deliberately left undone
