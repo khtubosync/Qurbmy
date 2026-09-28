@@ -22,6 +22,10 @@ file picker lists from the engine and downloads a freed file when it is opened.
 What remains is steps 7–10: cross-device flows beyond one phone and one laptop,
 selective availability and replica eviction, sharing, and the rest.
 
+**What comes next, as the owner set it on 2026-09-28:** the design and UX of
+both apps, then the relay on a server, then a formal release for Linux and
+Android.
+
 **Four things the brief asks for disagreed with decisions already recorded.**
 All four were decided on 2026-09-25, each the brief's way — see §3. Three are
 new decision records, all since built:
