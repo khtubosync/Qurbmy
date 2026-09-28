@@ -687,6 +687,19 @@ where
     Ok(())
 }
 
+/// Write a file only its owner can read.
+fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)?.write_all(bytes)
+}
+
 #[cfg(test)]
 mod wake_tests {
     use super::*;
@@ -850,19 +863,6 @@ mod wake_tests {
             "the newest was dropped"
         );
     }
-}
-
-/// Write a file only its owner can read.
-fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    options.open(path)?.write_all(bytes)
 }
 
 
