@@ -104,7 +104,7 @@ cargo run --release -p qurb-peer --example demo -- /tmp/device-a /tmp/device-b
 
 ```bash
 cargo build --release
-cargo test --workspace         # 750 tests in 88 binaries (2026-09-28)
+cargo test --workspace         # 753 tests in 88 binaries (2026-09-29)
 ./scripts/desktop-smoke.sh     # the real window, driven end to end
 ```
 

@@ -229,3 +229,47 @@ fn a_file_fetched_back_is_held_again() {
     assert!(f.store.evicted().unwrap().is_empty());
     assert!(f.store.db().wanted_paths().unwrap().is_empty(), "still asking for it after it arrived");
 }
+
+/// What the Storage screen offers to free is exactly what freeing will
+/// accept: bytes here that another device holds, biggest first -- never the
+/// only copy, and never a file already freed.
+#[test]
+fn what_can_be_freed_is_only_what_another_device_holds() {
+    let mut f = fixture();
+    let phone = DeviceId::from_bytes([9; 32]);
+    let small = f.write("small.bin", 64 * 1024, 0x3333_3333);
+    let large = f.write("large.bin", 256 * 1024, 0x4444_4444);
+    f.write("only-here.bin", 128 * 1024, 0x5555_5555);
+    f.store.note_replica(&blake3::hash(&small), &phone).unwrap();
+    f.store.note_replica(&blake3::hash(&large), &phone).unwrap();
+
+    let offered = f.store.db().freeable(10).unwrap();
+    assert_eq!(offered.count, 2);
+    assert_eq!(offered.bytes, (64 + 256) * 1024);
+    let names: Vec<&str> = offered.files.iter().map(|e| e.path.as_str()).collect();
+    assert_eq!(names, ["large.bin", "small.bin"], "biggest first, and not the only copy");
+
+    for entry in &offered.files {
+        f.store.free_local(&entry.path).unwrap();
+    }
+    let after = f.store.db().freeable(10).unwrap();
+    assert_eq!((after.count, after.bytes), (0, 0), "a freed file is offered again");
+}
+
+/// A file's details name the devices that hold it, and not one that holds it
+/// only in somebody's vault, which could not hand it back.
+#[test]
+fn a_file_says_which_devices_hold_it() {
+    let mut f = fixture();
+    let data = f.write("report.pdf", 32 * 1024, 0x6666_6666);
+    let hash = blake3::hash(&data);
+    let (phone, laptop, vault) =
+        (DeviceId::from_bytes([1; 32]), DeviceId::from_bytes([2; 32]), DeviceId::from_bytes([3; 32]));
+    f.store.note_replica(&hash, &phone).unwrap();
+    f.store.note_replica(&hash, &laptop).unwrap();
+    f.store.note_replica_in_vault(&hash, &vault).unwrap();
+
+    let mut holders = f.store.db().holders_of_content(&hash).unwrap();
+    holders.sort_by_key(|d| d.to_string());
+    assert_eq!(holders, [phone, laptop]);
+}

@@ -18,6 +18,7 @@
 //! sending a terabyte as a number silently loses the low bits.
 
 use crate::Hosted;
+use anyhow::Context as _;
 use qurb_cli::view::{Availability, View};
 use serde::Serialize;
 use std::sync::Arc;
@@ -104,19 +105,12 @@ pub struct Storage {
     limit: String,
     /// The size of the filesystem the folder is on: the most a limit could be.
     disk: String,
+    /// What is still free on it.
+    free_disk: String,
     over: bool,
     file_count: usize,
     evicted: usize,
     only_here: usize,
-}
-
-#[derive(Serialize)]
-pub struct File {
-    path: String,
-    size: String,
-    updated_at: i64,
-    /// "here", "not here", or "only here".
-    availability: &'static str,
 }
 
 #[derive(Serialize)]
@@ -198,6 +192,10 @@ pub struct Settings {
     downloads_at: Result<Option<String>, String>,
     /// This build: the window's version, its protocol and index schema.
     version: String,
+    /// Files added here go to this device's Private Vault.
+    own_files_private: bool,
+    /// The three notifications are on.
+    notifications: bool,
 }
 
 /// What screen the window should be on.
@@ -470,6 +468,8 @@ pub fn settings(hosted: Host<'_>) -> Answer<Settings> {
         root: root.display().to_string(),
         identity: hosted.status().map(|s| s.identity).unwrap_or_default(),
         version: qurb_cli::version().replacen("qurb ", &format!("window {} · engine ", env!("CARGO_PKG_VERSION")), 1),
+        own_files_private: config.own_files_private,
+        notifications: config.notifications,
     })
 }
 
@@ -877,6 +877,7 @@ pub fn storage(hosted: Host<'_>) -> Answer<Storage> {
         used: big(numbers.used()),
         limit: big(numbers.limit),
         disk: big(crate::disk_size(&hosted.root())),
+        free_disk: big(qurb_cli::setup::inspect(&hosted.root()).free),
         over: numbers.over(),
         file_count: numbers.file_count,
         evicted: numbers.evicted,
@@ -884,32 +885,216 @@ pub fn storage(hosted: Host<'_>) -> Answer<Storage> {
     })
 }
 
-#[tauri::command]
-pub fn files(
-    hosted: Host<'_>,
-    under: Option<String>,
-    limit: usize,
-    offset: usize,
-) -> Answer<Vec<File>> {
-    let listed = hosted
-        .with_store(|store| {
-            Ok(View::new(store, 0).files(under.as_deref(), limit.min(500), offset)?)
-        })
-        .map_err(failed)?;
-    Ok(listed.into_iter().map(as_file).collect())
+/// One file as the file browser draws it (docs/design/brief.md §3).
+#[derive(Serialize)]
+pub struct Entry {
+    path: String,
+    size: String,
+    /// Unix seconds, when the file was last changed.
+    modified: i64,
+    /// "here", "elsewhere" or "only here" -- decision 0032's three, which the
+    /// window words as *On this device*, *Available elsewhere* and *Only copy
+    /// here*.
+    availability: &'static str,
+    /// In this device's own vault rather than the shared area.
+    private: bool,
 }
 
+fn as_entry(e: qurb_storage::db::FolderEntry) -> Entry {
+    Entry {
+        path: e.path,
+        size: big(e.size),
+        modified: e.mtime_ns.div_euclid(1_000_000_000),
+        availability: match e.availability {
+            Availability::Here => "here",
+            Availability::Elsewhere => "elsewhere",
+            Availability::OnlyHere => "only here",
+        },
+        private: e.private,
+    }
+}
+
+/// One folder of the synced folder: the folders directly inside it, then the
+/// files, as a file browser shows them.
+#[derive(Serialize)]
+pub struct Directory {
+    folders: Vec<String>,
+    files: Vec<Entry>,
+}
+
+/// A folder's contents, in the shared area or this device's Private Vault.
+///
+/// From the index, not the disk, so a file freed from here is still one of
+/// its files -- which is the point of *Available elsewhere*. The index is
+/// flat, so a folder is what the paths beneath it say it is. The same query
+/// the phone's Files screen uses.
 #[tauri::command]
-pub fn search(hosted: Host<'_>, text: String) -> Answer<Vec<File>> {
-    // An empty box is not a search for everything; it is somebody who has not
-    // typed yet, and answering it with the whole folder makes the list jump.
+pub fn browse(hosted: Host<'_>, dir: String, private: bool) -> Answer<Directory> {
+    let dir = dir.trim_matches('/').to_string();
+    let entries = hosted
+        .with_store(|store| Ok(store.db().folder_entries_under(&dir)?))
+        .map_err(failed)?;
+    let prefix = if dir.is_empty() { String::new() } else { format!("{dir}/") };
+    let mut folders = std::collections::BTreeSet::new();
+    let mut files = Vec::new();
+    for entry in entries.into_iter().filter(|e| e.private == private) {
+        let Some(rest) = entry.path.strip_prefix(&prefix) else { continue };
+        match rest.split_once('/') {
+            Some((folder, _)) => {
+                folders.insert(folder.to_string());
+            }
+            None => files.push(as_entry(entry)),
+        }
+    }
+    Ok(Directory { folders: folders.into_iter().collect(), files })
+}
+
+/// Files in the shared area or the Private Vault whose path contains `text`.
+#[tauri::command]
+pub fn find(hosted: Host<'_>, text: String, private: bool) -> Answer<Vec<Entry>> {
+    // As `search`: an empty box is somebody who has not typed yet.
     if text.trim().is_empty() {
         return Ok(Vec::new());
     }
-    let hits = hosted
-        .with_store(|store| Ok(View::new(store, 0).search(text.trim(), 200)?))
+    let found = hosted
+        .with_store(|store| Ok(store.db().folder_search(text.trim(), 300)?))
         .map_err(failed)?;
-    Ok(hits.into_iter().map(as_file).collect())
+    Ok(found.into_iter().filter(|e| e.private == private).take(200).map(as_entry).collect())
+}
+
+/// Everything the details panel shows about one file (brief §19).
+#[derive(Serialize)]
+pub struct Details {
+    file: Entry,
+    /// The other devices holding it that would hand it back, by name.
+    holders: Vec<String>,
+    /// What happened to it, newest first.
+    history: Vec<Happened>,
+}
+
+#[tauri::command]
+pub fn details(hosted: Host<'_>, path: String) -> Answer<Details> {
+    hosted
+        .with_store(|store| {
+            let db = store.db();
+            let file = db.folder_entry(&path)?.context("that file is not in qurb any more")?;
+            let (row, _) = db.folder_row(&path)?.context("that file is not in qurb any more")?;
+            let named = db.device_names()?;
+            let name = |id: &qurb_sync::DeviceId| named.get(id).cloned().unwrap_or_else(|| id.short());
+            let holders = db.holders_of_content(&row.content_hash)?.iter().map(name).collect();
+            let history = qurb_cli::View::new(store, 0)
+                .history_of(&path, 8)?
+                .into_iter()
+                .map(|r| Happened {
+                    id: r.id,
+                    at: r.at,
+                    kind: r.kind.as_str().to_string(),
+                    path: r.path,
+                    size: r.size.map(big),
+                    device: r.device.as_ref().map(name),
+                    detail: r.detail,
+                })
+                .collect();
+            Ok(Details { file: as_entry(file), holders, history })
+        })
+        .map_err(failed)
+}
+
+/// *Free local space* for one file (brief §12): its bytes leave this device,
+/// the file stays in qurb, and *Keep on this device* brings it back. Refused
+/// for the only copy, by the store, whatever the window thought.
+#[tauri::command]
+pub fn free_file(hosted: Host<'_>, path: String) -> Answer<String> {
+    hosted
+        .with_store_mut(|store| Ok(store.free_local(&path)?))
+        .map(big)
+        .map_err(failed)
+}
+
+/// What could be freed without losing anything, and the largest files that
+/// would free it (brief §20).
+#[derive(Serialize)]
+pub struct Freeable {
+    count: usize,
+    bytes: String,
+    files: Vec<Entry>,
+}
+
+#[tauri::command]
+pub fn freeable(hosted: Host<'_>) -> Answer<Freeable> {
+    let found = hosted.with_store(|store| Ok(store.db().freeable(50)?)).map_err(failed)?;
+    Ok(Freeable {
+        count: found.count,
+        bytes: big(found.bytes),
+        files: found.files.into_iter().map(as_entry).collect(),
+    })
+}
+
+/// Delete a file from qurb, on every device, keeping it in Recently deleted
+/// for thirty days (decision 0042).
+#[tauri::command]
+pub fn delete_file(hosted: Host<'_>, path: String) -> Answer<()> {
+    hosted
+        .with_store_mut(|store| {
+            store.delete_to_trash(&path, None)?;
+            Ok(())
+        })
+        .map_err(failed)
+}
+
+/// The file on disk behind a path the page names, if it is one qurb has and
+/// its bytes are here. Checked, because the page names it: a path that
+/// climbs out of the folder, or into qurb's own store, is refused.
+fn on_disk(hosted: &Hosted, path: &str) -> Answer<std::path::PathBuf> {
+    if !qurb_sync::is_safe_path(path) {
+        return Err("that is not a file in qurb".to_string());
+    }
+    let here = hosted
+        .with_store(|store| Ok(store.db().folder_entry(path)?))
+        .map_err(failed)?
+        .ok_or("that file is not in qurb any more")?;
+    if here.availability == Availability::Elsewhere {
+        return Err("that file is not on this device — keep it here first".to_string());
+    }
+    Ok(hosted.root().join(path))
+}
+
+/// Open a file with the program the desktop uses for it.
+#[tauri::command]
+pub fn open_file(hosted: Host<'_>, path: String) -> Answer<()> {
+    reveal(&on_disk(&hosted, &path)?)
+}
+
+/// Open the folder a file is in, in the file manager.
+#[tauri::command]
+pub fn show_file(hosted: Host<'_>, path: String) -> Answer<()> {
+    let file = on_disk(&hosted, &path)?;
+    reveal(file.parent().ok_or("that file has no folder")?)
+}
+
+/// Open the synced folder itself in the file manager.
+#[tauri::command]
+pub fn show_root(hosted: Host<'_>) -> Answer<()> {
+    reveal(&hosted.root())
+}
+
+/// Whether files added here go to this device's Private Vault rather than
+/// the shared area. The running daemon picks it up at its next pass.
+#[tauri::command]
+pub fn set_privacy(hosted: Host<'_>, private: bool) -> Answer<()> {
+    let dir = qurb_cli::store_dir(&hosted.root());
+    let mut config = qurb_cli::Config::load(&dir).map_err(failed)?;
+    config.own_files_private = private;
+    config.save(&dir).map_err(failed)
+}
+
+/// Whether this desktop raises its three notifications.
+#[tauri::command]
+pub fn set_notifications(hosted: Host<'_>, on: bool) -> Answer<()> {
+    let dir = qurb_cli::store_dir(&hosted.root());
+    let mut config = qurb_cli::Config::load(&dir).map_err(failed)?;
+    config.notifications = on;
+    config.save(&dir).map_err(failed)
 }
 
 #[tauri::command]
@@ -1317,19 +1502,6 @@ pub fn set_limit(hosted: Host<'_>, bytes: String) -> Answer<()> {
     let mut config = qurb_cli::Config::load(&dir).map_err(failed)?;
     config.limit = bytes;
     config.save(&dir).map_err(failed)
-}
-
-fn as_file(f: qurb_cli::view::File) -> File {
-    File {
-        path: f.path,
-        size: big(f.size),
-        updated_at: f.updated_at,
-        availability: match f.availability {
-            Availability::Here => "here",
-            Availability::Elsewhere => "not here",
-            Availability::OnlyHere => "only here",
-        },
-    }
 }
 
 /// A `SystemTime` as unix seconds, or nothing if the clock says it is before

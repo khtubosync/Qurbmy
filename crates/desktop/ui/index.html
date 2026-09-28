@@ -3,498 +3,501 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>qurb</title>
+  <title>Qurb</title>
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
-  <!-- Setting up. Replaces everything else: there is nothing to display about a
-       device that does not exist yet. -->
-  <div id="setup" class="hidden">
-    <section class="step on" data-step="welcome">
-      <h1>qurb</h1>
-      <p class="lead">
-        Your files stay on the devices you already own, encrypted, and sync
-        directly between them. Nothing is kept on anybody else's server.
-      </p>
-      <div class="choices">
-        <button class="choice" id="choose-new">
-          <strong>Set up a new qurb</strong>
-          <span class="quiet">Makes a key. This is the first of your devices.</span>
-        </button>
-        <button class="choice" id="choose-join">
-          <strong>Add this device to an existing qurb</strong>
-          <span class="quiet">You will need the 24 words from your first device.</span>
-        </button>
-      </div>
-    </section>
+  <!-- The light the glass sits in (direction §7). -->
+  <div class="environment" id="environment"></div>
 
-    <section class="step" data-step="folder">
-      <h1>Which folder?</h1>
-      <p class="lead">
-        Everything in it syncs to your other devices. It can be empty, or it can
-        be a folder you already use.
-      </p>
-      <input type="text" id="folder-path" spellcheck="false" autocomplete="off">
-      <p id="folder-says" class="quiet"></p>
-      <div class="buttons">
-        <button class="act" data-back="welcome">Back</button>
-        <button class="act primary" id="folder-next" disabled>Continue</button>
-      </div>
-    </section>
+  <!-- Setting up. Replaces everything else: there is nothing to display about
+       a device that does not exist yet. Sparse on purpose (§47). -->
+  <div id="setup" class="onboarding hidden">
+    <div class="sheet glass-elevated">
+      <section class="step welcome on" data-step="welcome">
+        <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><use href="#qurb-mark"/></svg>
+        <h1>Qurb</h1>
+        <p class="promise">Your files.<br>Your devices.<br>Your space.</p>
+        <div class="actions">
+          <button class="btn primary large" id="get-started">Get started</button>
+        </div>
+      </section>
 
-    <section class="step" data-step="storage">
-      <h1>How much space may qurb use?</h1>
-      <p class="lead">
-        On this disk, for your files and for what it keeps for your other
-        devices. You can change it at any time on the Storage screen.
-      </p>
-      <div id="allowances" class="allowances"></div>
-      <div id="allowance-custom" class="hidden">
-        <input type="text" id="custom-allowance" spellcheck="false" autocomplete="off"
-               placeholder="How much, in GB — 75, or 1.5 TB">
-      </div>
-      <p id="storage-says" class="quiet"></p>
-      <div class="buttons">
-        <button class="act" data-back="folder">Back</button>
-        <button class="act primary" id="storage-next" disabled>Continue</button>
-      </div>
-    </section>
+      <section class="step" data-step="choose">
+        <h1>Is this your first device?</h1>
+        <p class="lead">Qurb keeps your files on devices you own, and moves them directly between them.</p>
+        <div class="choices">
+          <button class="choice" id="choose-new">
+            <span class="tile"><svg class="i"><use href="#i-plus"/></svg></span>
+            <span><strong>Set up Qurb here</strong><span>This computer becomes your first device.</span></span>
+            <svg class="i"><use href="#i-chevron-right"/></svg>
+          </button>
+          <button class="choice" id="choose-join">
+            <span class="tile"><svg class="i"><use href="#i-key-round"/></svg></span>
+            <span><strong>I already use Qurb</strong><span>Add this computer with your 24-word recovery phrase.</span></span>
+            <svg class="i"><use href="#i-chevron-right"/></svg>
+          </button>
+        </div>
+        <div class="actions"><button class="btn ghost" data-back="welcome">Back</button></div>
+      </section>
 
-    <section class="step" data-step="phrase">
-      <h1>Write these down</h1>
-      <p class="lead">
-        These 24 words are not a backup of your key. They <em>are</em> your key,
-        in a form you can hold.
-      </p>
-      <ol id="words" class="words"></ol>
-      <p class="warn">
-        Nobody else has a copy — not us, not a server. If you lose these words
-        and lose this device, your files cannot be recovered by anyone,
-        including us. That is not a policy we could choose to relax.
-      </p>
-      <div class="buttons">
-        <button class="act primary" id="phrase-next">I have written them down</button>
-      </div>
-    </section>
+      <section class="step" data-step="folder">
+        <h1>Where should your files live?</h1>
+        <p class="lead">A folder on this computer. Everything in it becomes part of your Qurb space.</p>
+        <label class="field">
+          <span>Folder</span>
+          <input class="input" type="text" id="folder-path" spellcheck="false" autocomplete="off">
+          <span class="hint" id="folder-says"></span>
+        </label>
+        <div class="actions">
+          <button class="btn" data-back="choose">Back</button>
+          <button class="btn primary" id="folder-next" disabled>Continue</button>
+        </div>
+      </section>
 
-    <section class="step" data-step="verify">
-      <h1>Check you have them</h1>
-      <p class="lead">
-        Three of the words, from the paper rather than the screen. Capitals do
-        not matter.
-      </p>
-      <div id="asks" class="asks"></div>
-      <p id="verify-says" class="warn hidden"></p>
-      <div class="buttons">
-        <button class="act" id="verify-back">Show me them again</button>
-        <button class="act primary" id="verify-next">Confirm</button>
-      </div>
-    </section>
+      <section class="step" data-step="storage">
+        <h1>How much space may Qurb use here?</h1>
+        <p class="lead">On this computer's disk. You can change it at any time in Storage.</p>
+        <div id="allowances" class="allowances"></div>
+        <div id="allowance-custom" class="hidden">
+          <label class="field">
+            <span>Another amount</span>
+            <input class="input" type="text" id="custom-allowance" spellcheck="false" autocomplete="off"
+                   placeholder="In GB — 75, or 1.5 TB">
+          </label>
+        </div>
+        <p id="storage-says" class="says"></p>
+        <div class="actions">
+          <button class="btn" data-back="folder">Back</button>
+          <button class="btn primary" id="storage-next" disabled>Continue</button>
+        </div>
+      </section>
 
-    <section class="step" data-step="join">
-      <h1>The 24 words</h1>
-      <p class="lead">
-        From the device you set up first. Order matters; spacing and capitals do
-        not.
-      </p>
-      <textarea id="given-phrase" rows="4" spellcheck="false" autocomplete="off"
-                placeholder="wheel push industry …"></textarea>
-      <p id="join-says" class="warn hidden"></p>
-      <div class="buttons">
-        <button class="act" data-back="storage">Back</button>
-        <button class="act primary" id="join-next">Set up this device</button>
-      </div>
-    </section>
+      <section class="step" data-step="phrase">
+        <h1>Your recovery phrase</h1>
+        <p class="lead">These 24 words are your key. Write them on paper, in order.</p>
+        <ol id="words" class="words"></ol>
+        <div class="caution">
+          <svg class="i"><use href="#i-triangle-alert"/></svg>
+          <span>Nobody else has a copy. If you lose these words and every device, your files
+            cannot be recovered by anyone — including us.</span>
+        </div>
+        <div class="actions end">
+          <button class="btn primary" id="phrase-next">I've written them down</button>
+        </div>
+      </section>
 
-    <!-- The key is protected by a passphrase (decision 0046). Shown before
-         anything else, because nothing else can answer until it is open. -->
-    <section class="step" data-step="unlock">
-      <h1>qurb is locked</h1>
-      <p class="lead">
-        This computer's key is protected by a passphrase. Type it to open your
-        files and start syncing.
-      </p>
-      <input type="password" id="unlock-passphrase" autocomplete="off" spellcheck="false"
-             placeholder="Passphrase">
-      <p id="unlock-says" class="warn hidden"></p>
-      <div class="buttons">
-        <button class="act primary" id="unlock-go">Unlock</button>
-      </div>
-      <p class="quiet note">
-        Forgotten it? The 24 words set up this computer again: move this
-        folder's <code>.qurb</code> aside and choose "I already use qurb".
-      </p>
-    </section>
+      <section class="step" data-step="verify">
+        <h1>Check your words</h1>
+        <p class="lead">Type these three from your paper. Capitals don't matter.</p>
+        <div id="asks" class="asks"></div>
+        <p id="verify-says" class="says warn hidden"></p>
+        <div class="actions">
+          <button class="btn" id="verify-back">Show the words again</button>
+          <button class="btn primary" id="verify-next">Confirm</button>
+        </div>
+      </section>
 
-    <section class="step" data-step="ready">
-      <h1>Ready</h1>
-      <p class="lead" id="ready-says"></p>
-      <p class="quiet">
-        Sharing a key is what makes two devices <em>yours</em>. They still have
-        to be introduced: on the Devices screen, choose Show a code, and scan it
-        with your phone — or enter it on your other computer.
-      </p>
-      <div class="buttons">
-        <button class="act primary" id="ready-next">Open my folder</button>
-      </div>
-    </section>
+      <section class="step" data-step="join">
+        <h1>Enter your recovery phrase</h1>
+        <p class="lead">The 24 words from your first device. Order matters; spacing and capitals don't.</p>
+        <label class="field">
+          <span>Recovery phrase</span>
+          <textarea class="input" id="given-phrase" rows="4" spellcheck="false" autocomplete="off"
+                    placeholder="wheel push industry …"></textarea>
+        </label>
+        <p id="join-says" class="says warn hidden"></p>
+        <div class="actions">
+          <button class="btn" data-back="storage">Back</button>
+          <button class="btn primary" id="join-next">Add this computer</button>
+        </div>
+      </section>
+
+      <!-- The key is protected by a passphrase (decision 0046). Shown before
+           anything else, because nothing else can answer until it is open. -->
+      <section class="step" data-step="unlock">
+        <div class="mark away"><svg class="i"><use href="#i-lock-keyhole"/></svg></div>
+        <h1 style="margin-top: 24px">Qurb is locked</h1>
+        <p class="lead">This computer's key is protected by a passphrase. Type it to open your files and start syncing.</p>
+        <label class="field">
+          <span>Passphrase</span>
+          <input class="input" type="password" id="unlock-passphrase" autocomplete="off" spellcheck="false">
+        </label>
+        <p id="unlock-says" class="says warn hidden"></p>
+        <div class="actions end">
+          <button class="btn primary" id="unlock-go">Unlock</button>
+        </div>
+        <p class="note">Forgotten it? Your 24 words can set this computer up again: move this
+          folder's <code>.qurb</code> aside and choose “I already use Qurb”.</p>
+      </section>
+
+      <section class="step" data-step="ready">
+        <div class="mark"><svg class="i"><use href="#i-check"/></svg></div>
+        <h1 style="margin-top: 24px">You're set up</h1>
+        <p class="lead" id="ready-says"></p>
+        <p class="note">Next, add your phone or another computer: in Devices, choose
+          Add a device and scan the code.</p>
+        <div class="actions end">
+          <button class="btn primary" id="ready-next">Open Qurb</button>
+        </div>
+      </section>
+    </div>
   </div>
 
-  <nav id="tabs">
-    <button data-screen="home" class="on">Home</button>
-    <button data-screen="files">Files</button>
-    <button data-screen="devices">Devices</button>
-    <button data-screen="activity">Activity</button>
-    <button data-screen="storage">Storage</button>
-    <button data-screen="send">Send</button>
-    <button data-screen="transfers">Transfers</button>
-    <button data-screen="settings">Settings</button>
-  </nav>
+  <div class="app hidden" id="app">
+    <!-- §24: the places, Private Vault set apart, Settings at the foot. -->
+    <nav class="sidebar glass-clear" id="tabs">
+      <div class="brand">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><use href="#qurb-mark"/></svg>
+        <span>Qurb</span>
+      </div>
+      <button class="nav on" data-screen="home"><svg class="i"><use href="#i-house"/></svg><span>Home</span></button>
+      <button class="nav" data-screen="files"><svg class="i"><use href="#i-folder"/></svg><span>Files</span></button>
+      <button class="nav" data-screen="devices"><svg class="i"><use href="#i-monitor-smartphone"/></svg><span>Devices</span></button>
+      <button class="nav" data-screen="storage"><svg class="i"><use href="#i-hard-drive"/></svg><span>Storage</span></button>
+      <div class="label">Private</div>
+      <button class="nav" data-screen="vault"><svg class="i"><use href="#i-lock-keyhole"/></svg><span>Private Vault</span></button>
+      <div class="spacer"></div>
+      <button class="nav" data-screen="settings"><svg class="i"><use href="#i-settings"/></svg><span>Settings</span></button>
+    </nav>
 
-  <main>
-    <section id="home" class="screen on">
-      <header>
-        <h1 id="state">starting</h1>
-        <p id="where" class="quiet"></p>
-      </header>
-      <p id="problem" class="problem hidden"></p>
-      <p id="conflicted" class="notice hidden"></p>
-
-      <div class="cards">
-        <div class="card">
-          <span class="figure" id="card-devices">–</span>
-          <span class="label">devices reachable</span>
-        </div>
-        <div class="card">
-          <span class="figure" id="card-files">–</span>
-          <span class="label">files</span>
-        </div>
-        <div class="card">
-          <span class="figure" id="card-used">–</span>
-          <span class="label">in use</span>
-        </div>
-        <div class="card" id="card-risk-wrap">
-          <span class="figure" id="card-risk">–</span>
-          <span class="label">only on this device</span>
-        </div>
+    <main class="stage glass-frosted" id="stage">
+      <div class="topbar">
+        <!-- Appears while something is moving or waiting to be collected (§25). -->
+        <button class="btn small transfers-chip hidden" id="transfers-chip">
+          <svg class="i small"><use href="#i-arrow-up-down"/></svg>
+          <span class="n" id="transfers-count">0</span><span id="transfers-word">transfers</span>
+        </button>
       </div>
 
-      <h2>Recently</h2>
-      <ul id="recent" class="rows"><li class="quiet">nothing yet</li></ul>
+      <div class="scroll" id="scroll">
+        <!-- §5: is my Qurb space okay? One state, one action, attention only
+             when needed, a little that is recent. -->
+        <section id="home" class="screen on">
+          <div class="hero">
+            <div id="mark" class="mark"><svg class="i"><use href="#i-check"/></svg></div>
+            <div>
+              <h1 id="state">Getting ready…</h1>
+              <p id="state-says"></p>
+            </div>
+          </div>
+          <div class="hero-actions">
+            <button class="btn primary large" id="home-action">
+              <svg class="i"><use href="#i-send"/></svg><span>Send to device</span>
+            </button>
+            <span class="secondary-facts num" id="home-facts"></span>
+          </div>
+          <div class="home-body">
+            <div id="attention"></div>
+            <h2 class="section">Recent <button class="link" id="see-all">See all</button></h2>
+            <ul id="recent" class="rows"></ul>
+          </div>
+        </section>
 
-      <h2 id="outgoing-heading" class="hidden">On its way</h2>
-      <ul id="outgoing" class="rows hidden"></ul>
-    </section>
+        <section id="files" class="screen">
+          <div class="page-head">
+            <div class="titles">
+              <h1>Files</h1>
+              <p>Everything in your Qurb space, and where it is.</p>
+            </div>
+            <button class="icon-btn" id="files-more" aria-label="More"><svg class="i"><use href="#i-ellipsis"/></svg></button>
+          </div>
+          <div class="toolbar">
+            <label class="search">
+              <svg class="i"><use href="#i-search"/></svg>
+              <input class="input" id="find" type="search" placeholder="Search files" autocomplete="off" spellcheck="false">
+            </label>
+          </div>
+          <div id="files-attention"></div>
+          <nav class="crumbs" id="crumbs"></nav>
+          <div class="folders" id="folders"></div>
+          <ul class="rows" id="file-list"></ul>
+          <div id="deleted-link"></div>
+        </section>
 
-    <section id="files" class="screen">
-      <header>
-        <h1>Files</h1>
-        <p class="quiet">Where each file's contents actually are.</p>
-      </header>
-      <!-- Files two devices changed at once (brief §24). Only when there are
-           any, and above everything else on this screen: nothing was lost,
-           but somebody has a decision to make. -->
-      <div id="conflict-box" class="hidden">
-        <h2>Changed on two devices</h2>
-        <p class="quiet">Nothing was lost: both versions are kept. Choose which you want.</p>
-        <ul id="conflict-list" class="rows conflicts"></ul>
+        <section id="vault" class="screen">
+          <div class="page-head">
+            <div class="titles">
+              <h1>Private Vault</h1>
+              <p>Private to this computer.</p>
+            </div>
+          </div>
+          <div class="vault-intro">
+            <svg class="i"><use href="#i-lock-keyhole"/></svg>
+            <span>Only this computer can see these files. A device you choose can keep a backup of them.</span>
+          </div>
+          <div class="toolbar">
+            <label class="search">
+              <svg class="i"><use href="#i-search"/></svg>
+              <input class="input" id="vault-find" type="search" placeholder="Search Private Vault" autocomplete="off" spellcheck="false">
+            </label>
+          </div>
+          <nav class="crumbs" id="vault-crumbs"></nav>
+          <div class="folders" id="vault-folders"></div>
+          <ul class="rows" id="vault-list"></ul>
+        </section>
+
+        <section id="devices" class="screen">
+          <div class="page-head">
+            <div class="titles">
+              <h1>Devices</h1>
+              <p>Your devices, and whether each is reachable.</p>
+            </div>
+            <button class="btn primary" id="add-device"><svg class="i"><use href="#i-plus"/></svg>Add a device</button>
+          </div>
+          <div class="devices" id="device-list"></div>
+        </section>
+
+        <section id="storage" class="screen">
+          <div class="page-head">
+            <div class="titles">
+              <h1>Storage</h1>
+              <p>Free space without losing your files.</p>
+            </div>
+          </div>
+          <div class="card glass-frosted">
+            <div class="recommend">
+              <div class="text">
+                <div class="big-number num" id="freeable-big">–</div>
+                <p class="quiet" id="freeable-says"></p>
+              </div>
+              <button class="btn primary" id="free-all">Free local space</button>
+            </div>
+            <div class="meter">
+              <div class="bar"><span class="used" id="meter-used"></span><span class="freeable" id="meter-freeable"></span></div>
+              <div class="legend num" id="legend"></div>
+            </div>
+          </div>
+          <h2 class="section">Files you can free</h2>
+          <ul class="rows" id="freeable-list"></ul>
+
+          <h2 class="section">Storage limit</h2>
+          <div class="group glass-frosted">
+            <div class="item">
+              <div class="label">
+                <strong>Limit how much space Qurb may use</strong>
+                <span id="usage"></span>
+              </div>
+              <label class="switch"><input type="checkbox" id="capped"><span></span></label>
+            </div>
+            <div class="item stack hidden" id="limit-controls">
+              <input type="range" id="limit" min="0" max="1000" step="1" value="300" aria-label="Storage limit">
+              <div class="actions" style="margin-top: 8px; align-items: center">
+                <span class="quiet num" id="limit-label" style="flex: 1"></span>
+                <span id="saved" class="meta hidden">Saved</span>
+                <button class="btn small" id="apply">Save</button>
+              </div>
+            </div>
+          </div>
+          <p class="note">Over the limit, Qurb frees local space from files another device also has,
+            the ones you've used least first. It never removes the only copy of a file, so staying
+            over the limit is possible, and deliberate.</p>
+        </section>
+
+        <!-- Grouped lists, quieter than the rest (§23). -->
+        <section id="settings" class="screen">
+          <div class="page-head">
+            <div class="titles"><h1>Settings</h1></div>
+          </div>
+
+          <div class="group-title">This device</div>
+          <div class="group glass-frosted">
+            <label class="item stack">
+              <div class="label"><strong>Name</strong><span>What your other devices call this one.</span></div>
+              <input class="input" type="text" id="set-name" spellcheck="false" autocomplete="off">
+            </label>
+            <div class="item">
+              <div class="label"><strong>Folder</strong><span id="set-root"></span></div>
+            </div>
+            <div class="item">
+              <div class="label"><strong>Key protection</strong><span id="protection-says"></span></div>
+              <div id="protection-buttons" class="actions" style="margin: 0"></div>
+            </div>
+            <div class="item hidden" id="protect-form">
+              <div class="label" style="flex: 1">
+                <label class="field" id="protect-current-wrap" style="margin-top: 0">
+                  <span>Current passphrase</span>
+                  <input class="input" type="password" id="protect-current" autocomplete="off">
+                </label>
+                <label class="field" id="protect-new-wrap">
+                  <span>New passphrase</span>
+                  <input class="input" type="password" id="protect-new" autocomplete="new-password">
+                  <span class="hint">At least 8 characters. Nobody can recover it for you; your 24 words can set this computer up again.</span>
+                </label>
+                <label class="field" id="protect-again-wrap">
+                  <span>The same again</span>
+                  <input class="input" type="password" id="protect-again" autocomplete="new-password">
+                </label>
+                <p id="protect-says" class="says warn hidden"></p>
+                <div class="actions">
+                  <button class="btn" id="protect-cancel">Cancel</button>
+                  <button class="btn primary" id="protect-go">Set the passphrase</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="group-title">Devices</div>
+          <div class="group glass-frosted">
+            <div class="item">
+              <div class="label"><strong>Paired devices</strong><span id="paired-says"></span></div>
+              <button class="btn small" data-go="devices">Manage</button>
+            </div>
+            <div class="item stack">
+              <div class="label"><strong>Pairings and removals</strong></div>
+              <ul class="rows" id="security-events" style="margin-top: 6px"></ul>
+            </div>
+          </div>
+
+          <div class="group-title">Storage</div>
+          <div class="group glass-frosted">
+            <label class="item stack">
+              <div class="label"><strong>Files sent to this computer</strong>
+                <span id="downloads-at"></span></div>
+              <input class="input" type="text" id="set-downloads" spellcheck="false" autocomplete="off"
+                     placeholder="Qurb, in your Downloads folder">
+            </label>
+            <div class="item">
+              <div class="label"><span>Saved as ordinary files you can open, move or delete. Leave empty
+                for the usual place, or write <code>off</code> to keep them inside your Qurb folder.</span></div>
+              <button class="btn small" id="open-downloads">Open folder</button>
+            </div>
+            <div class="item">
+              <div class="label"><strong>Space and limit</strong></div>
+              <button class="btn small" data-go="storage">Storage</button>
+            </div>
+          </div>
+
+          <div class="group-title">Privacy</div>
+          <div class="group glass-frosted">
+            <div class="item">
+              <div class="label"><strong>Keep new files private</strong>
+                <span>Files added on this computer go to its Private Vault instead of to all your devices.</span></div>
+              <label class="switch"><input type="checkbox" id="set-private"><span></span></label>
+            </div>
+          </div>
+
+          <div class="group-title">Notifications</div>
+          <div class="group glass-frosted">
+            <div class="item">
+              <div class="label"><strong>Notify me</strong>
+                <span>When a file is sent to this computer, when one you sent is collected, and when something fails.</span></div>
+              <label class="switch"><input type="checkbox" id="set-notify"><span></span></label>
+            </div>
+          </div>
+
+          <div class="group-title">Recovery</div>
+          <div class="group glass-frosted">
+            <div class="item">
+              <div class="label"><strong>Recovery phrase</strong>
+                <span>The 24 words that are your key. Anyone who sees them can read your files.</span></div>
+              <button class="btn small" id="show-phrase">Show</button>
+            </div>
+            <div class="item stack hidden" id="revealed-wrap">
+              <ol id="revealed" class="words" style="margin-top: 0"></ol>
+              <p id="phrase-says" class="says warn hidden"></p>
+            </div>
+          </div>
+
+          <div class="group-title">Appearance</div>
+          <div class="group glass-frosted">
+            <div class="item">
+              <div class="label"><strong>Theme</strong><span>A dark theme is designed after this one.</span></div>
+              <span class="value">Light</span>
+            </div>
+            <div class="item">
+              <div class="label"><strong>Motion</strong><span>Follows your system's reduce-motion setting.</span></div>
+              <span class="value" id="motion-says">Full</span>
+            </div>
+          </div>
+
+          <div class="group-title">Advanced</div>
+          <div class="group glass-frosted">
+            <label class="item stack">
+              <div class="label"><strong>Rendezvous service</strong><span>Where devices leave word that they are awake. It never sees your files.</span></div>
+              <input class="input" type="text" id="set-signal" spellcheck="false" autocomplete="off">
+            </label>
+            <label class="item stack">
+              <div class="label"><strong>Relay</strong><span>Used only when devices can't reach each other directly. It carries encrypted data it can't read.</span></div>
+              <input class="input" type="text" id="set-relay" spellcheck="false" autocomplete="off"
+                     placeholder="None — devices must reach each other directly">
+            </label>
+            <label class="item stack">
+              <div class="label"><strong>Port</strong><span>Zero means any. A fixed one helps if you forward it.</span></div>
+              <input class="input" type="number" id="set-port" min="0" max="65535">
+            </label>
+            <div class="item">
+              <div class="label"><span id="settings-says">The name and where received files go apply at once;
+                the service, relay and port when Qurb next starts.</span></div>
+              <button class="btn primary small" id="settings-save">Save</button>
+            </div>
+            <div class="item">
+              <div class="label"><strong>Start when I log in</strong><span>Without opening this window. Your phone can only reach this computer while Qurb runs here.</span></div>
+              <label class="switch"><input type="checkbox" id="at-login"><span></span></label>
+            </div>
+            <div class="item">
+              <div class="label"><strong>Activity</strong><span>Everything this computer did, newest first.</span></div>
+              <button class="btn small" data-go="activity">Open</button>
+            </div>
+            <div class="item">
+              <div class="label"><strong>Identity</strong><span class="mono" id="set-identity"></span></div>
+            </div>
+            <div class="item">
+              <div class="label"><strong>Version</strong><span id="set-version"></span></div>
+            </div>
+            <div class="item">
+              <div class="label"><strong>Quit Qurb</strong><span>Stops syncing until you open it again. Closing the window doesn't.</span></div>
+              <button class="btn small quiet-danger" id="quit">Quit</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="activity" class="screen" data-parent="home">
+          <button class="back" data-go="home"><svg class="i small"><use href="#i-arrow-left"/></svg>Home</button>
+          <div class="page-head" style="margin-top: 0">
+            <div class="titles"><h1>Activity</h1><p>Everything this computer did, newest first.</p></div>
+          </div>
+          <ul id="activity-list" class="rows"></ul>
+          <div class="actions"><button class="btn hidden" id="older">Show older</button></div>
+        </section>
+
+        <section id="deleted" class="screen" data-parent="files">
+          <button class="back" data-go="files"><svg class="i small"><use href="#i-arrow-left"/></svg>Files</button>
+          <div class="page-head" style="margin-top: 0">
+            <div class="titles"><h1>Recently deleted</h1>
+              <p>Files deleted on any of your devices are kept for 30 days. Restoring one puts it back everywhere.</p></div>
+          </div>
+          <ul id="deleted-list" class="rows"></ul>
+        </section>
       </div>
-      <!-- Which devices each folder is shared with (decision 0044). Folded
-           away: set once and rarely looked at again. -->
-      <details id="sharing-box" class="hidden">
-        <summary>Folders, and which devices have them</summary>
-        <p class="quiet">
-          A folder is on every device unless you choose. A device you leave out
-          keeps what it already has, and gets nothing new.
-        </p>
-        <ul id="sharing-list" class="rows"></ul>
-      </details>
-      <input id="find" type="search" placeholder="Search names…" autocomplete="off" spellcheck="false">
-      <p id="crumbs" class="quiet"></p>
-      <ul id="file-list" class="rows"></ul>
-      <button id="more" class="hidden">Show more</button>
+    </main>
+  </div>
 
-      <!-- Only when there is something in it. Kept for 30 days, and put back
-           on every device when restored here (decision 0042). -->
-      <details id="deleted-box" class="hidden">
-        <summary id="deleted-summary">Recently deleted</summary>
-        <p class="quiet">
-          Deleted on this computer or another, and kept here for 30 days.
-          Restoring one puts it back on every device.
-        </p>
-        <ul id="deleted-list" class="rows"></ul>
-      </details>
-    </section>
+  <!-- The mark: a ring for your space, a stem that makes it a q, and a point
+       of Qurb light inside. -->
+  <!-- Not display:none: WebKit draws no gradient defined inside one. -->
+  <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+    <defs>
+      <linearGradient id="qurb-tile" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#3c806a"/>
+        <stop offset="1" stop-color="#22503f"/>
+      </linearGradient>
+    </defs>
+    <symbol id="qurb-mark" viewBox="0 0 32 32">
+      <rect x="1" y="1" width="30" height="30" rx="9" fill="url(#qurb-tile)"/>
+      <circle cx="14.4" cy="14.4" r="6.2" fill="none" stroke="#fff" stroke-width="2.6"/>
+      <path d="M20.6 11 V24.5" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/>
+      <circle cx="14.4" cy="14.4" r="1.9" fill="#bde7d6"/>
+    </symbol>
+  </svg>
 
-    <section id="devices" class="screen">
-      <header>
-        <h1>Devices</h1>
-        <p class="quiet">Paired devices, and when each was last reached.</p>
-      </header>
-      <ul id="device-list" class="rows"></ul>
-
-      <div id="pair-idle" class="buttons">
-        <button class="act primary" id="pair-show">Show a code</button>
-        <button class="act" id="pair-enter">Enter a code</button>
-      </div>
-      <p id="show-error" class="warn hidden"></p>
-
-      <!-- Showing a code. The QR is the way anyone will actually do this; the
-           text below it is for a device with no camera, and for reading out. -->
-      <div id="pair-showing" class="hidden pairing">
-        <h2>Scan this on the other device</h2>
-        <div id="qr"></div>
-        <p class="quiet">Or on another computer:</p>
-        <pre id="pair-code" class="code"></pre>
-        <p class="quiet">Or read this out:</p>
-        <pre id="pair-spoken" class="code"></pre>
-        <p id="pair-says" class="quiet"></p>
-        <p class="quiet note">
-          The code carries this device's full identity, which is why it has to
-          travel outside the network — somebody able to change what is on your
-          screen has already won. It works once.
-        </p>
-        <div class="buttons">
-          <button class="act" id="pair-cancel">Stop showing it</button>
-        </div>
-      </div>
-
-      <!-- Entering one. -->
-      <div id="pair-entering" class="hidden pairing">
-        <h2>The code from the other device</h2>
-        <textarea id="pair-input" rows="3" spellcheck="false" autocomplete="off"
-                  placeholder="qurb1-…"></textarea>
-        <p id="join-error" class="warn hidden"></p>
-        <div class="buttons">
-          <button class="act" id="pair-back">Cancel</button>
-          <button class="act primary" id="pair-go">Join</button>
-        </div>
-      </div>
-
-      <div id="pair-done" class="hidden pairing">
-        <h2>Paired</h2>
-        <p id="pair-with"></p>
-        <div class="buttons">
-          <button class="act primary" id="pair-finish">Done</button>
-        </div>
-      </div>
-    </section>
-
-    <section id="transfers" class="screen">
-      <header>
-        <h1>Transfers</h1>
-        <p class="quiet">What is moving between your devices, and what has.</p>
-      </header>
-
-      <h2>Arriving now</h2>
-      <ul id="arriving" class="rows"><li class="quiet">nothing is arriving</li></ul>
-
-      <h2>Waiting to be collected</h2>
-      <ul id="waiting" class="rows"><li class="quiet">nothing you sent is waiting</li></ul>
-
-      <h2>Finished</h2>
-      <ul id="finished" class="rows"><li class="quiet">nothing yet</li></ul>
-      <p class="quiet note">
-        Files that arrive because they are in your synced folder are not listed
-        here, only in Activity — this is for what somebody sent on purpose.
-      </p>
-    </section>
-
-    <section id="activity" class="screen">
-      <header>
-        <h1>Activity</h1>
-        <p class="quiet">What this device did. Survives a restart, which is when people ask.</p>
-      </header>
-      <ul id="activity-list" class="rows"></ul>
-      <button id="older" class="hidden">Older</button>
-    </section>
-
-    <section id="storage" class="screen">
-      <header>
-        <h1>Storage</h1>
-        <p class="quiet">How much of this disk qurb may use.</p>
-      </header>
-
-      <div id="bar"><div id="bar-fill"></div></div>
-      <p id="usage" class="quiet"></p>
-
-      <label class="check">
-        <input type="checkbox" id="capped">
-        Limit how much disk this folder may use
-      </label>
-
-      <div id="limit-controls" class="hidden">
-        <input type="range" id="limit" min="0" max="1000" step="1" value="300">
-        <p id="limit-label" class="quiet"></p>
-        <button id="apply">Save</button>
-        <span id="saved" class="quiet hidden">saved</span>
-      </div>
-
-      <p class="quiet note">
-        Over the limit, qurb drops local copies of files another device also
-        has, coldest first — and content it is holding for other devices before
-        any of your own. It will never drop the only copy of anything, so
-        staying over the limit is a possible and deliberate outcome.
-      </p>
-
-      <dl id="breakdown"></dl>
-    </section>
-    <section id="send" class="screen">
-      <header>
-        <h1>Send</h1>
-        <p class="quiet">
-          Files and folders go to one device and to nowhere else. Your other
-          devices never see them, and they are not added to this folder.
-        </p>
-      </header>
-
-      <div id="drop">
-        <p><strong>Drop files or folders here</strong></p>
-        <p class="quiet">or</p>
-        <button class="act" id="choose">Choose files…</button>
-        <button class="act" id="choose-folder">Choose a folder…</button>
-        <p id="chosen" class="quiet"></p>
-      </div>
-
-      <h2>To which device</h2>
-      <ul id="send-to" class="rows"></ul>
-
-      <p id="send-says" class="quiet"></p>
-
-      <p class="quiet note">
-        What you send stays on this device until that one confirms it has it,
-        so sending to a phone that is switched off works — it collects it the
-        next time it syncs. After that, this copy is the first thing dropped if
-        you run short of disk. A folder arrives as a folder.
-      </p>
-
-      <h2 id="sending-heading" class="hidden">Waiting to be collected</h2>
-      <ul id="sending" class="rows hidden"></ul>
-    </section>
-
-    <section id="settings" class="screen">
-      <header>
-        <h1>Settings</h1>
-        <p class="quiet">This device, and how it finds the others.</p>
-      </header>
-
-      <dl id="facts"></dl>
-
-      <label class="field">
-        <span>Name</span>
-        <input type="text" id="set-name" spellcheck="false" autocomplete="off">
-        <span class="quiet">What your other devices call this one.</span>
-      </label>
-
-      <label class="field">
-        <span>Rendezvous service</span>
-        <input type="text" id="set-signal" spellcheck="false" autocomplete="off">
-        <span class="quiet">
-          Where devices leave word that they are awake. It never sees your files.
-        </span>
-      </label>
-
-      <label class="field">
-        <span>Relay</span>
-        <input type="text" id="set-relay" spellcheck="false" autocomplete="off"
-               placeholder="none — devices must reach each other directly">
-        <span class="quiet">
-          Used only when a direct connection cannot be made. It carries
-          encrypted datagrams and cannot read them.
-        </span>
-      </label>
-
-      <label class="field">
-        <span>Files sent to this device</span>
-        <input type="text" id="set-downloads" spellcheck="false" autocomplete="off"
-               placeholder="qurb, in your Downloads folder">
-        <span class="quiet" id="downloads-at"></span>
-        <span class="quiet">
-          Saved as ordinary files, outside qurb's storage allowance — yours to
-          open, move or delete. Leave empty for the usual place, or write
-          <code>off</code> to keep them inside the synced folder.
-        </span>
-      </label>
-      <div class="buttons">
-        <button class="act" id="open-downloads">Open that folder</button>
-      </div>
-
-      <label class="field">
-        <span>Port</span>
-        <input type="number" id="set-port" min="0" max="65535">
-        <span class="quiet">Zero means any. A fixed one helps if you forward it.</span>
-      </label>
-
-      <div class="buttons">
-        <button class="act primary" id="settings-save">Save</button>
-        <span id="settings-says" class="quiet"></span>
-      </div>
-      <p class="quiet note">
-        The name, and where files sent here go, take effect at once. A changed
-        service, relay or port applies when qurb next starts — after Quit
-        below, and opening it again.
-      </p>
-
-      <h2>In the background</h2>
-      <p class="quiet note">
-        Closing this window keeps qurb syncing: your phone can only reach this
-        computer while qurb is running here. Open it again from the
-        applications menu.
-      </p>
-      <label class="check">
-        <input type="checkbox" id="at-login">
-        Start qurb when I log in, without opening this window
-      </label>
-      <div class="buttons">
-        <button class="act" id="quit">Quit qurb</button>
-        <span class="quiet">Stops syncing until you open it again.</span>
-      </div>
-
-      <h2>Security</h2>
-      <dl id="security-facts"></dl>
-      <p id="protection-says" class="quiet note"></p>
-      <div class="buttons" id="protection-buttons"></div>
-      <div id="protect-form" class="hidden">
-        <label class="field" id="protect-current-wrap">
-          <span>Current passphrase</span>
-          <input type="password" id="protect-current" autocomplete="off">
-        </label>
-        <label class="field" id="protect-new-wrap">
-          <span>New passphrase</span>
-          <input type="password" id="protect-new" autocomplete="new-password">
-          <span class="quiet">At least 8 characters. Nobody can recover it for you; the 24 words can set this computer up again.</span>
-        </label>
-        <label class="field" id="protect-again-wrap">
-          <span>The same again</span>
-          <input type="password" id="protect-again" autocomplete="new-password">
-        </label>
-        <p id="protect-says" class="warn hidden"></p>
-        <div class="buttons">
-          <button class="act" id="protect-cancel">Cancel</button>
-          <button class="act primary" id="protect-go">Set the passphrase</button>
-        </div>
-      </div>
-      <p class="quiet note">
-        Trusted devices, and removing one, are on the Devices screen. Encryption:
-        every file is encrypted at rest with your key and in transit end to end;
-        a relay carries only what it cannot read.
-      </p>
-      <h3>Pairings and removals</h3>
-      <ul id="security-events" class="rows"></ul>
-
-      <h2>Recovery phrase</h2>
-      <p class="quiet note">
-        The same 24 words you were shown when this device was set up, derived
-        from the key that is already in this folder. Anybody who can read the
-        folder can already read your files, so this reveals nothing new — but it
-        is still the key, so do not show it to a screen anybody else can see.
-      </p>
-      <button class="act" id="show-phrase">Show the 24 words</button>
-      <ol id="revealed" class="words hidden"></ol>
-      <p id="phrase-says" class="warn hidden"></p>
-    </section>
-  </main>
-
+  <script src="icons.js"></script>
+  <script src="core.js"></script>
+  <script src="setup.js"></script>
+  <script src="home.js"></script>
+  <script src="files.js"></script>
+  <script src="devices.js"></script>
+  <script src="settings.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

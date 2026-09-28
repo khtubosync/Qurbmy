@@ -1471,6 +1471,13 @@ fn configure(root: &Path, settings: &[String]) -> Result<()> {
                 downloads.resolve(root)?;
                 config.downloads = downloads;
             }
+            "notifications" => {
+                config.notifications = match value.trim() {
+                    "on" => true,
+                    "off" => false,
+                    other => bail!("notifications is `on` or `off`, not `{other}`"),
+                }
+            }
             other => bail!("unknown setting `{other}`"),
         }
     }

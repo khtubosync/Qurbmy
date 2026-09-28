@@ -21,9 +21,11 @@ record what was decided since.
 
 **What comes next, as the owner set it on 2026-09-28:** the design and UX of
 both apps, then the relay on a server, then a formal release for Linux and
-Android. The design is made in Figma first and then coded; its brief, with
-every choice the owner made, is [design/brief.md](design/brief.md)
-([0048](decisions/0048-the-design-direction.md)).
+Android. The design is built directly in the apps, from the owner's direction
+([design/direction.md](design/direction.md)); its brief, with every choice the
+owner made, is [design/brief.md](design/brief.md)
+([0048](decisions/0048-the-design-direction.md)). The desktop is done and
+waiting for the owner's look; Android is next.
 
 **Four things the brief asks for disagreed with decisions already recorded.**
 All four were decided on 2026-09-25, each the brief's way — see §3. Three are

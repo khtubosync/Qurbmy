@@ -1,15 +1,16 @@
-# 0048 — The design direction, and designing in Figma first
+# 0048 — The design direction
 
-**Status:** Accepted — revised the same day when the owner gave the full
-direction; the visual values are confirmed at the first checkpoint
+**Status:** Accepted — revised the same day twice: for the owner's full
+direction, and to drop Figma (the design is built in the apps themselves)
 **Date:** 2026-09-28
 
 ## Decision
 
 The desktop window and the Android app are designed together, in one visual
-language, **in Figma before any code**: Figma's MCP server builds the frames in
-a file the owner reviews, and the approved design is then implemented. The
-owner's direction is [design/direction.md](../design/direction.md), word for
+language, **directly in the apps**. The first plan was Figma first — Figma's
+MCP server building frames the owner would review before any code — and the
+owner dropped it the same day: "remove figma from the plan, start
+implementing the design plan". The owner's direction is [design/direction.md](../design/direction.md), word for
 word; how it meets the product, and the table that places every feature on a
 screen, is [design/brief.md](../design/brief.md). The parts with consequences
 beyond looks:
@@ -47,16 +48,13 @@ five. Storage keeps a section on the desktop because freeing space without
 losing files is the one idea qurb has that other storage apps do not, and it
 needs room to be explained.
 
-**Figma first** because the owner wants to see, adjust and own the design in a
-design tool before code is written against it; a mockup in code is harder for
-him to change and easier to mistake for a finished screen.
+**In the apps rather than in a design tool**, in the end, because the owner
+chose it: the design is checked in the real window — rendered against the
+fixture data in WebKitGTK, the window's own engine, and driven end to end by
+the smoke test — and reviewed there at the checkpoints.
 
 ## What it costs
 
-- The Figma MCP server writes to the canvas only through Figma's remote
-  server, with its plugin authorised in Claude Code; on the owner's free
-  Starter plan, about 200 calls a day and three design files. The work is
-  batched to fit.
 - Renaming the tabs and moving Transfers changes words the phone's users have
   seen; there are none yet but the owner, so now is the cheap time.
 - Glass is expensive to draw live on a phone. The environment behind it is

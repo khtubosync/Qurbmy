@@ -1,10 +1,11 @@
 # The design brief
 
 How the design pass turns the owner's direction into qurb's screens: what was
-decided, how the direction meets what qurb actually does, and how the work in
-Figma is ordered. The design is made **in Figma first**, reviewed there, and
-only then coded ([decision 0048](../decisions/0048-the-design-direction.md)).
-Anyone — or any session — picking up the design starts here.
+decided, how the direction meets what qurb actually does, and how the work is
+ordered. The design is built **directly in the apps** and reviewed there — a
+plan to make it in Figma first was dropped by the owner the same day
+([decision 0048](../decisions/0048-the-design-direction.md)). Anyone — or any
+session — picking up the design starts here.
 
 Two sources, in this order of authority:
 
@@ -44,8 +45,8 @@ disagree, the direction won; the earlier answer is struck through.
 | Recovery phrase | calm but firm, intentionally sparse (§47) |
 | Corners | ~~12–16~~ → 8 / 12–16 / 18–20, sheets 20–24 (§45) |
 | Empty states | an outline icon and one line, with the action |
-| Review | checkpoints: foundations → components → screens, each approved in Figma |
-| Figma | a new file; the owner's account is on the **free Starter plan** |
+| Review | checkpoints: foundations → components → screens, each approved by the owner |
+| Where | ~~in Figma, then code~~ → **directly in the apps** |
 
 ## 2. Where the direction and qurb disagree, and what was decided
 
@@ -112,9 +113,11 @@ bug in the design.
 ## 4. Building it so it can be coded
 
 The direction's glass is drawn with **background blur, a translucent fill, a
-light edge and a soft shadow** — the same four things CSS
-`backdrop-filter` and Android draw — rather than Figma's refractive *Glass*
-effect, which neither can reproduce. What is approved should be buildable.
+light edge and a soft shadow** — the four things CSS `backdrop-filter` and
+Android can draw — rather than a refractive glass, which neither can
+reproduce. On the desktop, `backdrop-filter` is used only on what floats over
+moving content, and sheets and panels are nearly opaque, because WebKitGTK
+without compositing draws no blur at all.
 
 The environment behind the glass is a still, soft gradient. So on the phone,
 where live blur behind a view is expensive, a surface over it can be drawn as
@@ -122,11 +125,12 @@ a translucent fill over a pre-blurred background and look the same — which
 keeps the app light ([0039](../decisions/0039-a-light-android-app.md)). Real
 blur is kept for sheets and dialogs, where Android blurs behind a window.
 
-Motion (§27–§42) is specified in Figma as start and end frames with their
-timing and easing written beside them, and as prototype transitions where
-Figma can show them; the flowing light is drawn as its key frames.
+Motion (§27–§42) is CSS on the desktop — transitions and keyframes with the
+direction's timings as tokens, springs for what moves in space, smooth curves
+for light and opacity — and `prefers-reduced-motion` reduces every one of them
+to a fade (§42).
 
-## 5. The work in Figma
+## 5. The work
 
 The direction's twenty phases (§56), grouped into the three checkpoints the
 owner asked for:
@@ -137,16 +141,13 @@ owner asked for:
 | **2. Components** | 6 core components · 7 navigation | every component in §48 with its states, the sidebar and the bottom bar |
 | **3. Screens** | 8 Home · 9 Files · 10 File details · 11 Devices · 12 Send and transfers · 13 Conflicts · 14 Storage · 15 Recently deleted · 16 Private Vault · 17 Settings · 18 Onboarding · 19 edge states · 20 responsive refinement | each screen on both platforms, reviewed against §54 |
 
-**The file**: *Qurb — Design*, pages Cover, Foundations, Logo, Components,
-Desktop, Android, Motion. Colours, spacing and radii are variables (a Light
-mode now, Dark added later); type and shadows are styles; components bind to
-them, so a change reaches every screen. On the Starter plan a person has three
-design files and about 200 MCP calls a day, so each call builds a whole set or
-screen.
+**Done so far (2026-09-29): the desktop, all three checkpoints' worth**, in
+`crates/desktop/ui`, awaiting the owner's look. Rendered against the fixture
+data in WebKitGTK and driven end to end by `scripts/desktop-smoke.sh`.
 
-Frames: the desktop window at 1280 × 820; the phone at 360 × 780, the Galaxy
-S23's size in dp.
+**Next: Android.** The same tokens as resources in `android/app/src/main/res`,
+the same places (Home, Files, Devices, Settings; Private Vault from Files), on
+the platform's own views — no new UI framework on either side.
 
-**Then code.** The approved variables become CSS custom properties in
-`crates/desktop/ui/app.css` and resources in `android/app/src/main/res`; the
-screens are rebuilt one at a time, with no new UI framework on either side.
+The desktop's frames for review: the window at its default 1200 × 800; the
+phone at 360 × 780, the Galaxy S23's size in dp.

@@ -796,6 +796,68 @@ impl Db {
         Ok(n as usize)
     }
 
+    /// The other devices holding these bytes that would hand them back: the
+    /// ones a details screen names under "on these devices". Most recently
+    /// reported first. Vault deliveries are left out for the same reason as in
+    /// [`replica_count`](Self::replica_count).
+    pub fn holders_of_content(&self, content: &blake3::Hash) -> Result<Vec<DeviceId>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT device_id FROM replicas
+              WHERE content_hash = ?1 AND private = 0
+              ORDER BY at DESC",
+        )?;
+        let rows = stmt.query_map(params![content.as_bytes().as_slice()], |r| r.get::<_, Vec<u8>>(0))?;
+        let mut holders = Vec::new();
+        for raw in rows {
+            if let Some(id) = to_device(raw?) {
+                holders.push(id);
+            }
+        }
+        Ok(holders)
+    }
+
+    /// What this device could free without losing anything: files in its
+    /// folder whose bytes are here and that another device is known to hold
+    /// (brief §20, "space that can safely be freed"). The size and number of
+    /// all of them, and the `largest` biggest, which is where freeing a little
+    /// saves the most.
+    ///
+    /// The same test [`Store::free_local`](crate::Store::free_local) applies
+    /// before it frees anything, so a file offered here is one it will free.
+    pub fn freeable(&self, largest: usize) -> Result<Freeable> {
+        let condition = format!(
+            "f.deleted_at IS NULL
+             AND (f.scope IS NULL OR f.scope = (SELECT device_id FROM local WHERE id = 1))
+             AND {NOT_RULES_F}
+             AND f.materialised = 1
+             AND EXISTS (SELECT 1 FROM replicas r
+                          WHERE r.content_hash = f.content_hash AND r.private = 0)"
+        );
+        let (count, bytes): (i64, i64) = self.conn.query_row(
+            &format!("SELECT count(*), coalesce(sum(f.size), 0) FROM files f WHERE {condition}"),
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT f.path, f.size, f.mtime_ns, f.scope IS NOT NULL FROM files f
+              WHERE {condition}
+              ORDER BY f.size DESC, f.path
+              LIMIT ?1"
+        ))?;
+        let files = stmt
+            .query_map(params![largest as i64], |r| {
+                Ok(FolderEntry {
+                    path: r.get(0)?,
+                    size: r.get::<_, i64>(1)? as u64,
+                    mtime_ns: r.get(2)?,
+                    availability: Availability::Here,
+                    private: r.get::<_, i64>(3)? != 0,
+                })
+            })?
+            .collect::<std::result::Result<_, _>>()?;
+        Ok(Freeable { count: count as usize, bytes: bytes as u64, files })
+    }
+
     /// Note that a path was just read or written here.
     pub fn touch(&self, path: &str) -> Result<()> {
         self.conn.execute(
@@ -2581,6 +2643,17 @@ pub struct FolderEntry {
     pub availability: Availability,
     /// In this device's own vault rather than the shared area.
     pub private: bool,
+}
+
+/// What this device could free without losing anything. See
+/// [`Db::freeable`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Freeable {
+    /// How many files, and their size, in all.
+    pub count: usize,
+    pub bytes: u64,
+    /// The largest of them, biggest first.
+    pub files: Vec<FolderEntry>,
 }
 
 /// One row of a listing: what a file browser needs and nothing more.

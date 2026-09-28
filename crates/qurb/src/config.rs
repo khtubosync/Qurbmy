@@ -35,6 +35,9 @@ pub struct Config {
     /// the shared area (decision 0036). What a phone does; off on a desktop
     /// unless somebody asks for it.
     pub own_files_private: bool,
+    /// Whether the desktop raises its three notifications: a file sent here,
+    /// one collected, one that failed. On unless somebody turns them off.
+    pub notifications: bool,
 }
 
 /// Where a file somebody sends this device is put.
@@ -158,6 +161,7 @@ impl Default for Config {
             limit: 0,
             downloads: Downloads::Default,
             own_files_private: false,
+            notifications: true,
         }
     }
 }
@@ -231,6 +235,17 @@ impl Config {
             };
         }
 
+        if let Some(on) = settings.remove("notifications") {
+            config.notifications = match on.as_str() {
+                "on" | "" => true,
+                "off" => false,
+                other => anyhow::bail!(
+                    "{}: notifications is `on` or `off`, not `{other}`",
+                    path.display()
+                ),
+            };
+        }
+
         // Unknown keys are reported rather than ignored. A misspelled setting
         // that silently does nothing is a bad afternoon.
         if let Some(unknown) = settings.keys().next() {
@@ -273,13 +288,18 @@ impl Config {
              # Where a file added on this device goes: `shared`, to every\n\
              # device, or `private`, to this device's own vault, kept by the\n\
              # devices named with `qurb holders`. `private` is what a phone does.\n\
-             own-files = {}\n",
+             own-files = {}\n\
+             \n\
+             # Whether the desktop says when a file is sent here, when one you\n\
+             # sent is collected, and when something fails: `on` or `off`.\n\
+             notifications = {}\n",
             self.signal,
             self.name,
             self.port,
             human_size(self.limit),
             self.downloads.as_setting(),
             if self.own_files_private { "private" } else { "shared" },
+            if self.notifications { "on" } else { "off" },
         );
         std::fs::write(Self::path(store_dir), text)
             .with_context(|| format!("writing {}", Self::path(store_dir).display()))
@@ -359,6 +379,7 @@ mod tests {
             limit: 10 << 30,
             downloads: Downloads::At("/srv/incoming".into()),
             own_files_private: true,
+            notifications: false,
         };
         config.save(dir.path()).unwrap();
 
@@ -370,6 +391,7 @@ mod tests {
         assert_eq!(loaded.limit, config.limit);
         assert_eq!(loaded.downloads, config.downloads);
         assert_eq!(loaded.own_files_private, config.own_files_private);
+        assert_eq!(loaded.notifications, config.notifications);
     }
 
     #[test]

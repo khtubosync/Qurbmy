@@ -3,8 +3,8 @@
 Every feature that exists, grouped by where a person meets it: the desktop
 window, the phone, the command line, the services. The last sections cover
 what the engine guarantees underneath all of them, and what is not built.
-Written 2026-09-28 as the starting point for the design and UX pass — the
-thing to decide against, screen by screen.
+Written 2026-09-28 as the starting point for the design and UX pass, and
+brought up to date on 2026-09-29, when the desktop's design was built.
 
 Each line says how far it has been checked, because "built" and "works between
 two real devices" are different claims:
@@ -24,58 +24,60 @@ records it links.
 
 One program, `qurb-desktop`, that *is* the sync daemon with a window on it
 ([0032](decisions/0032-the-interface-hosts-the-daemon.md)). Closing the window
-leaves it syncing; *Quit qurb* in Settings stops it. It starts at login without
-a window, and a second launch shows the running one
+leaves it syncing; *Quit* in Settings stops it. It starts at login without a
+window, and a second launch shows the running one
 ([0040](decisions/0040-the-menu-opens-the-window.md)).
+
+Designed on 2026-09-29 from the owner's direction
+([design/direction.md](design/direction.md)): a translucent sidebar — Home,
+Files, Devices, Storage, then Private Vault set apart, then Settings — and one
+frosted stage the content floats in. Checked by rendering every place against
+the fixture data in WebKitGTK and by the smoke test driving the real window;
+not yet looked at by the owner.
 
 ### Before it runs
 
 | | what a person can do | |
 |---|---|---|
-| Set up a new device | choose the folder, answer how much disk qurb may use, see the 24 words, type three of them back | 🧪 |
+| Welcome | *Your files. Your devices. Your space.* — then new, or *I already use Qurb* | 🧪 |
+| Set up a new device | choose the folder, answer how much disk Qurb may use, see the 24 words, type three of them back | 🧪 |
 | Join with the 24 words | set this computer up as another of the same person's devices | 🧪 |
 | Unlock | type the passphrase, when the key is protected by one; at login the window shows itself to ask ([0046](decisions/0046-the-window-asks-for-the-passphrase.md)) | 🧪 |
 
-### The eight tabs
+### The places
 
-| tab | what it shows and does | |
+| place | what it shows and does | |
 |---|---|---|
-| **Home** | syncing / up to date / no devices reachable; devices reachable, files, space in use, and how many files are only on this device; recently changed files; what is still on its way to another device; a notice when two devices changed the same file | 🧪 |
-| **Files** | the folder, paged, with search by name; for each file whether its bytes are *here*, *elsewhere* or *only here*; fetching a freed file back | 🧪 |
-| | **Changed on two devices**: each conflict with both versions, who made each and when; keep this one, the other, or both ([0043](decisions/0043-settling-a-conflict.md)) | 🧪 |
-| | **Folders, and which devices have them**: per folder, which devices it is shared with ([0044](decisions/0044-sharing-with-chosen-devices.md)); *free space here* / *keep on this computer* ([0045](decisions/0045-a-folder-kept-remotely.md)) | 🧪 |
-| | **Recently deleted**: thirty days; restore — on every device — or delete for good ([0042](decisions/0042-recently-deleted.md)) | 🧪 |
-| **Devices** | paired devices, whether each is connected now and whether directly or through the relay, when each was last reached | 🧪 |
-| | pairing: **show a code** (QR, typed or read aloud, with a countdown) or **enter one** | 🧪 |
-| | removing a device, with what that will and will not do said first ([0041](decisions/0041-removing-a-device.md)) | 🧪 |
-| **Activity** | everything this device did, newest first, paged, with the reason for failures ([0031](decisions/0031-what-happened-is-written-down.md)) | 🧪 |
-| **Storage** | how much qurb uses and of what; a slider for the most it may use ([0025](decisions/0025-a-storage-cap-that-cannot-lose-data.md)) | 🧪 |
-| **Send** | drop files or folders on the window, or choose them; pick one device; it goes to that device only ([0030](decisions/0030-sending-a-file-to-one-device.md)) | 🧪 — sending itself ✅ from the command line |
-| **Transfers** | arriving now and waiting to be collected, live, with rate and time left; cancelling a send not yet collected; finished and older | 🧪 |
-| **Settings** | see below | |
+| **Home** | one state — *Everything is synced*, *Syncing…*, *Your devices are away*, *Add your first device*, *Something needs attention* — with a ring that turns while syncing; one action, *Send to device*; used space and devices connected; attention when a file has two versions; Recent, and *See all* for Activity | 🧪 |
+| **Files** | search; breadcrumbs from *Qurb*; folders as tiles apart from files; each file with its state — *On this device*, *Available elsewhere*, *Only copy here*, *Downloading* — size and when it changed | 🧪 |
+| | per file: open, show in folder, *Keep on this device*, *Free local space* (refused for the only copy), send to a device, details, delete (into Recently deleted) | 🧪 |
+| | a file's details: type, size, location, which devices hold it, when it changed, its history | 🧪 |
+| | a folder's options, from its menu: which devices have it ([0044](decisions/0044-sharing-with-chosen-devices.md)); *Free local space* / *Keep here* for the whole folder ([0045](decisions/0045-a-folder-kept-remotely.md)) | 🧪 |
+| | conflicts: both versions, who made each and when; keep this one, the other, or both ([0043](decisions/0043-settling-a-conflict.md)) | 🧪 |
+| | Recently deleted: thirty days, when each expires; restore — on every device — or delete for good ([0042](decisions/0042-recently-deleted.md)) | 🧪 |
+| **Devices** | this computer and each paired device, whether each is connected now (directly or through the relay) or when it was last seen | 🧪 |
+| | *Add a device*: show a code (QR, typed or read aloud, with a countdown) or enter one; the new device materialises | 🧪 |
+| | a device's details: what is waiting for it, send it files, remove it — saying first what that will and will not do ([0041](decisions/0041-removing-a-device.md)) | 🧪 |
+| **Storage** | how much can be freed without losing anything, the largest files that would free it, *Free local space* for one or all; the storage limit ([0025](decisions/0025-a-storage-cap-that-cannot-lose-data.md)) | 🧪 |
+| **Private Vault** | this computer's own files, in the same browser; moving a file in or out is not built yet | 🧪 |
+| **Settings** | grouped lists: this device (name, folder, key protection and changing it); devices and pairings; files sent to this computer (`Downloads/qurb` by default, [0037](decisions/0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md)); keep new files private; notifications; the recovery phrase; appearance; advanced — rendezvous, relay, port, start at login, Activity, identity, version, Quit | 🧪 |
+| **Activity** | from Home: everything this device did, newest first, with why a failure failed ([0031](decisions/0031-what-happened-is-written-down.md)) | 🧪 |
 
-### Settings
+### Sending and transfers
 
-| section | | |
+| | | |
 |---|---|---|
-| Facts | the folder, this device's identity, how the key is kept, and the version — `qurb 0.1.0 · protocol qurb/2 · index schema 15` ([0047](decisions/0047-versions-and-upgrades.md)) | 🧪 |
-| This device | name, the rendezvous service, the relay, the port | 🧪 |
-| Files sent to this computer | where they are saved — `Downloads/qurb` by default, as ordinary files qurb stops tracking ([0037](decisions/0037-a-file-sent-to-a-desktop-is-an-ordinary-file.md)); *Open that folder* | 🧪 — nothing has been sent from the phone to the laptop yet |
-| Security | this device's fingerprint; how the key is kept, in plain words; protect it with a passphrase, change it, or move it to the system keystore; pairings and removals | 🧪 |
-| Recovery phrase | show the 24 words again | 🧪 |
-| In the background | start at login; *Quit qurb* | 🧪 |
-
-### Notifications
-
-Three things only: a file sent to you, one of yours collected, one that
-failed. 🧪
+| Send to device | a sheet: drop files or folders or choose them, pick a device, then the file travels there — *ready for it*, *sending*, *sent* ([0030](decisions/0030-sending-a-file-to-one-device.md)); from Home, a file, a device, or files dropped anywhere on the window | 🧪 — sending itself ✅ from the command line |
+| Transfers | a chip that appears while something moves or waits, opening a panel: progress with the time left, sends waiting to be collected (cancellable), and what finished | 🧪 |
+| Notifications | three things only: a file sent to you, one of yours collected, one that failed — and a switch to turn them off | 🧪 |
 
 ### The tray icon
 
 `qurb-tray`: the same daemon with an icon — recently synced files, *Open
 folder*, *Quit*, and a small window with the status and the storage slider.
 Where there is no tray (GNOME), it opens that window instead. Superseded as the
-main way in by the desktop window; kept for desktops that want only an icon. 🧪
+main way in by the desktop window, and not redesigned; kept for desktops that
+want only an icon. 🧪
 
 ---
 
@@ -214,8 +216,10 @@ Stated plainly so that a design does not assume it:
 
 - **The relay on a server.** Next, after design and UX. Until then a phone on a
   network that blocks a direct path cannot sync.
-- **A designed look.** Both apps are plain and functional; design and UX is the
-  next piece of work.
+- **The Android app's new design.** The desktop is designed; the phone is next.
+- **Dark mode** — after the light design is approved.
+- **Moving a file into or out of Private Vault** — designed, and needs an
+  engine addition.
 - **A formal release** — after the relay.
 - **iOS, macOS and Windows.** Linux and Android first.
 - **Placeholders on Linux.** A freed file is absent from the folder, not shown

@@ -73,6 +73,15 @@ pub fn watch(hosted: Arc<Hosted>) {
                 announced = newest;
             }
 
+            // Turned off in Settings: history still advances past what was
+            // not said, so turning them back on does not announce the backlog.
+            let wanted = qurb_cli::Config::load(&qurb_cli::store_dir(&hosted.root()))
+                .map(|c| c.notifications)
+                .unwrap_or(true);
+            if !wanted {
+                continue;
+            }
+
             let named = |id: &qurb_sync::DeviceId| {
                 devices.iter().find(|d| &d.id == id).map(|d| d.name.clone())
             };

@@ -42,8 +42,10 @@ warns is not the fun part and is a full quarter.
 | the passphrase in the window | ✅ and a Security section ([0046](../decisions/0046-the-window-asks-for-the-passphrase.md)) |
 | versions | ✅ program, protocol and index schema, everywhere ([0047](../decisions/0047-versions-and-upgrades.md)) |
 
-750 tests pass in 88 test binaries on Linux (2026-09-28, debug build, the
-development laptop); clippy is clean.
+753 tests in 88 test binaries on Linux (2026-09-29, debug build, the
+development laptop): 746 pass, and the seven that need multicast failed on a
+network that does not carry it (see *The design, in the window*); clippy is
+clean.
 
 ## The interface
 
@@ -941,6 +943,58 @@ been installed** — the laptop still runs the `install.sh` copies in
 
 No automatic updater: the decision says what one would need.
 
+## The design, in the window
+
+**2026-09-29.** The window rebuilt to the owner's design direction
+([design/direction.md](../design/direction.md), 57 sections, recorded word for
+word) and its brief ([design/brief.md](../design/brief.md),
+[decision 0048](../decisions/0048-the-design-direction.md)). A plan to design
+it in Figma first was dropped by the owner the same day; it was built in the
+window itself.
+
+What changed, in short: eight tabs became a translucent sidebar — Home, Files,
+Devices, Storage, Private Vault set apart, Settings — over one frosted stage;
+Send became Home's primary action and a sheet reachable from anywhere,
+including by dropping files on the window; Transfers became a panel that
+appears only while something moves or waits; Activity is reached from Home.
+The colours are the direction's (Qurb green `#2F6B57` on warm off-white), the
+type is Inter and the icons Lucide, both bundled, since the window's CSP loads
+nothing from outside. Files became a file browser from the index, with each
+file's state in the direction's words — *On this device*, *Available
+elsewhere*, *Only copy here* — and a details panel that names the devices
+holding it. Storage leads with what can be freed without losing anything.
+
+New in the engine and the window for it: `Db::holders_of_content` and
+`Db::freeable` (tests in `crates/storage/tests/storage_cap.rs`); commands to
+browse by folder, show a file's details, free a file's local space, delete to
+Recently deleted, open a file or its folder; a `notifications` setting the
+notifier obeys; and the daemon now picks up *Keep new files private* while it
+runs, as it already did the limit and the downloads location.
+
+How it was checked:
+
+- **Every place rendered** against the fixture data in WebKitGTK — the
+  window's own engine — offscreen, in each of Home's states, with sheets,
+  panels and menus open. That renderer runs without compositing, so it draws
+  no backdrop blur; sheets and panels were made nearly opaque because of it,
+  since some Linux setups run the real window the same way.
+- **The real window driven end to end** by `scripts/desktop-smoke.sh`, updated
+  for the new structure: set up, every place, a device added by the code the
+  window shows, a file sent and seen under Transfers, the device removed after
+  the question, the key protected with a passphrase and unlocked on the next
+  start. No command failed.
+- `cargo test` and clippy; the wiring test now reads every script the page
+  loads, and caught the switches in Settings passing their command name
+  through a variable, where it could not see them.
+
+Not done: the owner has not looked at it yet; nothing was checked with
+compositing on, so the blur and the running animations have not been seen;
+dark mode; moving a file into or out of Private Vault; the Android app. On
+2026-09-29 the laptop was on a network that does not carry multicast, and the
+seven tests that find devices on the local network failed there — four in
+`crates/peer/tests/beacons.rs`, three in `end_to_end.rs` — code unchanged
+since they passed the day before at home. The other 746 passed.
+
 ## Still to do
 
 - **Running the *daemon* as a service** — a user unit, a launch agent, a
@@ -957,8 +1011,7 @@ No automatic updater: the decision says what one would need.
   deleting a file from a folder, so a cap on a replica reports the overrun
   rather than acting on it. Dropping chunk payloads is a different operation
   and is not written.
-- **The design and UX of the window**, which is next. Everything the brief
-  asks the window to *do* is built — recovering a deleted file was the last
-  item here — and [features.md](../features.md) lists it; how it looks and
-  reads has not been designed. After that, the relay on a server of the
-  owner's own, then a formal release. See [product-plan.md](../product-plan.md).
+- **The owner's look at the window**, then dark mode and moving files into
+  and out of Private Vault. After the Android app gets the same design: the
+  relay on a server of the owner's own, then a formal release. See
+  [product-plan.md](../product-plan.md).

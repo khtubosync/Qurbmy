@@ -4,7 +4,7 @@
 #   ./scripts/desktop-smoke.sh                 # builds qurb and qurb-desktop first
 #   ./scripts/desktop-smoke.sh --no-build
 #
-# Sets a device up through the window, opens every tab, pairs a second device
+# Sets a device up through the window, opens every place, adds a second device
 # by the code the window shows, and sends it a file -- through the real
 # application, its real commands and the real engine. Fails if any command the
 # window calls returns an error. See scripts/desktop_smoke.py for the steps.

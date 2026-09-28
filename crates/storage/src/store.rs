@@ -165,6 +165,11 @@ impl Store {
         self.new_files_private = private;
     }
 
+    /// Whether a file added here goes into this device's own vault.
+    pub fn new_files_private(&self) -> bool {
+        self.new_files_private
+    }
+
     /// Whether this store materialises files.
     pub fn has_tree(&self) -> bool {
         self.tree.is_some()

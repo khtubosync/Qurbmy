@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>qurb — fixtures</title>
+  <title>Qurb — fixtures</title>
 </head>
 <body>
 <p id="loading">loading the real window…</p>
@@ -31,12 +31,13 @@ const REAL = "../../crates/desktop/ui/";
   style.href = REAL + "app.css";
   document.head.append(style);
 
-  // The real page's own script tag is dropped: `app.js` has to come *after*
-  // the stub, or it reads `window.__TAURI__` before there is one.
+  // The real page's own script tags are taken out and run after the stub, in
+  // their order: the window's scripts read `window.__TAURI__` as they start.
+  const scripts = [...page.body.querySelectorAll("script")].map((s) => REAL + s.getAttribute("src"));
   page.body.querySelectorAll("script").forEach((s) => s.remove());
   document.body.replaceChildren(...page.body.children);
 
-  for (const src of ["fixtures.js", REAL + "app.js"]) {
+  for (const src of ["fixtures.js", ...scripts]) {
     await new Promise((resolve, reject) => {
       const script = document.createElement("script");
       script.src = src;

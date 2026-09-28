@@ -716,11 +716,14 @@ impl Daemon {
         Config::load(&self.store_dir).map(|c| c.limit).unwrap_or(self.config.limit)
     }
 
-    /// Where deliveries go, read fresh, for the same reason as [`limit`].
+    /// Where deliveries go, and whether this device's own new files are
+    /// private, read fresh, for the same reason as [`limit`]: both are
+    /// switches in the window's Settings.
     ///
-    /// A setting that fails to resolve -- a hand-edited file naming somewhere
-    /// inside the folder -- leaves the engine where it was and says so, rather
-    /// than starting to write deliveries somewhere that would sync them.
+    /// A downloads setting that fails to resolve -- a hand-edited file naming
+    /// somewhere inside the folder -- leaves the engine where it was and says
+    /// so, rather than starting to write deliveries somewhere that would sync
+    /// them.
     ///
     /// [`limit`]: Self::limit
     fn refresh_downloads(&self, engine: &mut Engine) {
@@ -728,6 +731,10 @@ impl Daemon {
             return;
         }
         let Ok(config) = Config::load(&self.store_dir) else { return };
+        if engine.store().new_files_private() != config.own_files_private {
+            tracing::info!(private = config.own_files_private, "files added here are now");
+            engine.store_mut().set_new_files_private(config.own_files_private);
+        }
         match config.downloads.resolve(&self.root) {
             Ok(dir) if dir.as_deref() != engine.downloads() => {
                 match &dir {

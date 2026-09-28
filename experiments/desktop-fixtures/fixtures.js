@@ -1,21 +1,35 @@
 // Made-up answers, in place of the engine.
 //
-// Loaded before `app.js`, which reads `window.__TAURI__` at the top of the
-// module and would otherwise fail on the first line.
+// Loaded before the window's own scripts, which read `window.__TAURI__` as
+// they start and would otherwise fail on the first line.
+//
+// `?state=` picks the live state Home draws -- synced, syncing, away, alone
+// (nothing paired), attention -- and `?screen=` opens a place directly, so
+// each can be looked at without clicking through. `?quiet` answers with no
+// conflicts and no transfers: the healthy state, the one that should look
+// almost boring.
 
 const now = Math.floor(Date.now() / 1000);
+const params = new URLSearchParams(location.search);
+const STATE = params.get("state") ?? "synced";
+const QUIET = params.has("quiet") || STATE === "synced";
 
 const FILES = [
-  { path: "notes.txt", size: "1840", updated_at: now - 120, availability: "here" },
-  { path: "photos/cat.png", size: "250112", updated_at: now - 4000, availability: "here" },
-  { path: "photos/holiday/beach.jpg", size: "900000", updated_at: now - 90000, availability: "only here" },
-  { path: "photos/holiday/sunset.jpg", size: "1300000", updated_at: now - 90200, availability: "not here" },
-  { path: "work/report.pdf", size: "4000000", updated_at: now - 300, availability: "here" },
-  { path: "work/archive.tar.gz", size: "912000000", updated_at: now - 900000, availability: "not here" },
+  { path: "Notes.md", size: "1840", modified: now - 120, availability: "here", private: false },
+  { path: "Project Plan.pdf", size: "2400000", modified: now - 300, availability: "here", private: false },
+  { path: "Photos/cat.png", size: "250112", modified: now - 4000, availability: "here", private: false },
+  { path: "Photos/Holiday/beach.jpg", size: "900000", modified: now - 90000, availability: "only here", private: false },
+  { path: "Photos/Holiday/sunset.jpg", size: "1300000", modified: now - 90200, availability: "elsewhere", private: false },
+  { path: "Work/Quarterly report.pdf", size: "4000000", modified: now - 300, availability: "here", private: false },
+  { path: "Work/archive.tar.gz", size: "912000000", modified: now - 900000, availability: "elsewhere", private: false },
+  { path: "Budget 2026.xlsx", size: "88000", modified: now - 7200, availability: "only here", private: false },
+  { path: "Interview.m4a", size: "31000000", modified: now - 190000, availability: "elsewhere", private: false },
+  { path: "Passport scan.pdf", size: "1200000", modified: now - 400000, availability: "here", private: true },
+  { path: "Tax/2025 return.pdf", size: "640000", modified: now - 800000, availability: "only here", private: true },
 ];
 
 // Flip this to see the setting-up screens instead of the running window.
-const SETTING_UP = new URLSearchParams(location.search).has("setup");
+const SETTING_UP = params.has("setup");
 
 const WORDS = [
   "wheel", "push", "industry", "gospel", "vault", "canyon", "ribbon", "plastic",
@@ -25,11 +39,33 @@ const WORDS = [
 
 let startedPairingAt = 0;
 
+/** One directory, as `browse` answers it. */
+function browse({ dir, private: priv }) {
+  const prefix = dir ? `${dir}/` : "";
+  const folders = new Set();
+  const files = [];
+  for (const f of FILES.filter((x) => x.private === priv && x.path.startsWith(prefix))) {
+    const rest = f.path.slice(prefix.length);
+    if (rest.includes("/")) folders.add(rest.split("/")[0]);
+    else files.push(f);
+  }
+  return { folders: [...folders].sort(), files };
+}
+
+const STATES = {
+  synced: { state: "up to date", peers: 2, peers_reachable: 2 },
+  syncing: { state: "syncing", peers: 2, peers_reachable: 1 },
+  away: { state: "no devices reachable", peers: 2, peers_reachable: 0 },
+  alone: { state: "up to date", peers: 0, peers_reachable: 0 },
+  attention: { state: "needs attention", peers: 2, peers_reachable: 1, problem: "Couldn't read Work/locked.docx: permission denied." },
+};
+
 const ANSWERS = {
   situation: () => ({
     set_up: !SETTING_UP,
     running: !SETTING_UP,
-    root: "/home/saqib/Sync",
+    root: "/home/saqib/qurb",
+    locked: params.has("locked"),
     problem: null,
   }),
 
@@ -58,20 +94,41 @@ const ANSWERS = {
   confirm_phrase: () => true,
   enrol_device: () => null,
   reveal_phrase: () => WORDS,
+  unlock: ({ passphrase }) => {
+    if (passphrase !== "open") throw new Error("that passphrase does not open this key");
+    return null;
+  },
 
   settings: () => ({
-    name: "laptop",
+    name: "Saqib's laptop",
     signal: "wss://rendezvous.example:9000",
     relay: null,
     port: 0,
     protection: "file",
-    root: "/home/saqib/Sync",
+    root: "/home/saqib/qurb",
     identity: "cfe05b03",
     downloads: "",
     downloads_at: { Ok: "/home/saqib/Downloads/qurb" },
+    version: "window 0.1.0 · engine 0.1.0 · protocol qurb/2 · index schema 15",
+    own_files_private: false,
+    notifications: true,
   }),
-
   save_settings: () => null,
+  set_privacy: () => null,
+  set_notifications: () => null,
+  starts_at_login: () => true,
+  set_starts_at_login: () => null,
+  quit: () => null,
+
+  security: () => ({
+    identity: "cfe05b03 9a1e 44d2",
+    protection: "file",
+    events: [
+      { id: 2, at: now - 900000, kind: "paired", path: null, size: null, device: "Galaxy S23", detail: "Galaxy S23" },
+      { id: 1, at: now - 3600, kind: "paired", path: null, size: null, device: "Study desktop", detail: "Study desktop" },
+    ],
+  }),
+  protect_key: () => null,
 
   // Pairing. The code is the shape of a real one and is not a real one; the
   // QR is generated here rather than by the Rust renderer, so it encodes the
@@ -90,7 +147,7 @@ const ANSWERS = {
   pairing_state: () => {
     const since = Math.floor(Date.now() / 1000) - startedPairingAt;
     if (since < 6) return { state: "waiting", name: null, fingerprint: null, message: null };
-    return { state: "paired", name: "phone", fingerprint: "a1b2c3d4", message: null };
+    return { state: "paired", name: "Pixel 8", fingerprint: "a9b8c7d6", message: null };
   },
 
   send_files: ({ paths }) => ({
@@ -100,32 +157,38 @@ const ANSWERS = {
     skipped: [],
   }),
   stop_pairing: () => null,
-  join_device: () => ({ state: "paired", name: "phone", fingerprint: "a1b2c3d4", message: null }),
-  summary: () => ({
-    state: "syncing",
-    root: "/home/saqib/Sync",
-    identity: "cfe05b03",
-    peers: 2,
-    peers_reachable: 1,
-    last_sync: now - 40,
-    problem: null,
-    recent: [
-      { path: "work/report.pdf", at: now - 300, from_peer: false },
-      { path: "photos/cat.png", at: now - 4000, from_peer: true },
-    ],
-    // One transfer moving, growing on every poll, so the bar can be looked at.
-    incoming: [
-      {
-        path: "videos/holiday.mp4",
-        device: "phone",
-        size: "4000000000",
-        done: String(Math.min(4000000000, (Math.floor(Date.now() / 1000) - now) * 45000000 + 1200000000)),
-        started: now - 30,
-        updated: Math.floor(Date.now() / 1000),
-      },
-    ],
-    outgoing: [],
-  }),
+  join_device: () => ({ state: "paired", name: "Pixel 8", fingerprint: "a9b8c7d6", message: null }),
+
+  summary: () => {
+    const s = STATES[STATE] ?? STATES.synced;
+    return {
+      state: s.state,
+      root: "/home/saqib/qurb",
+      identity: "cfe05b03",
+      peers: s.peers,
+      peers_reachable: s.peers_reachable,
+      last_sync: now - 40,
+      problem: s.problem ?? null,
+      recent: [
+        { path: "Project Plan.pdf", at: now - 300, from_peer: false },
+        { path: "Photos/cat.png", at: now - 4000, from_peer: true },
+        { path: "Work/Quarterly report.pdf", at: now - 5400, from_peer: true },
+        { path: "Notes.md", at: now - 9000, from_peer: false },
+      ],
+      // One transfer moving, growing on every poll, so the bar can be looked at.
+      incoming: STATE === "syncing" ? [
+        {
+          path: "Videos/Holiday.mp4",
+          device: "Galaxy S23",
+          size: "4000000000",
+          done: String(Math.min(4000000000, (Math.floor(Date.now() / 1000) - now) * 45000000 + 1200000000)),
+          started: now - 30,
+          updated: Math.floor(Date.now() / 1000),
+        },
+      ] : [],
+      outgoing: [],
+    };
+  },
 
   storage: () => ({
     files: "5400000000",
@@ -133,97 +196,124 @@ const ANSWERS = {
     used: "6312000000",
     limit: "10737418240",
     disk: "494384795648",
+    free_disk: "201326592000",
     over: false,
-    file_count: 6,
-    evicted: 2,
-    only_here: 1,
+    file_count: FILES.length,
+    evicted: 3,
+    only_here: 2,
   }),
 
-  files: ({ offset = 0, limit = 100 }) => FILES.slice(offset, offset + limit),
-
-  // One deliberate failure, to see what a rejected command looks like on the
-  // screen rather than only in a console.
-  search: ({ text }) => {
+  browse,
+  find: ({ text, private: priv }) => {
+    // One deliberate failure, to see what a rejected command looks like on
+    // the screen rather than only in a console.
     if (text === "boom") throw new Error("the index could not be read");
-    return FILES.filter((f) => f.path.toLowerCase().includes(text.toLowerCase()));
+    return FILES.filter((f) => f.private === priv && f.path.toLowerCase().includes(text.toLowerCase()));
   },
+  details: ({ path }) => {
+    const file = FILES.find((f) => f.path === path) ?? { path, size: "2400000", modified: now - 300, availability: "here", private: false };
+    return {
+      file,
+      holders: file.availability === "only here" ? [] : ["Galaxy S23"],
+      history: [
+        { id: 3, at: now - 300, kind: "stored", path, size: file.size, device: null, detail: null },
+        { id: 2, at: now - 90000, kind: "received", path, size: file.size, device: "Galaxy S23", detail: null },
+      ],
+    };
+  },
+  free_file: ({ path }) => {
+    const f = FILES.find((x) => x.path === path);
+    if (!f || f.availability === "only here") throw new Error(`cannot evict ${path}: no other device is known to hold this content`);
+    f.availability = "elsewhere";
+    return f.size;
+  },
+  freeable: () => {
+    const files = FILES.filter((f) => f.availability === "here").sort((a, b) => Number(b.size) - Number(a.size));
+    return { count: files.length, bytes: String(files.reduce((n, f) => n + Number(f.size), 0)), files };
+  },
+  delete_file: ({ path }) => { FILES.splice(FILES.findIndex((f) => f.path === path), 1); return null; },
+  open_file: () => null,
+  show_file: () => null,
+  show_root: () => null,
+  keep_locally: () => 4,
+  keep_remotely: () => ({ freed: 12, bytes: "480000000", kept: [] }),
 
-  devices: () => [
-    { id: "4cef0d89", name: "phone", fingerprint: "a1b2c3d4", paired_at: now - 900000, last_seen: now - 300,
-      route: "direct", address: "192.168.1.2:57199" },
-    { id: "77b10e2a", name: "spare laptop", fingerprint: "e5f60718", paired_at: now - 3600, last_seen: null,
-      route: null, address: null },
+  devices: () => STATE === "alone" ? [] : [
+    { id: "4cef0d89", name: "Galaxy S23", fingerprint: "a1b2c3d4", paired_at: now - 900000, last_seen: now - 300,
+      route: STATE === "away" ? null : "direct", address: "192.168.1.2:57199" },
+    { id: "77b10e2a", name: "Study desktop", fingerprint: "e5f60718", paired_at: now - 3600, last_seen: now - 7200,
+      route: STATE === "synced" ? "relay" : null, address: null },
   ],
 
   activity: ({ before }) => {
     if (before) return [];
     return [
-      { id: 9, at: now - 300, kind: "stored", path: "work/report.pdf", size: "4000000", device: null, detail: null },
-      { id: 8, at: now - 4000, kind: "received", path: "photos/cat.png", size: "250112", device: "phone", detail: null },
-      { id: 7, at: now - 5000, kind: "sent", path: "tickets.pdf", size: "700416", device: "phone", detail: null },
-      { id: 6, at: now - 6000, kind: "collected", path: "tickets.pdf", size: null, device: "phone", detail: null },
-      { id: 5, at: now - 90000, kind: "evicted", path: "photos/holiday/sunset.jpg", size: "1300000", device: null,
-        detail: "dropped to stay under the storage limit; `qurb fetch` brings it back" },
-      { id: 4, at: now - 91000, kind: "conflicted", path: "work/plan.md", size: null, device: "phone",
-        detail: "the other version was kept as work/plan.conflict-4cef0d89-2026-09-22-141005.md" },
-      { id: 3, at: now - 95000, kind: "failed", path: "work/locked.docx", size: null, device: null,
+      { id: 9, at: now - 300, kind: "stored", path: "Project Plan.pdf", size: "2400000", device: null, detail: null },
+      { id: 8, at: now - 4000, kind: "received", path: "Photos/cat.png", size: "250112", device: "Galaxy S23", detail: null },
+      { id: 7, at: now - 5000, kind: "received", path: "Boarding pass.pdf", size: "700416", device: "Galaxy S23",
+        detail: "sent to this device; saved to /home/saqib/Downloads/qurb/Boarding pass.pdf" },
+      { id: 6, at: now - 6000, kind: "collected", path: "Tickets.pdf", size: null, device: "Galaxy S23", detail: null },
+      { id: 5, at: now - 90000, kind: "evicted", path: "Photos/Holiday/sunset.jpg", size: "1300000", device: null,
+        detail: "local copy freed; another device keeps it" },
+      { id: 4, at: now - 91000, kind: "conflicted", path: "Notes.md", size: null, device: "Galaxy S23",
+        detail: "the other version was kept as Notes.conflict-4cef0d89-2026-09-22-141005.md" },
+      { id: 3, at: now - 95000, kind: "failed", path: "Work/locked.docx", size: null, device: null,
         detail: "permission denied" },
-      { id: 2, at: now - 900000, kind: "paired", path: null, size: null, device: "phone", detail: "phone" },
-      { id: 1, at: now - 900100, kind: "deleted", path: "old/scratch.txt", size: null, device: null, detail: null },
+      { id: 2, at: now - 900000, kind: "paired", path: null, size: null, device: "Galaxy S23", detail: "Galaxy S23" },
+      { id: 1, at: now - 900100, kind: "deleted", path: "Old/scratch.txt", size: null, device: null, detail: null },
     ];
   },
 
-  outgoing: () => [
-    { path: "tickets.pdf", size: "700416", to: "phone", to_id: "a1b2c3d4" },
+  outgoing: () => QUIET ? [] : [
+    { path: "Tickets.pdf", size: "700416", to: "Galaxy S23", to_id: "4cef0d89" },
   ],
   cancel_send: () => null,
 
   // Removing a device: the question has something in each part.
-  removal_plan: () => ({
-    name: "phone",
-    waiting: 2,
+  removal_plan: ({ device }) => ({
+    name: device === "a1b2c3d4" ? "Galaxy S23" : "Study desktop",
+    waiting: 1,
     kept: 12,
     kept_bytes: String(340 * 1024 * 1024),
-    only_there: ["photos/IMG_0041.jpg", "photos/IMG_0042.jpg", "notes/trip.md"],
-    holds_ours: false,
+    only_there: ["Photos/IMG_0041.jpg", "Photos/IMG_0042.jpg"],
+    holds_ours: true,
   }),
   remove_device: () => null,
 
   // One conflict, whose other version is here, so every choice is offered.
-  conflicts: () => [
+  conflicts: () => QUIET ? [] : [
     {
-      path: "notes/plan.md",
-      this: { path: "notes/plan.md", size: "4210", here: true, by: "laptop", at: now - 3600 },
+      path: "Project Plan.pdf",
+      this: { path: "Project Plan.pdf", size: "2400000", here: true, by: "Saqib's laptop", at: now - 3600 },
       other: {
-        path: "notes/plan.conflict-a1b2c3d4-2026-09-28-101502.md",
-        size: "3977", here: true, by: "phone", at: now - 3500,
+        path: "Project Plan.conflict-a1b2c3d4-2026-09-28-101502.pdf",
+        size: "2380000", here: true, by: "Galaxy S23", at: now - 3500,
       },
     },
   ],
-  settle_conflict: ({ keep }) => (keep === "both" ? "notes/plan (phone).md" : "notes/plan.md"),
+  settle_conflict: ({ keep }) => (keep === "both" ? "Project Plan (Galaxy S23).pdf" : "Project Plan.pdf"),
 
   sharing: () => ({
     folders: [
-      { folder: "Family Photos", everyone: false, members: ["aa", "bb"] },
-      { folder: "notes", everyone: true, members: [] },
-      { folder: "work", everyone: true, members: [] },
+      { folder: "Photos", everyone: false, members: ["aa", "bb"], remote: false },
+      { folder: "Work", everyone: true, members: [], remote: true },
     ],
     devices: [
-      { id: "aa", name: "This computer", here: true },
-      { id: "bb", name: "phone", here: false },
-      { id: "cc", name: "spare laptop", here: false },
+      { id: "aa", name: "Saqib's laptop", here: true },
+      { id: "bb", name: "Galaxy S23", here: false },
+      { id: "cc", name: "Study desktop", here: false },
     ],
   }),
   set_sharing: () => null,
 
   recently_deleted: () => [
-    { id: 2, path: "photos/IMG_0007.jpg", size: "2311043", at: now - 7200, by: "phone", why: null },
+    { id: 2, path: "Photos/IMG_0007.jpg", size: "2311043", at: now - 7200, by: "Galaxy S23", why: null },
     {
-      id: 1, path: "notes/plan.md", size: "3977", at: now - 90000, by: "this computer",
+      id: 1, path: "Notes.md", size: "3977", at: now - 90000 * 3, by: "this computer",
       why: "the version not kept when a conflict was settled",
     },
   ],
-  restore_deleted: () => "photos/IMG_0007.jpg",
+  restore_deleted: () => "Photos/IMG_0007.jpg",
   forget_deleted: () => null,
   open_downloads: () => null,
   show_received: () => null,
@@ -235,7 +325,7 @@ const ANSWERS = {
 window.__TAURI__ = {
   // The file chooser, and the window events a real drag-and-drop arrives on.
   // Both are Tauri's rather than the page's, so a fixture has to stand in for
-  // them or the whole send screen is untouchable here.
+  // them or sending is untouchable here.
   dialog: {
     open: async () => "/home/saqib/Downloads/holiday-photos.zip",
   },
@@ -264,17 +354,19 @@ window.__TAURI__ = {
   },
 };
 
-// `?setup&at=storage` walks the setting-up screens as far as the storage
-// question, for looking at it without clicking through; `&custom=75` then
-// types into its custom field.
+// `?screen=files` opens a place once the window is up. `?setup&at=storage`
+// walks the setting-up screens as far as the storage question; `&custom=75`
+// then types into its custom field; `&at=phrase` goes on to the 24 words.
 (() => {
-  const params = new URLSearchParams(location.search);
-  if (params.get("at") !== "storage") return;
   const ready = setInterval(async () => {
-    if (typeof lookAtFolder !== "function") return;
+    if (typeof lookAtFolder !== "function" || typeof showScreen !== "function") return;
     clearInterval(ready);
+    const screen = params.get("screen");
+    if (screen) setTimeout(() => showScreen(screen), 300);
+    const at = params.get("at");
+    if (!at) return;
     document.getElementById("choose-new").click();
-    document.getElementById("folder-path").value = "/home/saqib/Sync";
+    document.getElementById("folder-path").value = "/home/saqib/qurb";
     await lookAtFolder();
     document.getElementById("folder-next").click();
     const custom = params.get("custom");
@@ -284,6 +376,6 @@ window.__TAURI__ = {
       field.value = custom;
       field.dispatchEvent(new Event("input"));
     }
+    if (at === "phrase") setTimeout(() => document.getElementById("storage-next").click(), 200);
   }, 50);
 })();
-

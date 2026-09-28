@@ -12,22 +12,28 @@ applications menu and running `qurb status` in a terminal address the same one.
 
 ## What it is
 
-Eight screens over `qurb_cli::View` and the daemon's status channel, plus setting
-a device up in the first place:
+The design is [docs/design/direction.md](../../docs/design/direction.md), the
+owner's direction word for word, and
+[docs/design/brief.md](../../docs/design/brief.md), which places every feature
+([decision 0048](../../docs/decisions/0048-the-design-direction.md)). A
+translucent sidebar with the places a person goes, Private Vault set apart, and
+one frosted stage the content floats in:
 
-| screen | what it answers |
+| place | what it answers |
 |---|---|
-| Home | is it working, how many devices, what moved lately, what is still on its way |
-| Files | what is in the folder and **where each file's contents actually are** |
-| Files, sharing | which devices each folder is on, and whether this computer keeps it or only lists it, under "Folders, and which devices have them" ([0044](../../docs/decisions/0044-sharing-with-chosen-devices.md), [0045](../../docs/decisions/0045-a-folder-kept-remotely.md)) |
-| Settings, Security | this device's identity, how the key is kept and changing it (keystore, passphrase), pairings and removals; a passphrase-protected key is unlocked from the window ([0046](../../docs/decisions/0046-the-window-asks-for-the-passphrase.md)) |
-| Files, conflicts | a file two devices changed at once is shown at the top of Files, with both versions and three choices ([0043](../../docs/decisions/0043-settling-a-conflict.md)); Recently deleted is under the list ([0042](../../docs/decisions/0042-recently-deleted.md)) |
-| Devices | who is paired, whether each is connected now — directly or through the encrypted relay — pairing with another (show a code or enter one), and removing one, after saying what that does ([0041](../../docs/decisions/0041-removing-a-device.md)) |
-| Activity | what this device did — the answer to "why is my file not here?" |
-| Storage | what qurb costs on this disk, and the allowance |
-| Send | a file to one device, by dropping it on the window or choosing one |
-| Transfers | what is arriving now, with a rate and the time left; what is waiting to be collected; what finished |
-| Settings | this device's name, how it finds the others, where files sent here go, and the 24 words |
+| Home | is my Qurb space okay? One state (synced, syncing, devices away, add your first device, needs attention), one action — *Send to device* — a line of secondary facts, attention only when something needs a decision, and a little that is recent |
+| Files | the shared area as a file browser: search, breadcrumbs, folders apart from files, and for every file **where its bytes are** — *On this device*, *Available elsewhere*, *Only copy here* — with *Keep here*, *Free local space*, *Send*, *Delete* in its menu. Conflicts at the top ([0043](../../docs/decisions/0043-settling-a-conflict.md)); a folder's options — which devices have it, whether this computer keeps it ([0044](../../docs/decisions/0044-sharing-with-chosen-devices.md), [0045](../../docs/decisions/0045-a-folder-kept-remotely.md)) — from its right-click menu; Recently deleted at the foot ([0042](../../docs/decisions/0042-recently-deleted.md)) |
+| file details | a panel over the list: type, size, location, which devices hold it, when it changed, its history, and what can be done to it |
+| Devices | this computer and each paired device, whether each is here now; a device's details (send to it, remove it after saying what that does — [0041](../../docs/decisions/0041-removing-a-device.md)); *Add a device* by showing a code or entering one |
+| Storage | free space without losing files: how much can be freed safely, the largest files that would free it, and the allowance |
+| Private Vault | this computer's own files, in the same browser as Files |
+| Settings | grouped lists: this device and its key's protection, devices and pairings, storage, privacy, notifications, recovery, appearance, advanced |
+| Activity | reached from Home: everything this device did — the answer to "why is my file not here?" |
+| Transfers | a panel that appears while something moves or waits: progress with the time left, sends waiting to be collected (cancellable), and what finished |
+
+Sending is a sheet — what, to which device, then the file travelling there and
+landing — opened from Home, from a file or a device, or by dropping files
+anywhere on the window.
 
 A folder with no device in it opens the setting-up flow instead: make a new
 qurb, or add this device to one that exists. Setting a device up is the job of
@@ -36,15 +42,17 @@ a screen, so it cannot be a precondition of the screen existing.
 The distinction the Files screen exists for is three-way. A file that is here
 and also on the phone, and a file that is here and nowhere else in the world,
 look identical to anything that only checks whether the bytes are on disk — and
-offering to free the second is offering to delete it. So: **here**, **not
-here**, **only here**, and only the last is drawn in a colour that asks for
-attention.
+offering to free the second is offering to delete it. So: *On this device*,
+*Available elsewhere*, *Only copy here*, each an icon and words, and only the
+last in a colour that asks for attention. *Free local space* is never drawn as
+deleting, and is refused for the only copy with the direction's words for it.
 
 ## How it is put together
 
-Tauri 2, a single stylesheet, and one file of plain JavaScript. No framework and
-no build step: the application is a handful of screens of lists and numbers, and a
-bundler would be more moving parts than the thing it was moving.
+Tauri 2, one stylesheet, and plain JavaScript in a few files loaded in order.
+No framework and no build step: the application is a handful of places of lists
+and numbers, and a bundler would be more moving parts than the thing it was
+moving.
 
 ```
 src/main.rs       opens the window, and the daemon too if there is a device
@@ -53,10 +61,27 @@ src/session.rs    whether there is a device yet, the daemon once there is, and
                   having it confirmed
 src/commands.rs   every question the window may ask, each a thin wrapper over
                   the engine
-ui/index.html     the screens, and the setting-up steps
-ui/app.css        one stylesheet, both colour schemes from the system
-ui/app.js         what to do with an answer
+ui/index.html     the places, the setting-up steps, and the mark
+ui/app.css        the design: tokens, environment, glass, components, motion
+ui/icons.js       the Lucide icons the window uses, as a sprite -- generated by
+                  scripts/desktop-icons.py, not edited
+ui/fonts/         Inter, bundled (OFL): the window loads nothing from outside
+ui/core.js        commands, formatting, and the components: rows, states,
+                  sheets, panels, menus, toasts
+ui/setup.js       setting a device up, and unlocking one
+ui/home.js        Home, Activity, conflicts, transfers
+ui/files.js       Files, Private Vault, details, Recently deleted, sending
+ui/devices.js     devices, adding one, removing one
+ui/settings.js    Storage and Settings
+ui/app.js         which of the two the window is, navigation, the two rhythms
 ```
+
+Glass is a translucent fill, a light edge and a soft shadow, with
+`backdrop-filter` only on what floats over moving content. Sheets and panels
+are nearly opaque, because where WebKitGTK runs without compositing it draws
+no blur at all. Motion follows the direction's timings, and
+`prefers-reduced-motion` turns the travelling and flowing light into plain
+fades.
 
 Nothing in `ui/` decides anything about syncing. If it looks like it is
 deciding something, that is a bug in the layering.
@@ -73,15 +98,17 @@ a feature. See
 ## Looking at the screens without a daemon
 
 [`experiments/desktop-fixtures`](../../experiments/desktop-fixtures) serves this
-window's real markup, stylesheet and script against made-up data, so layout can
-be worked on without a folder, a paired device or a running daemon.
+window's real markup, stylesheet and scripts against made-up data, so layout can
+be worked on without a folder, a paired device or a running daemon — with
+`?state=` for each of Home's states and `?screen=` to open a place.
 
 ## Driving the real window
 
 `./scripts/desktop-smoke.sh` runs the real application, commands and engine
 included, and drives it through WebKit's WebDriver on a display of its own: it
-sets a device up through the window, opens every tab, pairs a second device by
-the code the window shows, and sends it a file. It fails if any command the
+sets a device up through the window, opens every place, adds a second device by
+the code the window shows, sends it a file and sees it under Transfers, removes
+it, and protects the key with a passphrase and unlocks it again. It fails if any command the
 page calls returns an error — the page keeps the last fifty as
 `window.qurbFailures` for that, and for reading from the web inspector.
 
@@ -170,5 +197,11 @@ Settings turns off. See [decision 0040](../../docs/decisions/0040-the-menu-opens
   of what is already there.
 - **Linux only, in practice.** The Rust is portable and Tauri is
   cross-platform; this has never been built or run on Windows or macOS.
-- **A designed look.** Every screen works and none has been designed; the
-  design and UX pass is the next piece of work.
+- **A dark theme.** Designed after the light one is approved; the tokens in
+  `app.css` are where it goes.
+- **Moving a file into or out of Private Vault.** The vault is shown and
+  browsed; the move needs an engine addition (docs/design/brief.md §2).
+- **Checked by eye only in a renderer without compositing.** The screens were
+  looked at in WebKitGTK offscreen, which draws no backdrop blur and no
+  running animations; the real window has both, and the owner has not yet
+  looked at it.

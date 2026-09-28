@@ -14,8 +14,36 @@
 
 use std::collections::BTreeSet;
 
+/// Every script the page loads, in the order index.html loads them.
 fn page() -> String {
-    include_str!("../ui/app.js").to_string()
+    [
+        include_str!("../ui/core.js"),
+        include_str!("../ui/setup.js"),
+        include_str!("../ui/home.js"),
+        include_str!("../ui/files.js"),
+        include_str!("../ui/devices.js"),
+        include_str!("../ui/settings.js"),
+        include_str!("../ui/app.js"),
+    ]
+    .concat()
+}
+
+/// The scripts index.html loads are the ones read above: a script added to
+/// the page and not to this list would hide its commands from both checks.
+#[test]
+fn every_script_the_page_loads_is_read() {
+    let html = include_str!("../ui/index.html");
+    let loaded: Vec<&str> = html
+        .split("<script src=\"")
+        .skip(1)
+        .filter_map(|piece| piece.split('"').next())
+        .filter(|src| *src != "icons.js")
+        .collect();
+    assert_eq!(
+        loaded,
+        ["core.js", "setup.js", "home.js", "files.js", "devices.js", "settings.js", "app.js"],
+        "index.html loads a different set of scripts from the one this test reads"
+    );
 }
 
 fn wiring() -> String {

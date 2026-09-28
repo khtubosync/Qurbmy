@@ -619,7 +619,10 @@ qurb/
 │   │   ├── src/commands.rs  every question the window may ask
 │   │   ├── src/autostart.rs starting at login, hidden
 │   │   ├── src/instance.rs  one qurb per person; a second launch shows the first
-│   │   └── ui/              the screens: HTML, one stylesheet, one script
+│   │   └── ui/              the window: index.html, app.css (the design),
+│   │                        a script per place (core, setup, home, files,
+│   │                        devices, settings, app), icons.js (generated),
+│   │                        fonts/ (Inter, bundled)
 │   │
 │   └── tray/              An icon in the corner: the daemon with a face.
 │       ├── src/main.rs      the daemon, with an icon or a window to show
@@ -678,6 +681,7 @@ qurb/
 │   ├── android-app.sh     build the app: libraries, bindings, then Gradle
 │   ├── android-build.sh   cross-compile the engine for all four Android ABIs
 │   ├── android-test.sh    run the test suite on a device, over adb
+│   ├── desktop-icons.py   the Lucide icons the window uses, as a sprite
 │   ├── desktop-smoke.sh   drive the real desktop window end to end, on a
 │   │                      display of its own (with desktop_smoke.py)
 │   └── mobile-bindings.sh generate the Kotlin and Swift bindings
@@ -815,8 +819,10 @@ for the workspace as it stands.
 | Recovery, end to end | the phrase turns back into the user's files |
 | Key hygiene | redacted in `Debug`, wiped on drop, owner-only on disk |
 
-750 tests pass in 88 test binaries on Linux (2026-09-28, debug build, the
-development laptop); clippy is clean. The last run on
+753 tests in 88 test binaries on Linux (2026-09-29, debug build, the
+development laptop): 746 pass, and the seven that find devices on the local
+network by multicast failed on a network that does not carry it — they passed
+on 2026-09-28 at home, and their code has not changed. Clippy is clean. The last run on
 a Galaxy S23 was 426 of them, on 2026-09-17, and has not been repeated since —
 see
 [phases/phase-5-mobile.md](phases/phase-5-mobile.md).
@@ -1070,24 +1076,25 @@ network. iOS needs Xcode, which needs a Mac. See
 
 | thing | status |
 |---|---|
-| A window | Tauri 2, eight tabs — Home, Files, Devices, Activity, Storage, Send, Transfers, Settings — no framework and no build step |
+| A window | Tauri 2, no framework and no build step; designed from the owner's direction ([design/direction.md](design/direction.md)): a translucent sidebar — Home, Files, Devices, Storage, Private Vault set apart, Settings — glass materials over a quiet environment, Inter, Lucide icons, motion that shows what moved |
 | It hosts the daemon | the same one `qurb run` starts, on its own threads |
-| Home | live state, recent files, what is still on its way, a notice when there are conflicts to settle |
-| Files | listing, paging, search, and three-way availability; conflicts to settle; which devices have each folder; Recently deleted |
+| Home | one state — synced, syncing, devices away, add your first device, needs attention — one action, *Send to device*, attention only when something needs a decision, and Recent |
+| Files | a file browser from the index: search, breadcrumbs, folders apart from files, and where each file's bytes are — *On this device*, *Available elsewhere*, *Only copy here*; keep a file here, free its local space, send it, delete it; a details panel naming the devices that hold it |
+| Private Vault | this computer's own files, browsed the same way; moving a file in or out is not built |
 | Devices | who is paired, whether each is connected now and whether directly or through the relay, when each was last reached; removing one, with what that will and will not do said first |
-| Activity | what this device did, paged, with the reason where there is one |
-| Storage | usage, the allowance, and a control that can change it |
-| Settings | name, rendezvous, relay, port, where files sent here go, version, start at login, Quit, Security, the 24 words again |
+| Activity | reached from Home: what this device did, paged, with the reason where there is one |
+| Storage | how much can be freed without losing anything, the largest files that would free it, and the allowance |
+| Settings | grouped lists: this device and its key, devices and pairings, where files sent here go, keep new files private, notifications, the 24 words, appearance, and the advanced settings — rendezvous, relay, port, start at login, version, Quit |
 | Setting a device up | make a new one or join an existing, with the phrase shown and confirmed and the storage question asked |
 | Locked | a key protected by a passphrase is unlocked in the window; at login the window shows itself to ask |
 | Pairing | show a code — QR, typed or spoken — or enter one, with a countdown |
-| Sending | drop files or folders on the window or choose them, then pick a device |
+| Sending | a sheet — what, to which device, then the file travelling there and landing — from Home, a file, a device, or files dropped anywhere on the window |
 | Notifications | three things only: a file sent to you, one collected, one that failed |
-| Transfer progress | both directions, live, with a rate and time left |
+| Transfer progress | a panel that appears while something moves or waits: both directions, live, with the time left |
 | Cancelling a send | before it is collected, from the window or `qurb cancel`; never after |
-| Conflicts | on Files: each shown with both versions, who made each and when; keep one, the other, or both |
-| Recently deleted | on Files: thirty days, restore or delete for good |
-| Who has each folder | on Files: share a folder with chosen devices; free its space here or keep it on this computer |
+| Conflicts | attention on Home and Files, reviewed in a sheet: both versions, who made each and when; keep one, the other, or both |
+| Recently deleted | from Files: thirty days, restore or delete for good |
+| Who has each folder | a folder's options, from its menu in Files: share it with chosen devices; free its space here or keep it on this computer |
 | Security | this device's fingerprint, how the key is kept and changing it, pairings and removals |
 | One qurb per person | closing the window keeps it syncing; launching again shows the running one |
 
@@ -1107,8 +1114,10 @@ deleted files, chooses which devices each folder goes to and which folders stay
 only remote, and shows activity, transfers and storage; the applications menu
 opens it ([decisions/0040](decisions/0040-the-menu-opens-the-window.md)).
 Closing it hides it and qurb keeps syncing; it starts at login without a
-window, and *Quit qurb* in Settings stops it. Its look is plain and has not
-been designed: the design and UX pass is the next piece of work.
+window, and *Quit qurb* in Settings stops it. Its design follows the owner's
+direction ([design/direction.md](design/direction.md),
+[decisions/0048](decisions/0048-the-design-direction.md)) and was built on
+2026-09-29; the Android app is next, then dark mode.
 
 Selective sync is built in both halves: a device drops local copies when it is
 over its storage limit and fetches them back on request, and a person can say
@@ -1340,8 +1349,8 @@ cargo test --workspace
 ```
 
 ```bash
-# The desktop application: the same daemon, in a window. Eight tabs over the
-# same queries `qurb ls`, `qurb find` and `qurb activity` use.
+# The desktop application: the same daemon, in a window, over the same
+# queries `qurb ls`, `qurb find` and `qurb activity` use.
 cargo build --release -p qurb-desktop
 ./target/release/qurb-desktop ~/Sync
 ```

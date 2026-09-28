@@ -7,10 +7,10 @@ What it does, in the real application with the real engine behind it:
 
 1. Sets a device up from nothing through the window -- folder, storage, the 24
    words and three of them confirmed.
-2. Opens every tab.
-3. Shows a pairing code, and has a second device (the command line, enrolled
-   with the same words) join with it.
-4. Sends that device a file.
+2. Opens every place in the sidebar.
+3. Adds a device: shows a pairing code, and has a second device (the command
+   line, enrolled with the same words) join with it.
+4. Sends that device a file, and sees it waiting under Transfers.
 5. Removes that device, from its details, answering the question.
 6. Protects the key with a passphrase from Settings, starts again, and
    unlocks from the window -- a wrong passphrase refused first.
@@ -92,6 +92,7 @@ def visible(step):
 
 def set_up(window):
     window.until("the setting-up screens", "return !document.getElementById('setup').classList.contains('hidden')")
+    window.click("get-started")
     window.click("choose-new")
     window.js("""const f = document.getElementById('folder-path');
                  f.value = arguments[0]; f.dispatchEvent(new Event('input'));""", f"{HOME}/qurb")
@@ -115,30 +116,36 @@ def set_up(window):
     return words
 
 
+def go(window, place):
+    window.js("document.querySelector(`#tabs [data-screen=${arguments[0]}]`).click()", place)
+    window.until(f"the {place} screen", "return document.getElementById(arguments[0]).classList.contains('on')", place)
+
+
 def every_tab(window):
-    tabs = window.js("return [...document.querySelectorAll('#tabs button')].map(b => b.dataset.screen)")
-    for tab in tabs:
-        window.js("document.querySelector(`#tabs [data-screen=${arguments[0]}]`).click()", tab)
-        window.until(f"the {tab} tab", "return !document.getElementById(arguments[0]).classList.contains('hidden')", tab)
+    places = window.js("return [...document.querySelectorAll('#tabs .nav')].map(b => b.dataset.screen)")
+    for place in places:
+        go(window, place)
         time.sleep(0.5)
-    return tabs
+    return places
 
 
 def pair(window, words):
     other = f"{HOME}/other"
     subprocess.run([QURB, "enrol", other, " ".join(words)], check=True, capture_output=True)
 
-    window.js("document.querySelector('#tabs [data-screen=devices]').click()")
+    go(window, "devices")
+    window.click("add-device")
+    window.until("the two ways to add one", "return document.getElementById('pair-show')")
     window.click("pair-show")
     code = window.until("a code on the screen",
-        "const t = document.getElementById('pair-code').textContent; return t && t.split(' ').pop()")
+        "const t = document.getElementById('pair-code'); return t && t.textContent.split(' ').pop()")
     qr = window.js("return document.getElementById('qr').innerHTML.length")
     assert qr > 1000, f"no QR drawn ({qr} characters)"
 
     joined = subprocess.run([QURB, "join", other, code], capture_output=True, text=True, timeout=60)
     assert joined.returncode == 0, f"qurb join failed: {joined.stdout}{joined.stderr}"
     named = window.until("the window saying paired",
-        "return !document.getElementById('pair-done').classList.contains('hidden') && document.getElementById('pair-with').textContent")
+        "return document.getElementById('pair-done') && document.getElementById('pair-with').textContent")
     window.click("pair-finish")
     return other, named
 
@@ -157,9 +164,12 @@ def send(window, device):
     assert "error" not in report, f"send failed: {report['error']}"
     assert report["sent"] == 1, f"sent {report}"
 
-    window.js("document.querySelector('#tabs [data-screen=transfers]').click()")
+    # Transfers appear when something is moving or waiting (direction §25).
+    window.until("the Transfers chip", "return !document.getElementById('transfers-chip').classList.contains('hidden')")
+    window.click("transfers-chip")
     window.until("the send listed under Transfers",
-        "return document.getElementById('transfers').textContent.includes('to-send.txt')")
+        "const p = document.querySelector('.panel.transfers'); return p && p.textContent.includes('to-send.txt')")
+    window.js("closePanel()")
 
 
 def remove(window, device):
@@ -168,19 +178,19 @@ def remove(window, device):
     The file sent to it was never collected -- the other device is a command
     line that never ran -- so the question must say a send will be cancelled.
     """
-    window.js("document.querySelector('#tabs [data-screen=devices]').click()")
-    window.until("the device listed", "return document.querySelector('#device-list details')")
-    window.js("""const d = document.querySelector('#device-list details'); d.open = true;
-                 [...d.querySelectorAll('button')].find(b => b.textContent.startsWith('Remove')).click();""")
+    go(window, "devices")
+    window.until("the device listed", "return document.querySelector('#device-list button.device')")
+    window.js("document.querySelector('#device-list button.device').click()")
+    window.until("its details", "return document.querySelector('.panel')")
+    window.js("[...document.querySelectorAll('.panel button')].find(b => b.textContent.startsWith('Remove this device')).click()")
     said = window.until("the question", "const c = document.querySelector('.confirm'); return c && c.textContent")
     assert f"Remove {device}?" in said, said
     assert "1 file waiting for it to collect will be cancelled" in said, said
     window.js("[...document.querySelectorAll('.confirm button')].find(b => b.textContent === 'Remove device').click()")
     window.until("the device gone",
-        "return document.getElementById('device-list').textContent.includes('no paired devices yet')")
-    window.js("document.querySelector('#tabs [data-screen=transfers]').click()")
+        "return !document.querySelector('#device-list button.device')")
     window.until("the send no longer waiting",
-        "return !document.getElementById('transfers').textContent.includes('waiting for')" )
+        "return document.getElementById('transfers-chip').classList.contains('hidden')")
 
 
 # Failures a step causes on purpose, and so not a reason to fail the run.
@@ -197,7 +207,7 @@ def lock_and_unlock(window):
 
     Returns the new window: the old one is closed by starting again.
     """
-    window.js("document.querySelector('#tabs [data-screen=settings]').click()")
+    go(window, "settings")
     window.until("the Security section",
         "return [...document.querySelectorAll('#protection-buttons button')].find(b => b.textContent.startsWith('Protect'))")
     window.js("[...document.querySelectorAll('#protection-buttons button')].find(b => b.textContent.startsWith('Protect')).click()")
@@ -205,7 +215,7 @@ def lock_and_unlock(window):
                  document.getElementById('protect-again').value = 'correct horse battery';
                  document.getElementById('protect-go').click();""")
     window.until("the key kept by passphrase",
-        "return document.getElementById('security-facts').textContent.includes('passphrase')")
+        "return document.getElementById('protection-says').textContent.startsWith('Behind a passphrase')")
     EARLIER.extend(window.js("return window.qurbFailures || []"))
     # Quit, not close: closing the window keeps qurb running (decision 0040),
     # and the next launch would only ask that one to show itself.
