@@ -768,9 +768,22 @@ impl Daemon {
                 Err(e) => {
                     // Not an error worth stopping for. A peer that is switched
                     // off is the normal case in a system built on the
-                    // assumption that devices are not always on.
-                    tracing::debug!(peer = %peer.short(), error = %e, "could not sync");
-                    peers.failed(peer);
+                    // assumption that devices are not always on -- so that is
+                    // only worth a debug line. One the rendezvous service has
+                    // just said is there is different: it is on, and the path
+                    // to it failed, which is the thing to know when a sync
+                    // that should have happened did not. Found on 2026-09-28,
+                    // when a phone on mobile data was announced and never
+                    // reached, and the log could not say why.
+                    if peers.failed(peer) {
+                        tracing::info!(
+                            peer = %peer.short(),
+                            error = %e,
+                            "the device is there and could not be reached"
+                        );
+                    } else {
+                        tracing::debug!(peer = %peer.short(), error = %e, "could not sync");
+                    }
                 }
             }
         }
@@ -1043,6 +1056,11 @@ struct Peers {
     changes: (mpsc::UnboundedSender<Fingerprint>, mpsc::UnboundedReceiver<Fingerprint>),
     /// Which peers already have a watcher, so one is not started twice.
     watching: std::collections::HashSet<Fingerprint>,
+    /// Peers the rendezvous service has just said are there, until the next
+    /// attempt on each. Failing to reach one of these is worth saying at the
+    /// default level; failing to reach a device that is simply off, the normal
+    /// case, is not.
+    announced: std::collections::HashSet<Fingerprint>,
 }
 
 impl Peers {
@@ -1053,6 +1071,7 @@ impl Peers {
             backoff: HashMap::new(),
             changes: mpsc::unbounded_channel(),
             watching: std::collections::HashSet::new(),
+            announced: std::collections::HashSet::new(),
         }
     }
 
@@ -1094,6 +1113,7 @@ impl Peers {
     /// would still be ignored for up to two minutes.
     fn ready_now(&mut self, peer: Fingerprint) {
         self.backoff.remove(&peer);
+        self.announced.insert(peer);
     }
 
     /// Wait until some peer reports a change.
@@ -1198,9 +1218,13 @@ impl Peers {
 
     fn succeeded(&mut self, peer: Fingerprint) {
         self.backoff.remove(&peer);
+        self.announced.remove(&peer);
     }
 
-    fn failed(&mut self, peer: Fingerprint) {
+    /// Record a failure. Returns whether the peer had just been announced as
+    /// there -- in which case the failure is news rather than routine.
+    fn failed(&mut self, peer: Fingerprint) -> bool {
+        let expected = self.announced.remove(&peer);
         self.connections.remove(&peer);
         self.stop_watching(peer);
         let wait = match self.backoff.get(&peer) {
@@ -1208,6 +1232,7 @@ impl Peers {
             None => FIRST_RETRY,
         };
         self.backoff.insert(peer, (tokio::time::Instant::now() + wait, wait));
+        expected
     }
 }
 
@@ -1392,6 +1417,24 @@ mod tests {
             assert!(std::time::Instant::now() < deadline, "a closed connection was still shown");
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
+    }
+
+    /// A failure to reach a device the rendezvous service has just announced
+    /// is news, once; the same device failing on a later sweep, when nobody
+    /// said it was there, is routine again.
+    #[test]
+    fn only_an_announced_device_failing_is_news() {
+        let peer = Fingerprint::from_bytes([3; 32]);
+        let mut peers = Peers::new(vec![peer]);
+
+        assert!(!peers.failed(peer), "a device nobody announced is expected to be off");
+        peers.ready_now(peer);
+        assert!(peers.failed(peer), "announced, then not reached: that is news");
+        assert!(!peers.failed(peer), "and only the once");
+
+        peers.ready_now(peer);
+        peers.succeeded(peer);
+        assert!(!peers.failed(peer), "an announcement is spent by reaching it");
     }
 
     /// With nobody displaying anything there is nothing to publish to, and

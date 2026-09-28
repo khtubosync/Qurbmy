@@ -667,7 +667,10 @@ impl Connector {
                 Ok(PeerClient::from_parts(relay.endpoint.clone(), connection).through_relay())
             }
             Ok(Err(e)) => Err(Error::Connection(e)),
-            Err(_) => Err(Error::Unreachable { peer: peer.short() }),
+            Err(_) => Err(Error::Unreachable {
+                peer: peer.short(),
+                tried: "the relay timed out".into(),
+            }),
         }
     }
 
@@ -683,20 +686,26 @@ impl Connector {
             return Err(Error::NoCandidates);
         }
 
-        type Attempt = std::pin::Pin<
-            Box<dyn std::future::Future<Output = Option<(SocketAddr, quinn::Connection)>> + Send>,
-        >;
+        // Each attempt ends in a connection or in why not, and the reasons are
+        // kept: when every one fails, which failed how is the whole diagnosis.
+        type Attempted = std::result::Result<(SocketAddr, quinn::Connection), String>;
+        type Attempt = std::pin::Pin<Box<dyn std::future::Future<Output = Attempted> + Send>>;
         let mut attempts: Vec<Attempt> = Vec::new();
+        let mut failures: Vec<String> = Vec::new();
         for candidate in candidates {
             let config = tls::client_config(&self.identity, peer)?;
-            let Ok(connecting) = self.endpoint.connect_with(config, candidate, "qurb-device")
-            else {
-                continue;
+            let connecting = match self.endpoint.connect_with(config, candidate, "qurb-device") {
+                Ok(connecting) => connecting,
+                Err(e) => {
+                    failures.push(format!("{candidate} {e}"));
+                    continue;
+                }
             };
             let attempt: Attempt = Box::pin(async move {
                 match tokio::time::timeout(CANDIDATE_TIMEOUT, connecting).await {
-                    Ok(Ok(connection)) => Some((candidate, connection)),
-                    _ => None,
+                    Ok(Ok(connection)) => Ok((candidate, connection)),
+                    Ok(Err(e)) => Err(format!("{candidate} {e}")),
+                    Err(_) => Err(format!("{candidate} timed out")),
                 }
             });
             attempts.push(attempt);
@@ -704,7 +713,10 @@ impl Connector {
 
         while !attempts.is_empty() {
             let (outcome, _index, rest) = futures_select(attempts).await;
-            if let Some((candidate, connection)) = outcome {
+            if let Err(why) = &outcome {
+                failures.push(why.clone());
+            }
+            if let Ok((candidate, connection)) = outcome {
                 tracing::info!(peer = %peer.short(), %candidate, "connected");
 
                 // Close the other paths as they land, rather than dropping
@@ -724,7 +736,7 @@ impl Connector {
                 // tidying happens behind it.
                 tokio::spawn(async move {
                     for attempt in rest {
-                        if let Some((_, spare)) = attempt.await {
+                        if let Ok((_, spare)) = attempt.await {
                             spare.close(0u32.into(), b"another path won");
                         }
                     }
@@ -735,7 +747,10 @@ impl Connector {
             attempts = rest;
         }
 
-        Err(Error::Unreachable { peer: peer.short() })
+        Err(Error::Unreachable {
+            peer: peer.short(),
+            tried: failures.join(", "),
+        })
     }
 }
 

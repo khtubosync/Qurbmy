@@ -103,3 +103,39 @@ async fn a_relay_that_does_not_answer_does_not_stop_a_device() {
     .expect("a relay that does not answer stopped the device starting");
     assert!(connector.relay_endpoint().is_none(), "claims a relay path it does not have");
 }
+
+/// When every address fails, the error says how each one did.
+///
+/// "Could not reach" alone was all the daemon could log when a phone on mobile
+/// data was announced and never reached (2026-09-28): nothing to tell a path
+/// the networks would not open from a device that answered and refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unreachable_device_is_reported_address_by_address() {
+    let dir = tempfile::tempdir().unwrap();
+    let port = {
+        let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        probe.local_addr().unwrap().port()
+    };
+    let _service = service_on(port).await;
+    let connector = Connector::start(
+        "127.0.0.1:0".parse().unwrap(),
+        Identity::load_or_create(dir.path()).unwrap(),
+        MasterKey::generate(),
+        &qurb_peer::tls::TrustList::default(),
+        &format!("ws://127.0.0.1:{port}"),
+        qurb_peer::Finding::nothing(),
+    )
+    .await
+    .unwrap();
+
+    // Bound and never read: packets to it vanish, as they do into a network
+    // that will not open a path.
+    let silent = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let address = silent.local_addr().unwrap();
+    let endpoints = qurb_signal::Endpoints { public: None, local: vec![address] };
+
+    let peer = qurb_peer::Fingerprint::from_bytes([7; 32]);
+    let error = connector.race(peer, &endpoints).await.err().expect("nothing answers there");
+    let said = error.to_string();
+    assert!(said.contains(&format!("{address} timed out")), "{said}");
+}

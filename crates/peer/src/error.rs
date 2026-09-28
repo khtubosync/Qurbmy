@@ -38,8 +38,12 @@ pub enum Error {
     NoRelay,
 
     /// Every candidate failed. In production this is where a relay takes over.
-    #[error("could not reach peer {peer} at any of its addresses")]
-    Unreachable { peer: String },
+    ///
+    /// `tried` says how each address failed -- "timed out", or what the
+    /// handshake said -- because "could not reach" alone cannot tell a path a
+    /// network would not open from a device that answered and refused.
+    #[error("could not reach peer {peer}: {tried}")]
+    Unreachable { peer: String, tried: String },
 
     #[error("connection failed: {0}")]
     Connect(#[from] quinn::ConnectError),

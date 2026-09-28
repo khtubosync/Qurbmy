@@ -759,9 +759,13 @@ phone in between.
 
 One of the phone's passes that afternoon did not connect: at 13:35:47 the
 laptop saw the phone arrive and tried to reach it, and no connection followed
-in either direction. The daemon logs that failure only at debug level, so why
+in either direction. The daemon logged that failure only at debug level, so why
 is not known. The passes before and after it, on the same networks, connected
-directly. A mobile network's address mapping is not guaranteed to allow a
+directly. Since the same day, a device the rendezvous service has just
+announced and that then cannot be reached is logged at the default level —
+"the device is there and could not be reached" — with how each of its
+addresses failed ("106.206.76.231:7773 timed out, …"), so the next one says
+why. A mobile network's address mapping is not guaranteed to allow a
 direct path every time; the relay on a server is the answer to that, and there
 is none in this arrangement yet.
 
