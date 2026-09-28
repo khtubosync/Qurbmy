@@ -68,8 +68,27 @@ Three things to know:
   to 2 cores and 12 GB — still plenty — and need a build on the server, which
   the script does.
 
-Google Cloud's free `e2-micro` runs only in US regions with 1 GB of outbound
-data a month: enough for the rendezvous service, not for the relay.
+### Or Google Cloud's
+
+Google Cloud's free `e2-micro` (2 shared cores, 1 GB) runs only in three US
+regions — Oregon `us-west1`, Iowa `us-central1`, South Carolina `us-east1` —
+with 1 GB of outbound data a month. Enough to prove the arrangement works and
+for the rendezvous service indefinitely; tight for the relay, where every byte
+relayed to a device is a byte out. Its external address is not charged on the
+free tier. When creating the machine, three settings decide whether it stays
+free, and two are not the defaults:
+
+- **Machine:** `e2-micro`, in one of the three regions above.
+- **Boot disk:** Ubuntu 24.04 LTS, x86/64, on a **standard persistent disk**, up
+  to 30 GB. The default, a *balanced* disk, is not free.
+- **Networking:** the network service tier **Standard**; and a network tag,
+  `qurb`, for the firewall rule.
+
+Then, in *VPC network → Firewall*, one rule: ingress, targets with the tag
+`qurb`, source `0.0.0.0/0`, TCP `9000,9001`. And under *Security → Manage
+access* on the machine, your SSH public key — the text after its last space is
+the user name you will log in as. A budget alert of a dollar or so, under
+*Billing → Budgets & alerts*, turns a mistake into an email rather than a bill.
 
 ## Setting it up by hand
 

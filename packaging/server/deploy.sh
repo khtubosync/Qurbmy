@@ -13,6 +13,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 SERVER=${1:?user@host of the server}
+# A new server's host key is accepted the first time, since nobody is there to
+# confirm it; one that changes afterwards is still refused.
+SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15)
 say()  { printf '\n== %s\n' "$*"; }
 fail() { echo "deploy: $*" >&2; exit 1; }
 
@@ -22,8 +25,8 @@ trap 'rm -rf "$stage"' EXIT
 cp packaging/server/setup.sh packaging/server/qurb-signal-tls.service packaging/server/qurb-relay.service "$stage/"
 
 say "looking at $SERVER"
-arch=$(ssh "$SERVER" uname -m)
-theirs=$(ssh "$SERVER" "ldd --version 2>&1 | head -1 | grep -o '[0-9]\+\.[0-9]\+\$'" || true)
+arch=$(ssh "${SSH_OPTS[@]}" "$SERVER" uname -m)
+theirs=$(ssh "${SSH_OPTS[@]}" "$SERVER" "ldd --version 2>&1 | head -1 | grep -o '[0-9]\+\.[0-9]\+\$'" || true)
 needs=$(objdump -T target/release/qurb | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -1)
 echo "  $arch, C library ${theirs:-unknown}; this qurb needs ${needs}"
 
@@ -39,10 +42,10 @@ else
 fi
 
 remote=/tmp/qurb-setup
-ssh "$SERVER" "rm -rf $remote && mkdir -p $remote"
-scp -q "$stage"/* "$SERVER:$remote/"
-ssh -t "$SERVER" "sudo bash $remote/setup.sh ${how[*]}" | tee "$stage/setup.log"
-ssh "$SERVER" "rm -rf $remote"
+ssh "${SSH_OPTS[@]}" "$SERVER" "rm -rf $remote && mkdir -p $remote"
+scp -q "${SSH_OPTS[@]}" "$stage"/* "$SERVER:$remote/"
+ssh "${SSH_OPTS[@]}" "$SERVER" "sudo bash $remote/setup.sh ${how[*]}" 2>&1 | tee "$stage/setup.log"
+ssh "${SSH_OPTS[@]}" "$SERVER" "rm -rf $remote"
 
 url=$(grep -o "wss://[^ ]*#[0-9a-f]\{64\}" "$stage/setup.log" | tail -1 || true)
 [[ -n $url ]] || fail "setup did not print the rendezvous address"
@@ -53,7 +56,7 @@ for port in 9000 9001; do
     if timeout 5 bash -c "exec 3<>/dev/tcp/$host/$port" 2>/dev/null; then
         echo "  port $port answers"
     else
-        echo "  port $port does not answer -- on Oracle Cloud, add the ingress rule for it"
+        echo "  port $port does not answer -- open it in the cloud's own firewall (see above)"
         fail "not reachable yet"
     fi
 done

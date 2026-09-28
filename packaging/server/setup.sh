@@ -13,8 +13,9 @@
 # Written for Ubuntu, as Oracle's and most small servers' images are; it says
 # so and stops on anything without apt and systemd.
 #
-# What it does not do: open the cloud provider's own firewall. On Oracle Cloud
-# that is the subnet's security list, in the web console; this prints how.
+# What it does not do: open the cloud provider's own firewall -- a firewall
+# rule on Google Cloud, the subnet's security list on Oracle Cloud, both in the
+# web console. This prints how.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -148,8 +149,12 @@ On the phone, in qurb's Settings:
   Rendezvous service   $url
   Relay                $ADDRESS:9001
 
-On Oracle Cloud, one more step in the web console, once: the subnet's security
-list must let the two ports in. Networking > Virtual cloud networks > your
-network > Security > the Default security list > Add ingress rules:
-source 0.0.0.0/0, TCP, destination port 9000; and again for 9001.
+The cloud's own firewall must also let TCP 9000 and 9001 in, from 0.0.0.0/0 --
+once, in its web console:
+
+  Google Cloud   VPC network > Firewall > Create a firewall rule, ingress,
+                 targets with the tag qurb, TCP 9000,9001 -- and the tag qurb
+                 on this machine.
+  Oracle Cloud   Networking > Virtual cloud networks > your network > Security
+                 > the Default security list > Add ingress rules, for each port.
 DONE
