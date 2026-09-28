@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -19,9 +21,33 @@ if (firebaseConfigured) {
     apply(plugin = "com.google.gms.google-services")
 }
 
+// Release signing, from a properties file kept outside the repository: the
+// key that says an update comes from the same author as the installed app,
+// which must never be committed and never be lost. Where it is:
+// $QURB_SIGNING, or ~/.config/qurb/signing.properties, holding storeFile,
+// storePassword, keyAlias and keyPassword. Without it a release builds
+// unsigned, exactly as before -- see android/README.md, "Signing".
+val signingFile = file(
+    System.getenv("QURB_SIGNING") ?: "${System.getProperty("user.home")}/.config/qurb/signing.properties"
+)
+val signing = Properties().apply {
+    if (signingFile.exists()) signingFile.inputStream().use { load(it) }
+}
+
 android {
     namespace = "com.qurb"
     compileSdk = 36
+
+    signingConfigs {
+        if (signingFile.exists()) {
+            create("release") {
+                storeFile = file(signing.getProperty("storeFile"))
+                storePassword = signing.getProperty("storePassword")
+                keyAlias = signing.getProperty("keyAlias")
+                keyPassword = signing.getProperty("keyPassword")
+            }
+        }
+    }
 
     defaultConfig {
         applicationId = "com.qurb"
@@ -49,6 +75,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.findByName("release")
         }
         debug {
             // x86_64 as well, for the emulator.

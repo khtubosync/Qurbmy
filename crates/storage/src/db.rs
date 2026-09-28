@@ -24,6 +24,11 @@ use std::path::Path;
 ///
 /// Migrations are append-only. Editing one that has already shipped would leave
 /// databases in the field at a schema nobody can reproduce.
+/// Which version of the index this build writes: how many migrations it has.
+/// Reported beside the app's version, because two builds agreeing on this is
+/// what lets one open the other's index (decision 0047).
+pub const SCHEMA_VERSION: usize = MIGRATIONS.len();
+
 const MIGRATIONS: &[&str] = &[V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15];
 
 const V1: &str = r#"
@@ -502,6 +507,27 @@ pub struct FileRow {
 impl Db {
     pub fn open(path: &Path) -> Result<Self> {
         let conn = Connection::open(path)?;
+        let applied: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+        // Written by a newer build: this one does not know what that index
+        // holds, and guessing would be how an index gets damaged. Said, rather
+        // than opened (decision 0047).
+        if applied as usize > MIGRATIONS.len() {
+            return Err(Error::Corrupt {
+                detail: format!(
+                    "this index was written by a newer qurb (schema {applied}; this build knows up to {}) — \
+                     run the newer build, or the one it was upgraded from",
+                    MIGRATIONS.len()
+                ),
+            });
+        }
+        // About to be migrated: a copy first, as it was, so an upgrade can be
+        // undone by putting the older build back with its index. Migrations
+        // only go forward; this is the way back. One copy, the latest.
+        if applied > 0 && (applied as usize) < MIGRATIONS.len() {
+            let before = path.with_file_name(format!("index.before-schema-{}.db", MIGRATIONS.len()));
+            let _ = std::fs::remove_file(&before);
+            conn.execute("VACUUM INTO ?1", params![before.to_string_lossy()])?;
+        }
         Self::init(conn)
     }
 
@@ -540,8 +566,15 @@ impl Db {
 
         let applied: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
         for (i, migration) in MIGRATIONS.iter().enumerate().skip(applied as usize) {
-            conn.execute_batch(migration)?;
-            conn.pragma_update(None, "user_version", (i + 1) as i64)?;
+            // One transaction for a migration and its number. Apart, a crash
+            // between them left a migration applied but not recorded, and the
+            // next open ran it again -- which an `ADD COLUMN` cannot survive,
+            // so the store would never open again. Found when the crash test
+            // failed under load, the kill landing during the first migrations.
+            let tx = conn.unchecked_transaction()?;
+            tx.execute_batch(migration)?;
+            tx.pragma_update(None, "user_version", (i + 1) as i64)?;
+            tx.commit()?;
         }
 
         // On for the life of the connection, and checked once: a migration that

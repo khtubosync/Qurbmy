@@ -269,6 +269,11 @@ Since 2026-09-28:
   is unlocked from the window, and Settings says how the key is kept and
   changes it — [0046](decisions/0046-the-window-asks-for-the-passphrase.md).
 
+- **Installing and upgrading** (§69, §70): an Arch package, a signed Android
+  release, every build reporting its version, protocol and index schema, the
+  index copied before it migrates and refused when newer — no automatic
+  updater, by decision — [0047](decisions/0047-versions-and-upgrades.md).
+
 Still as the inventory says: a replica freeing space, and everything in
 §2.4–§2.6.
 

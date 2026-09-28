@@ -196,6 +196,8 @@ pub struct Settings {
     downloads: String,
     /// Where that actually is, or why it is refused.
     downloads_at: Result<Option<String>, String>,
+    /// This build: the window's version, its protocol and index schema.
+    version: String,
 }
 
 /// What screen the window should be on.
@@ -345,7 +347,20 @@ pub fn create_device(hosted: Host<'_>, path: String, allowance: String) -> Answe
     let phrase = qurb_cli::setup::create(&root).map_err(failed)?;
     qurb_cli::setup::allow(&root, bytes).map_err(failed)?;
     hosted.hold_phrase(phrase);
+    start_at_login_from_now();
     Ok(())
+}
+
+/// A device just set up starts at login from now on -- which the install
+/// script used to arrange, and a package installed for every user cannot: the
+/// phone can only reach this computer while qurb is running here. Settings
+/// turns it off like any other time. A failure costs only the convenience.
+fn start_at_login_from_now() {
+    if let (Some(dir), Ok(program)) = (crate::autostart::config_dir(), std::env::current_exe()) {
+        if let Err(e) = crate::autostart::enable(&dir, &program) {
+            tracing::warn!(error = %e, "could not arrange to start at login");
+        }
+    }
 }
 
 /// What somebody typed as a custom allowance, in bytes — or why it is not one.
@@ -406,7 +421,9 @@ pub fn enrol_device(
     hosted.aim_at(root.clone()).map_err(failed)?;
     qurb_cli::setup::enrol(&root, &parsed).map_err(failed)?;
     qurb_cli::setup::allow(&root, bytes).map_err(failed)?;
-    hosted.start(|| Ok(String::new())).map_err(failed)
+    hosted.start(|| Ok(String::new())).map_err(failed)?;
+    start_at_login_from_now();
+    Ok(())
 }
 
 /// Show the recovery phrase for a device that is already set up.
@@ -452,6 +469,7 @@ pub fn settings(hosted: Host<'_>) -> Answer<Settings> {
             .map_err(|e| e.to_string()),
         root: root.display().to_string(),
         identity: hosted.status().map(|s| s.identity).unwrap_or_default(),
+        version: qurb_cli::version().replacen("qurb ", &format!("window {} · engine ", env!("CARGO_PKG_VERSION")), 1),
     })
 }
 

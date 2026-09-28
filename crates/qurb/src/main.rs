@@ -53,6 +53,7 @@ qurb — private cloud storage
   qurb ls [dir] [path]                what this folder holds, and where
   qurb find [dir] <text>              files whose name contains something
   qurb config [dir] [key=value ...]   show or change settings
+  qurb version                        this build, its protocol, its index schema
   qurb protect [dir] <how>            change how the key is kept
                                         file | keystore | passphrase
 
@@ -240,6 +241,10 @@ fn run() -> Result<()> {
                 _ => (qurb_cli::profiles::current().context("no folder is set up yet")?, rest),
             };
             holders(&root, rest)
+        }
+        "version" | "--version" | "-V" => {
+            println!("{}", qurb_cli::version());
+            Ok(())
         }
         "remove-device" => {
             // `qurb remove-device phone`, the folder optionally first, flags

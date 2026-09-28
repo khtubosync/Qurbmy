@@ -17,6 +17,18 @@ pub mod setup;
 pub mod status;
 pub mod view;
 
+/// What this build is, for a person or a bug report: the app's version, the
+/// protocol it speaks to other devices, and the index schema it writes.
+/// Devices must share a protocol to sync; see decision 0047.
+pub fn version() -> String {
+    format!(
+        "qurb {} · protocol {} · index schema {}",
+        env!("CARGO_PKG_VERSION"),
+        String::from_utf8_lossy(qurb_peer::tls::ALPN),
+        qurb_storage::db::SCHEMA_VERSION
+    )
+}
+
 use anyhow::{bail, Result};
 use qurb_keys::{MasterKey, Purpose, Vault};
 use qurb_peer::Identity;

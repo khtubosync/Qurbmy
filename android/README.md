@@ -236,6 +236,22 @@ whose computer was switched off reported "no paired devices" and pushed its
 next sync further and further away. See
 [decision 0020](../docs/decisions/0020-sync-takes-a-deadline.md#found-on-a-phone).
 
+## Signing
+
+A release APK (`./scripts/android-app.sh release`) is signed when
+`~/.config/qurb/signing.properties` exists — or the file `$QURB_SIGNING`
+names — holding `storeFile`, `storePassword`, `keyAlias` and `keyPassword`.
+Without it the release builds unsigned, as before. The key for this project was
+generated on 2026-09-28 at `~/.android/qurb-release.jks` (RSA 4096, alias
+`qurb`, SHA-256 `4F:AE:59:0B:…:3F:FD:2A`), with a random password in that
+properties file; both are readable by their owner only and are **not** in the
+repository.
+
+Back both up. Android installs an update only if it is signed by the same key
+as the installed app, so losing the key means every installed copy can only be
+replaced by uninstalling — which deletes the phone's key and index. See
+[decision 0047](../docs/decisions/0047-versions-and-upgrades.md).
+
 ## Not built
 
 - **No progress while a file moves.** A phone syncs in short windows, mostly in
@@ -248,4 +264,6 @@ next sync further and further away. See
   the device that sent them still has them. Builds before then did not record
   where a received file came from, and a phone cannot learn it afterwards
   without asking; it errs the safe way, never offering to free such a file.
-- **Not signed.** `assembleRelease` produces an unsigned APK.
+- **The development phone runs a debug build.** Android refuses an update
+  signed by a different key, so moving it to a release build means
+  uninstalling once, which deletes its key and index. Not done — see Signing.

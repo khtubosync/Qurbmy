@@ -903,6 +903,37 @@ key with a passphrase from Settings, quits, starts again, has a wrong
 passphrase refused and the right one unlock it. The smoke test also runs off
 the session bus now, so nothing it does can reach a real keyring.
 
+## Installing, versions, upgrading
+
+**2026-09-28.** Brief §69 and §70, [decision 0047](../decisions/0047-versions-and-upgrades.md):
+
+- `packaging/arch/PKGBUILD` builds a pacman package from this checkout —
+  `qurb` (with push), the window, the tray, the menu entry and icon — for
+  every user, upgraded by building again and removed with `pacman -R`. Setting
+  a device up in the window now arranges to start at login for that person,
+  which a system package cannot.
+- A release APK is signed with a key generated for the project and kept
+  outside the repository.
+- Every build says what it is — `qurb 0.1.0 · protocol qurb/2 · index schema
+  15` — on the command line and in both apps' Settings.
+- The index is copied before a migration runs (`VACUUM INTO`), the way back
+  from an upgrade; an index from a newer build is refused rather than guessed
+  at. Tests: `crates/storage/tests/upgrading.rs`.
+- Each migration and the schema number it sets are now one transaction.
+  Apart, a crash between them left a migration applied but unrecorded, and the
+  next open re-ran it — which an `ADD COLUMN` cannot survive, so the store
+  would never open again. Found when the crash-injection test failed once
+  while a package build loaded the machine and the kill landed during the
+  first migrations; it passed on the eight runs after, and the fix removes the
+  state rather than the timing.
+
+The package was built with `makepkg` on the development laptop (20 MB,
+`qurb-0.1.0.r117.3b570dd`) and its `qurb` run from the archive; it has **not
+been installed** — the laptop still runs the `install.sh` copies in
+`~/.local/bin`, and installing a package over them is the owner's call.
+
+No automatic updater: the decision says what one would need.
+
 ## Still to do
 
 - **Running the *daemon* as a service** — a user unit, a launch agent, a
@@ -911,8 +942,9 @@ the session bus now, so nothing it does can reach a real keyring.
   ([decision 0040](../decisions/0040-the-menu-opens-the-window.md#closing-is-not-quitting)),
   which covers what a service was wanted for; a daemon with no window at all is
   still `qurb run`.
-- **Installers**, and the update mechanism with rollback. `packaging/install.sh`
-  puts qurb in one user's applications menu and is not a package.
+- **An automatic updater**, deliberately (decision 0047). Installing is a
+  pacman package on Arch, `packaging/install.sh` elsewhere; no `.deb`,
+  Flatpak or AppImage yet.
 - **A replica that can free space.** It keeps every payload, because with no
   folder there is nowhere else for the bytes to live — and eviction works by
   deleting a file from a folder, so a cap on a replica reports the overrun

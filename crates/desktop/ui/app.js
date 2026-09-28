@@ -1803,6 +1803,7 @@ async function drawSettings() {
     ["Folder", s.root],
     ["This device", s.identity || "—"],
     ["Key kept", s.protection],
+    ["Version", s.version],
   ]) {
     facts.append(el("dt", null, term));
     facts.append(el("dd", null, value));

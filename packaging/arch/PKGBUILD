@@ -1,0 +1,57 @@
+# qurb, packaged from this checkout, for Arch Linux and what is built on it
+# (CachyOS, EndeavourOS, Manjaro):
+#
+#   cd packaging/arch && makepkg -si       # build, then install with pacman
+#   pacman -R qurb                         # remove it
+#
+# A package rather than packaging/install.sh when the machine is yours to
+# manage with pacman: installed for every user, upgraded by building again
+# (`makepkg -si` over the old one), removed cleanly. Each person's folder, key
+# and settings are in their own home and are never touched by either.
+#
+# Built from the working tree this file is in, not from a download: there is
+# no release to download yet. `qurb` is built with push, so the same binary can
+# run the rendezvous service with --push (packaging/server/README.md).
+#
+# What installing does not do: start anything. The first time the window sets
+# a device up it arranges to start at login for that person, and its Settings
+# turn that off.
+
+pkgname=qurb
+pkgver=0.1.0.r117.3b570dd
+pkgrel=1
+pkgdesc="Private cloud storage: your files, synced directly between your own devices"
+arch=('x86_64' 'aarch64')
+url="https://github.com/saqibsiddiq/Qurb"
+license=('MIT OR Apache-2.0')
+depends=('webkit2gtk-4.1' 'gtk3' 'xdotool' 'glibc' 'gcc-libs')
+makedepends=('cargo' 'git')
+# The binaries keep their symbols for readable backtraces; stripping is left
+# to makepkg's default, and LTO to Cargo's profile.
+options=('!lto')
+
+_root() { realpath "$startdir/../.."; }
+
+pkgver() {
+    cd "$(_root)"
+    printf "0.1.0.r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+    cd "$(_root)"
+    export CARGO_TARGET_DIR="$srcdir/target"
+    cargo build --release --locked -p qurb-cli --features push
+    cargo build --release --locked -p qurb-desktop -p qurb-tray
+}
+
+package() {
+    cd "$(_root)"
+    local out="$srcdir/target/release"
+    install -Dm755 "$out/qurb" "$pkgdir/usr/bin/qurb"
+    install -Dm755 "$out/qurb-desktop" "$pkgdir/usr/bin/qurb-desktop"
+    install -Dm755 "$out/qurb-tray" "$pkgdir/usr/bin/qurb-tray"
+    install -Dm644 packaging/qurb.desktop "$pkgdir/usr/share/applications/qurb.desktop"
+    install -Dm644 packaging/qurb.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/qurb.svg"
+    install -Dm644 packaging/server/README.md "$pkgdir/usr/share/doc/qurb/server.md"
+    install -Dm644 docs/CODEBASE.md "$pkgdir/usr/share/doc/qurb/CODEBASE.md"
+}

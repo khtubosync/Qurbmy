@@ -102,7 +102,7 @@ class SettingsScreen(app: MainActivity) : Screen(app) {
         val version = runCatching {
             app.packageManager.getPackageInfo(app.packageName, 0).versionName
         }.getOrNull() ?: "unknown"
-        page.setting("Version", version)
+        page.setting("Version", "$version\n${uniffi.qurb_mobile.engineVersion()}")
     }
 
     /**

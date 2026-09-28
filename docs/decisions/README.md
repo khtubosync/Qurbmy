@@ -73,3 +73,4 @@ is worth more than a tidy directory.
 | [0044](0044-sharing-with-chosen-devices.md) | Sharing a folder with chosen devices | Accepted — built on the desktop, the phone and the command line |
 | [0045](0045-a-folder-kept-remotely.md) | A folder kept only remotely | Accepted — built on the desktop, the phone and the command line |
 | [0046](0046-the-window-asks-for-the-passphrase.md) | The window asks for the passphrase, and has a Security section | Accepted — amends 0033; built on the desktop |
+| [0047](0047-versions-and-upgrades.md) | Versions, installing, and upgrading | Accepted — no automatic updater, by decision |

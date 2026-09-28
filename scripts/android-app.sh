@@ -2,7 +2,9 @@
 # Build the Android app.
 #
 #   ./scripts/android-app.sh            # debug APK
-#   ./scripts/android-app.sh release    # unsigned release APK: arm64 only,
+#   ./scripts/android-app.sh release    # release APK, signed when a key is
+#                                       # configured (android/README.md,
+#                                       # "Signing"): arm64 only,
 #                                       # the engine built with the `mobile`
 #                                       # profile, the code shrunk by R8
 #   ./scripts/android-app.sh install    # debug APK, installed on a connected device

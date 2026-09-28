@@ -42,3 +42,8 @@ android/app/google-services.json
 
 # Gradle's Kotlin session directory.
 android/.kotlin/
+
+# makepkg's working files and the packages it builds.
+packaging/arch/src/
+packaging/arch/pkg/
+packaging/arch/*.pkg.tar.*

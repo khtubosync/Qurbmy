@@ -1849,6 +1849,18 @@ pub struct QrCode {
     pub dark: Vec<bool>,
 }
 
+/// This engine's version, the protocol it speaks to other devices, and the
+/// index schema it writes (decision 0047).
+#[uniffi::export]
+pub fn engine_version() -> String {
+    format!(
+        "engine {} · protocol {} · index schema {}",
+        env!("CARGO_PKG_VERSION"),
+        String::from_utf8_lossy(qurb_peer::tls::ALPN),
+        qurb_storage::db::SCHEMA_VERSION
+    )
+}
+
 /// Encode `text` -- a pairing code -- as a QR code. Low error correction, as
 /// on the desktop: it is read off a screen, and lower correction means larger
 /// modules at a given size.
