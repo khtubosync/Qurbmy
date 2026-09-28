@@ -3894,6 +3894,7 @@ name = "qurb-mobile"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "qrcode",
  "qurb-engine",
  "qurb-keys",
  "qurb-peer",

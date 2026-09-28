@@ -764,7 +764,7 @@ fn a_pairing_code_is_drawn_as_a_qr_code() {
 
     let qr = qurb_mobile::qr_code(offer.code()).unwrap();
     assert_eq!(qr.dark.len(), (qr.width * qr.width) as usize);
-    assert!(qr.width >= 21 && (qr.width - 17) % 4 == 0, "not a QR size: {}", qr.width);
+    assert!(qr.width >= 21 && (qr.width - 17).is_multiple_of(4), "not a QR size: {}", qr.width);
     offer.cancel();
 }
 
