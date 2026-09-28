@@ -600,8 +600,14 @@ pub fn send_files(hosted: Host<'_>, paths: Vec<String>, to: String) -> Answer<Se
 /// only returned once somebody had paired would leave the code unobtainable
 /// for the five minutes it is valid, which is the one window in which it is
 /// any use.
+///
+/// `async` although nothing in it waits, because opening the pairing host
+/// binds a QUIC endpoint, and that needs the Tokio runtime to register its
+/// socket with. Tauri runs a synchronous command on the main thread, outside
+/// the runtime; this one was synchronous until 2026-09-28 and failed every
+/// time with "no async runtime found", which the fixture page could not show.
 #[tauri::command]
-pub fn start_pairing(hosted: Host<'_>) -> Answer<Invitation> {
+pub async fn start_pairing(hosted: Host<'_>) -> Answer<Invitation> {
     let (store, identity, name) = hosted.for_pairing().map_err(failed)?;
     let now = now();
 

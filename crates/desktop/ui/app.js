@@ -14,7 +14,21 @@
 //     beat, because they change rarely and are expensive to redraw under
 //     somebody's cursor.
 
-const invoke = window.__TAURI__.core.invoke;
+// Every command goes through here, so that a failure is remembered even where
+// the page shows it only briefly or not at all: the last fifty, as
+// `window.qurbFailures`. scripts/desktop-smoke.sh reads it to fail on any
+// command that did; from the web inspector, it says what a screen that went
+// wrong without explanation was told.
+const failures = (window.qurbFailures = []);
+async function invoke(command, args) {
+  try {
+    return await window.__TAURI__.core.invoke(command, args);
+  } catch (e) {
+    failures.push(`${command}: ${e}`);
+    if (failures.length > 50) failures.shift();
+    throw e;
+  }
+}
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
@@ -60,6 +74,11 @@ function oops(list, error) {
 
 // The window opens on one of two things: setting a device up, or showing one.
 // Asked before anything is drawn, because the answer decides which.
+//
+// True until the answer is in, so the timers at the bottom draw nothing for a
+// device that may not exist: each of their commands refuses until it does.
+let settingUp = true;
+
 async function decide() {
   let where;
   try {
@@ -71,7 +90,7 @@ async function decide() {
     return;
   }
 
-  const settingUp = !where.set_up;
+  settingUp = !where.set_up;
   $("setup").classList.toggle("hidden", !settingUp);
   $("tabs").classList.toggle("hidden", settingUp);
   document.querySelector("main").classList.toggle("hidden", settingUp);
@@ -985,6 +1004,7 @@ function pairPanel(which) {
 let watching = null;
 
 $("pair-show").addEventListener("click", async () => {
+  $("show-error").classList.add("hidden");
   pairPanel("showing");
   $("qr").replaceChildren();
   $("pair-code").textContent = "";
@@ -995,7 +1015,14 @@ $("pair-show").addEventListener("click", async () => {
   try {
     invitation = await invoke("start_pairing");
   } catch (e) {
-    $("pair-says").textContent = String(e);
+    // Back to the buttons, with the reason. Left on the showing panel, a
+    // failure is a heading saying "scan this" over an empty white square and
+    // two empty boxes, with the reason in small grey type underneath -- which
+    // reads as a code still loading.
+    pairPanel("idle");
+    const error = $("show-error");
+    error.textContent = `Could not show a code: ${e}`;
+    error.classList.remove("hidden");
     return;
   }
 
@@ -1063,6 +1090,7 @@ $("pair-cancel").addEventListener("click", async () => {
 });
 
 $("pair-enter").addEventListener("click", () => {
+  $("show-error").classList.add("hidden");
   $("pair-input").value = "";
   $("join-error").classList.add("hidden");
   pairPanel("entering");
@@ -1371,6 +1399,7 @@ $("show-phrase").addEventListener("click", async () => {
 // one small struct and the window is in the same process as the daemon that
 // publishes it: the cost of asking is a channel read.
 setInterval(() => {
+  if (settingUp) return;
   if (screen === "home") drawHome();
   if (screen === "transfers") { drawArriving(); drawWaiting(); }
 }, 1500);
@@ -1378,6 +1407,7 @@ setInterval(() => {
 // Lists, rarely, and only the one being looked at. Redrawing a list somebody is
 // reading is a cost, not a feature.
 setInterval(() => {
+  if (settingUp) return;
   if (screen === "storage") drawStorage();
   // Not while a code is up: the list is at the top of the screen and redrawing
   // it is harmless, but `drawDevices` is also what a finished pairing calls,

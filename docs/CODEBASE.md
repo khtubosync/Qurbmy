@@ -593,6 +593,8 @@ qurb/
 │   ├── android-app.sh     build the app: libraries, bindings, then Gradle
 │   ├── android-build.sh   cross-compile the engine for all four Android ABIs
 │   ├── android-test.sh    run the test suite on a device, over adb
+│   ├── desktop-smoke.sh   drive the real desktop window end to end, on a
+│   │                      display of its own (with desktop_smoke.py)
 │   └── mobile-bindings.sh generate the Kotlin and Swift bindings
 │
 ├── experiments/
@@ -1196,6 +1198,13 @@ cargo test --workspace
 # same queries `qurb ls`, `qurb find` and `qurb activity` use.
 cargo build --release -p qurb-desktop
 ./target/release/qurb-desktop ~/Sync
+```
+
+```bash
+# Drive that window end to end -- set up, every tab, pairing by code, a send --
+# on a display of its own, failing on any command that errs. Needs broadwayd
+# and WebKitWebDriver.
+./scripts/desktop-smoke.sh
 ```
 
 ```bash

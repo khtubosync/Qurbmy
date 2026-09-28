@@ -80,7 +80,9 @@ const ANSWERS = {
     code: "qurb1-" + "k7fq".repeat(25),
     spoken: "kilo seven foxtrot quebec · romeo two delta · sierra nine whiskey",
     expires_at: now + 300,
-    qr: null,
+    // None, unless a script has put a real one from the Rust renderer in
+    // `window.__fixtureQr` -- the way to look at the actual drawing here.
+    qr: window.__fixtureQr ?? null,
   }),
 
   // Answers "waiting" for a few seconds and then "paired", so the countdown

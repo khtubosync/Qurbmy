@@ -6,10 +6,11 @@
 //! logic behind every command has tests; the *name* is the one thing only the
 //! two files together can be wrong about.
 //!
-//! Driving the real window would catch it, and cannot be done here: synthetic
-//! input does not reach a Tauri window under a Wayland compositor. So the two
-//! files are read and compared instead, which catches exactly this class of
-//! mistake and nothing else. It is not a substitute for using the application.
+//! Driving the real window catches it too, and more: `scripts/desktop-smoke.sh`
+//! does, through WebKit's WebDriver on a display of its own. That needs
+//! broadwayd and WebKitWebDriver installed, which a `cargo test` cannot assume,
+//! so the two files are also read and compared here, which catches exactly this
+//! class of mistake and nothing else.
 
 use std::collections::BTreeSet;
 

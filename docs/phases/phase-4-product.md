@@ -666,6 +666,26 @@ records what was built, the unit it counts in, and how it was checked: unit
 tests and the fixture page in a headless browser, not the real window, which
 synthetic input cannot reach under Wayland.
 
+**That was not enough, and it cost five days** (found 2026-09-28): *Show a
+code* on the Devices screen never worked in the application. The command was
+synchronous, so Tauri ran it on the main thread, outside the Tokio runtime,
+and opening the pairing host's QUIC endpoint failed with "no async runtime
+found". The fixture page answers commands itself and showed a working screen
+throughout; the project owner found it by using the window. It is `async` now,
+a failure to show a code is shown as an error beside the buttons rather than
+as an empty white square, and pairing by the window's code was checked end to
+end against a second device.
+
+The window can be driven after all: Tauri lets WebKit's own WebDriver control
+its web view when `TAURI_WEBVIEW_AUTOMATION=true`, and GTK's Broadway backend
+gives it a display that is on nobody's screen. `scripts/desktop-smoke.sh` does
+that: sets a device up through the window, opens every tab, pairs by code, and
+sends a file, failing on any command that errs. Its first run found a second,
+smaller fault — the page polled the home screen's three commands every 1.5 s
+during setting up, each refused because there was no device yet — and both are
+fixed. The Broadway display reports a nonsense geometry (a device pixel ratio
+of −0.01), so it checks behaviour, not layout; layout is still the fixture's.
+
 The last setting-up screen also stopped saying devices are introduced "on the
 command line for now". The window's Devices screen has done that since pairing
 by code was built.

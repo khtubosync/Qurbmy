@@ -24,6 +24,11 @@ Not a test of the Rust commands. Those are covered by `qurb-cli`'s `view`
 tests and by running the application. This checks what the window *does with*
 an answer, not whether the answer is right.
 
+It cannot see a command that fails in the application itself, because it
+answers them all; `scripts/desktop-smoke.sh` drives the real window for that.
+Set `window.__fixtureQr` to an SVG from the Rust renderer before choosing
+*Show a code* to see a real QR code here.
+
 ## Corners cut
 
 - The fixture data is hand-written and does not have to be self-consistent.

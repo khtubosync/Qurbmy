@@ -73,6 +73,21 @@ a feature. See
 window's real markup, stylesheet and script against made-up data, so layout can
 be worked on without a folder, a paired device or a running daemon.
 
+## Driving the real window
+
+`./scripts/desktop-smoke.sh` runs the real application, commands and engine
+included, and drives it through WebKit's WebDriver on a display of its own: it
+sets a device up through the window, opens every tab, pairs a second device by
+the code the window shows, and sends it a file. It fails if any command the
+page calls returns an error — the page keeps the last fifty as
+`window.qurbFailures` for that, and for reading from the web inspector.
+
+The fixture page cannot do this, because it answers the commands itself. For
+five days, from 2026-09-23, *Show a code* failed in the application every time
+("no async runtime found": a synchronous command binding a QUIC endpoint
+outside the Tokio runtime) while the fixture showed a working screen. The
+project owner found it by using the window; this finds it in a minute.
+
 ## The 24 words
 
 The phrase is held in the session rather than in the page: created, fetched
