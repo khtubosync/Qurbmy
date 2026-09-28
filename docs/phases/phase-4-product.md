@@ -726,10 +726,24 @@ could differ, and that is what the relay on a server is for.
 qurb with the push feature, installs it as `qurb-rendezvous` so a plain build
 cannot replace it with one that refuses `--push`, and turns push on in the unit
 when the Firebase service account is present. The laptop's service started with
-it ("waking sleeping devices through Firebase project qurb-f05de"). Whether a
-change on the laptop wakes the idle phone through it is **not yet verified on
-hardware** — the phone has to sync once first, to give the restarted service
-its wake token.
+it ("waking sleeping devices through Firebase project qurb-f05de").
+
+**Verified on hardware, 2026-09-28:** the Galaxy S23 on mobile data, screen
+off, after one *Sync now* to give the restarted service its wake token. A file
+written into the laptop's `~/qurb` at 13:40:05; the phone announced itself at
+the laptop at 13:40:09, woken by the push, and the laptop connected to it
+directly at 13:40:10 (the phone's mobile address, a different port from
+earlier); the file was then held on both. About five seconds from a change
+on the laptop to a sleeping phone syncing it, with nothing running on the
+phone in between.
+
+One of the phone's passes that afternoon did not connect: at 13:35:47 the
+laptop saw the phone arrive and tried to reach it, and no connection followed
+in either direction. The daemon logs that failure only at debug level, so why
+is not known. The passes before and after it, on the same networks, connected
+directly. A mobile network's address mapping is not guaranteed to allow a
+direct path every time; the relay on a server is the answer to that, and there
+is none in this arrangement yet.
 
 **A server to try it on for free**: Oracle Cloud's Always Free tier, with the
 caveats in [the server guide](../../packaging/server/README.md#a-free-server-to-try-it-on).
