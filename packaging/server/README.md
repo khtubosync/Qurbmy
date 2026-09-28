@@ -48,8 +48,10 @@ and on the phone, Settings → Rendezvous service: `wss://<name>.<tailnet>.ts.ne
 the phone and the computer have to reach each other directly. Whether they can
 depends on both networks; `qurb netcheck` says whether the computer's allows
 it. A home network that gives the same public address to whoever asks, as the
-project owner's does, usually does. If a mobile network defeats it, the relay
-needs a server after all.
+project owner's does, usually does — and on 2026-09-28 a Galaxy S23 on mobile
+data synced with a laptop on such a network this way, directly, through Funnel,
+with no relay. If a mobile network defeats it, the relay needs a server after
+all.
 
 ## The quick way
 

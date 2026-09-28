@@ -713,6 +713,15 @@ the phone on mobile data should be possible. A Cloudflare quick tunnel carried
 an introduction between two devices in 73 ms before being set aside for
 Funnel's fixed address.
 
+**Verified the same day, on hardware:** the Galaxy S23 with Wi-Fi off, on its
+mobile network, and the laptop on home Wi-Fi, with no relay configured
+anywhere. *Sync now* on the phone went through Funnel to the laptop's
+rendezvous service, and the laptop recorded reaching the phone at 13:27:51,
+13:27:53 and 13:28:39 — directly, since there was nothing else it could have
+gone through. What the phone's carrier does to connections is therefore no
+obstacle on this pair of networks; another carrier, or another home router,
+could differ, and that is what the relay on a server is for.
+
 **A server to try it on for free**: Oracle Cloud's Always Free tier, with the
 caveats in [the server guide](../../packaging/server/README.md#a-free-server-to-try-it-on).
 `packaging/server/deploy.sh user@host` sets one up from the laptop and checks it
