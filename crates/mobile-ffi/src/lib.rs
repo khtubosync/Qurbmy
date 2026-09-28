@@ -1133,7 +1133,10 @@ impl Qurb {
     pub fn conflicts(&self) -> Result<Vec<ConflictInfo>, QurbError> {
         let engine = self.engine()?;
         let store = engine.store();
-        let names = store.db().device_names()?;
+        let mut names = store.db().device_names()?;
+        // Its own versions too: a conflict is as often with itself as with
+        // the other device, and its id is not what anybody calls it.
+        names.insert(store.device_id()?, "this phone".into());
         let side = |v: qurb_storage::ConflictVersion| ConflictSide {
             by: v
                 .modified_by
@@ -1161,7 +1164,9 @@ impl Qurb {
             _ => return Err(QurbError::NotFound { detail: format!("keep this, other or both, not {keep}") }),
         };
         let mut engine = self.engine()?;
-        let names = engine.store().db().device_names()?;
+        let mut names = engine.store().db().device_names()?;
+        // In a file name, this phone by the name other devices know it by.
+        names.insert(engine.store().device_id()?, self.device_name.clone());
         let label = engine
             .store()
             .db()

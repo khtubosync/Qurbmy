@@ -1185,6 +1185,39 @@ Vault, and the rule file was counted in "of files".
 Not on the emulator: anything needing a second device to answer — a conflict
 arriving, a removal, the share sheet sending — and the real phone.
 
+## Checked between the Galaxy S23 and the laptop
+
+**2026-09-28, evening.** The new build installed over the old one on the S23,
+keeping its data; the index migrated to schema 15 and every file and the
+history were intact. Between the phone and the laptop, on home Wi-Fi:
+
+- **Sync** after the upgrade: the laptop reached the phone over the local
+  network at once.
+- **Wake tokens kept**: the phone's token was in the rendezvous service's
+  `wake-tokens.json` (mode 600) after its first sync, and the service could be
+  restarted without losing it.
+- **Recently deleted across devices**: a file deleted on the laptop went into
+  the phone's Recently deleted, "deleted on saqib just now"; restored from the
+  phone, it was back on the laptop two seconds later with its contents.
+- **A real conflict**: the same file edited on both before either saw the
+  other's change; both devices got both versions, the phone's Home showed the
+  card, and **Keep both** chosen on the phone gave both devices the two files,
+  the renamed one still shared — the fault the emulator found, fixed, holding.
+- **Pushes**: three changes on the laptop woke the idle phone within two to
+  three seconds, with the rendezvous service logging each push. Two earlier
+  changes, made 30–40 s after a sync from the phone, woke nothing, and the
+  service was not logging at debug then to say why; the service is left
+  logging pushes at debug (`RUST_LOG` in `~/.config/qurb/rendezvous.env`) so
+  the next miss says whether the service sent one.
+
+Found and fixed on the way: a conflict version the phone itself made was named
+by its id ("4b91ac75") rather than "this phone", and "Keep both" named the
+file "(other version)" rather than after the phone. The same on the desktop.
+
+Not checked on the phone: removing a device (it would have removed the
+laptop), the share sheet (it needs another app driven), and a pairing with the
+phone showing the code (the laptop is already paired).
+
 ## Deliberately left undone
 
 - **Keychain, on iOS.** The Android half is done and verified on a device —

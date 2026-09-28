@@ -1132,7 +1132,8 @@ pub struct Conflicted {
 pub fn conflicts(hosted: Host<'_>) -> Answer<Vec<Conflicted>> {
     hosted
         .with_store(|store| {
-            let names = store.db().device_names()?;
+            let mut names = store.db().device_names()?;
+            names.insert(store.device_id()?, "this computer".into());
             let side = |v: qurb_storage::ConflictVersion| Side {
                 by: v
                     .modified_by
@@ -1162,9 +1163,15 @@ pub fn settle_conflict(hosted: Host<'_>, other: String, keep: String) -> Answer<
         "both" => qurb_storage::Keep::Both,
         _ => return Err(format!("keep this, other or both, not {keep}")),
     };
+    let own_name = qurb_cli::Config::load(&qurb_cli::store_dir(&hosted.root()))
+        .map(|c| c.name)
+        .unwrap_or_default();
     let kept = hosted
         .with_store_mut(|store| {
-            let names = store.db().device_names()?;
+            let mut names = store.db().device_names()?;
+            if !own_name.is_empty() {
+                names.insert(store.device_id()?, own_name.clone());
+            }
             let label = store
                 .db()
                 .folder_row(&other)?

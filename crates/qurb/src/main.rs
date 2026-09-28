@@ -802,8 +802,9 @@ fn free(root: &Path, logical: &str) -> Result<()> {
 
 /// Files two devices changed without either seeing the other (brief §24).
 fn conflicts(root: &Path, rest: &[String]) -> Result<()> {
-    let (_, _, mut store, _) = open(root)?;
-    let names = store.db().device_names()?;
+    let (_, _, mut store, config) = open(root)?;
+    let mut names = store.db().device_names()?;
+    names.insert(store.device_id()?, config.name.clone());
     let who = |id: Option<qurb_sync::DeviceId>| -> String {
         id.map(|id| names.get(&id).cloned().unwrap_or_else(|| id.short()))
             .unwrap_or_else(|| "another device".into())
