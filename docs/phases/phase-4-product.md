@@ -722,6 +722,15 @@ gone through. What the phone's carrier does to connections is therefore no
 obstacle on this pair of networks; another carrier, or another home router,
 could differ, and that is what the relay on a server is for.
 
+**Push, the same way** (2026-09-28): `packaging/install-rendezvous.sh` builds
+qurb with the push feature, installs it as `qurb-rendezvous` so a plain build
+cannot replace it with one that refuses `--push`, and turns push on in the unit
+when the Firebase service account is present. The laptop's service started with
+it ("waking sleeping devices through Firebase project qurb-f05de"). Whether a
+change on the laptop wakes the idle phone through it is **not yet verified on
+hardware** — the phone has to sync once first, to give the restarted service
+its wake token.
+
 **A server to try it on for free**: Oracle Cloud's Always Free tier, with the
 caveats in [the server guide](../../packaging/server/README.md#a-free-server-to-try-it-on).
 `packaging/server/deploy.sh user@host` sets one up from the laptop and checks it

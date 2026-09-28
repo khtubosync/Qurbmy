@@ -2,14 +2,14 @@
 #
 # A user unit, started when you log in. For the arrangement where there is no
 # server: your phone can only sync with this computer while this computer is
-# on, so a rendezvous service that runs only while it is on costs nothing.
-# Listens on loopback only; something that terminates TLS gives it a public
-# address -- Tailscale Funnel, which keeps one address for good:
+# on, so a rendezvous service that runs only then costs nothing. Listens on
+# loopback only; Tailscale Funnel gives it a public address with TLS in front.
 #
-#   install -m644 packaging/qurb-rendezvous.service ~/.config/systemd/user/
-#   systemctl --user daemon-reload
-#   systemctl --user enable --now qurb-rendezvous
-#   tailscale funnel --bg 9000      # then the phone uses wss://<name>.ts.net
+# Installed by packaging/install-rendezvous.sh, which also builds the binary it
+# runs -- qurb with push, under its own name, so that no ordinary build or
+# install of qurb replaces it with one that refuses --push and stops this
+# service starting. Push is switched on in ~/.config/qurb/rendezvous.env, which
+# the same script writes when there is a Firebase key to use.
 #
 # The computer's own qurb uses signal = ws://localhost:9000.
 [Unit]
@@ -17,7 +17,8 @@ Description=qurb rendezvous service, for this computer's own devices
 Documentation=https://github.com/saqibsiddiq/Qurb/blob/main/packaging/server/README.md
 
 [Service]
-ExecStart=%h/.local/bin/qurb signal 127.0.0.1:9000
+EnvironmentFile=-%h/.config/qurb/rendezvous.env
+ExecStart=%h/.local/bin/qurb-rendezvous signal 127.0.0.1:9000 $PUSH
 Restart=always
 RestartSec=2
 

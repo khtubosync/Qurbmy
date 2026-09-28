@@ -35,14 +35,23 @@ public address that terminates TLS in front of it; two free ones, with no card:
   must follow.
 
 ```bash
-install -m644 packaging/qurb-rendezvous.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now qurb-rendezvous    # qurb signal 127.0.0.1:9000, at login
-tailscale funnel --bg 9000                       # the first time, approve Funnel for the tailnet
+packaging/install-rendezvous.sh      # qurb signal 127.0.0.1:9000, at login, with push if it can
+tailscale funnel --bg 9000           # the first time, approve Funnel for the tailnet
 qurb config ~/qurb signal=ws://localhost:9000
 ```
 
 and on the phone, Settings → Rendezvous service: `wss://<name>.<tailnet>.ts.net`.
+
+`install-rendezvous.sh` builds qurb with push and installs it as
+`~/.local/bin/qurb-rendezvous`, a name no ordinary build or install of qurb
+overwrites, and installs `packaging/qurb-rendezvous.service` to run it. Push is
+on when `~/.config/qurb/firebase.json` exists (the service account under
+[Waking sleeping phones](#waking-sleeping-phones)); the script writes
+`~/.config/qurb/rendezvous.env` accordingly, and says which. With push, a
+change on the computer wakes the phone to sync within seconds instead of at its
+next periodic pass. The service keeps wake tokens in memory, so after it
+restarts, the phone can be woken only once it has synced again and re-sent its
+token. `--uninstall` removes it all.
 
 **What this lacks is a relay.** Neither option carries the relay's raw TCP, so
 the phone and the computer have to reach each other directly. Whether they can
