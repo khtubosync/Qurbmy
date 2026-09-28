@@ -262,6 +262,16 @@ impl PeerClient {
         self.connection.close(0u32.into(), b"done");
         self.endpoint.close(0u32.into(), b"done");
     }
+
+    /// Close this connection and nothing else.
+    ///
+    /// [`close`](Self::close) also closes the endpoint, which is right for a
+    /// client that owns one and wrong for the connector's, which every other
+    /// connection shares: closing that because one device was removed would
+    /// take the rest down with it.
+    pub fn disconnect(&self, why: &str) {
+        self.connection.close(0u32.into(), why.as_bytes());
+    }
 }
 
 fn unexpected(wanted: &str, got: &Response) -> Error {

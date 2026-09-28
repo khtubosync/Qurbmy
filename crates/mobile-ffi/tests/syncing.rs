@@ -843,3 +843,40 @@ fn a_share_made_while_the_desktop_is_off_arrives_when_it_returns() {
         phone.outstanding().unwrap().files
     );
 }
+
+/// Removing a device from the phone: trust ends here, and if it was the
+/// device keeping the phone's own files, the question says so first.
+#[test]
+fn a_phone_removes_a_device_that_kept_its_files() {
+    let _sharing = ALONE.read().unwrap_or_else(|e| e.into_inner());
+    let (_runtime, signal) = signalling();
+    let desktop_dir = tempfile::tempdir().unwrap();
+    let phone_dir = tempfile::tempdir().unwrap();
+    let setup = create(desktop_dir.path().display().to_string()).unwrap();
+    restore(phone_dir.path().display().to_string(), setup.recovery_phrase.clone()).unwrap();
+    let desktop =
+        Qurb::open_with(desktop_dir.path().display().to_string(), None, settings("desktop", &signal))
+            .unwrap();
+    let phone =
+        Qurb::open_with(phone_dir.path().display().to_string(), None, settings("phone", &signal))
+            .unwrap();
+
+    let offer = desktop.offer_pairing().unwrap();
+    let code = offer.code();
+    let waiting = std::thread::spawn(move || offer.wait());
+    phone.join_pairing(code).unwrap();
+    waiting.join().unwrap().unwrap();
+
+    let laptop = phone.peers().unwrap().remove(0);
+    phone.add_holder(laptop.fingerprint.clone()).unwrap();
+
+    let plan = phone.removal_plan(laptop.fingerprint.clone()).unwrap();
+    assert!(plan.holds_ours, "the question must say it kept this phone's files");
+    assert_eq!((plan.waiting, plan.kept), (0, 0));
+
+    phone.remove_device(laptop.fingerprint.clone(), false).unwrap();
+    assert!(phone.peers().unwrap().is_empty());
+    assert!(phone.holders().unwrap().is_empty());
+    let last = phone.history(1, None).unwrap().remove(0);
+    assert_eq!((last.kind.as_str(), last.device.as_deref()), ("removed", Some("desktop")));
+}

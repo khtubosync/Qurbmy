@@ -19,7 +19,7 @@ a device up in the first place:
 |---|---|
 | Home | is it working, how many devices, what moved lately, what is still on its way |
 | Files | what is in the folder and **where each file's contents actually are** |
-| Devices | who is paired, whether each is connected now — directly or through the encrypted relay — and pairing with another: show a code or enter one |
+| Devices | who is paired, whether each is connected now — directly or through the encrypted relay — pairing with another (show a code or enter one), and removing one, after saying what that does ([0041](../../docs/decisions/0041-removing-a-device.md)) |
 | Activity | what this device did — the answer to "why is my file not here?" |
 | Storage | what qurb costs on this disk, and the allowance |
 | Send | a file to one device, by dropping it on the window or choosing one |

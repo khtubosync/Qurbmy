@@ -477,3 +477,19 @@ button.primary:disabled { opacity: .45; cursor: default; filter: none; }
 .rows li.pickable:hover { background: var(--panel); }
 .rows li.pickable[aria-disabled="true"] { cursor: default; opacity: .5; }
 .rows li.pickable[aria-disabled="true"]:hover { background: none; }
+
+/* Asking before something that cannot be undone from this computer alone:
+ * removing a device. Set apart from the details around it, and the one
+ * button in the window coloured as a warning. */
+.confirm {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line));
+  border-radius: var(--radius);
+  background: var(--panel);
+  max-width: 60ch;
+}
+.confirm p { margin: 0 0 8px; }
+.confirm .strong { font-weight: 600; }
+.confirm .check { display: block; margin: 8px 0; }
+button.primary.danger { background: var(--warn); border-color: var(--warn); }

@@ -1049,6 +1049,35 @@ impl Qurb {
         Ok(())
     }
 
+    /// What removing a paired device would do here, for the question asked
+    /// before doing it. See [`qurb_storage::Store::removal_plan`].
+    pub fn removal_plan(&self, fingerprint: String) -> Result<Removal, QurbError> {
+        let device = self.device_of(&fingerprint)?;
+        let plan = self.engine()?.store().removal_plan(&device)?;
+        Ok(Removal {
+            waiting: plan.waiting.len() as u32,
+            kept: plan.kept_for_it.len() as u32,
+            kept_bytes: plan.kept_for_it.iter().map(|(_, size)| size).sum(),
+            only_there: plan.only_there,
+            holds_ours: plan.holds_ours,
+        })
+    }
+
+    /// Stop trusting a paired device: from the next sync it cannot connect to
+    /// this phone or sync with it. It keeps its key and everything on it. See
+    /// [`qurb_storage::Store::remove_device`].
+    pub fn remove_device(&self, fingerprint: String, delete_kept: bool) -> Result<(), QurbError> {
+        let device = self.device_of(&fingerprint)?;
+        let name = self
+            .peers()?
+            .into_iter()
+            .find(|p| p.fingerprint == fingerprint)
+            .map(|p| p.name)
+            .unwrap_or_default();
+        self.engine()?.store_mut().remove_device(&device, &name, delete_kept)?;
+        Ok(())
+    }
+
     /// Send a file to one device and to nobody else, under `name`.
     ///
     /// `source` is a file on this phone: something in the folder, or a copy
@@ -1094,7 +1123,7 @@ impl Qurb {
 
     /// What happened, newest first. `before` pages backwards by id.
     pub fn history(&self, limit: u32, before: Option<i64>) -> Result<Vec<Happening>, QurbError> {
-        let peers = self.engine()?.store().db().trusted_peers()?;
+        let names = self.engine()?.store().db().device_names()?;
         let rows = self.engine()?.store().db().activity(limit as usize, before)?;
         Ok(rows
             .into_iter()
@@ -1104,13 +1133,8 @@ impl Qurb {
                 kind: r.kind.as_str().to_string(),
                 path: r.path,
                 size: r.size,
-                device: r.device.map(|id| {
-                    peers
-                        .iter()
-                        .find(|p| p.device_id == id)
-                        .map(|p| p.name.clone())
-                        .unwrap_or_else(|| id.short())
-                }),
+                // A device since removed is named as it was when it was here.
+                device: r.device.map(|id| names.get(&id).cloned().unwrap_or_else(|| id.short())),
                 detail: r.detail,
             })
             .collect())
@@ -1286,6 +1310,8 @@ impl Qurb {
         // window that closes before the phone could reach anybody is every
         // device unreachable, not a pass with work left over. See
         // `SyncOutcome::timed_out` for why the difference matters.
+        // For the handshake and, again, for every request served this pass.
+        let trust = qurb_peer::tls::TrustList::new(peers.clone());
         let started_connector = runtime.block_on(async {
             tokio::time::timeout(
                 budget,
@@ -1293,7 +1319,7 @@ impl Qurb {
                     format!("0.0.0.0:{}", self.port).parse().expect("a literal address"),
                     identity,
                     self.master.clone(),
-                    &qurb_peer::tls::TrustList::new(peers.clone()),
+                    &trust,
                     self.signal_url.clone(),
                     // Beacons only when this pass is allowed to look around at
                     // all. A phone syncing in a background window on a carrier
@@ -1345,14 +1371,18 @@ impl Qurb {
         {
             let store = Arc::clone(&served);
             let generation = Arc::clone(&generation);
+            let trust = trust.clone();
             accepting.push(runtime.spawn(async move {
                 while let Some(incoming) = endpoint.accept().await {
                     let store = Arc::clone(&store);
                     let generation = Arc::clone(&generation);
+                    let trust = trust.clone();
                     tokio::spawn(async move {
                         if let Ok(connection) = incoming.await {
-                            qurb_peer::server::serve_connection(connection, store, generation)
-                                .await;
+                            qurb_peer::server::serve_connection(
+                                connection, store, generation, &trust,
+                            )
+                            .await;
                         }
                     });
                 }
@@ -1649,6 +1679,21 @@ pub struct PeerInfo {
     /// Unix seconds.
     pub paired_at: i64,
     pub last_seen: Option<i64>,
+}
+
+/// What removing a device would do. See [`Qurb::removal_plan`].
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct Removal {
+    /// Sends it has not collected, which removing it cancels.
+    pub waiting: u32,
+    /// Files this phone keeps for it, and their total size.
+    pub kept: u32,
+    pub kept_bytes: u64,
+    /// Files freed from this phone that only it keeps: once it is removed
+    /// they cannot be fetched back.
+    pub only_there: Vec<String>,
+    /// Whether it keeps this phone's own files.
+    pub holds_ours: bool,
 }
 
 /// What a sync pass did.

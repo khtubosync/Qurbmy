@@ -35,6 +35,9 @@ qurb — private cloud storage
                                         device keeps; `fetch` brings it back
   qurb holders [dir] [add|remove <device>]
                                       the devices that keep this one's own files
+  qurb remove-device [dir] <device> [--delete-kept] [--yes]
+                                      stop trusting a paired device; says what
+                                        that does first, and does it with --yes
   qurb activity [dir] [path]          what happened, newest first
   qurb ls [dir] [path]                what this folder holds, and where
   qurb find [dir] <text>              files whose name contains something
@@ -172,6 +175,21 @@ fn run() -> Result<()> {
                 _ => (qurb_cli::profiles::current().context("no folder is set up yet")?, rest),
             };
             holders(&root, rest)
+        }
+        "remove-device" => {
+            // `qurb remove-device phone`, the folder optionally first, flags
+            // anywhere.
+            let rest = &args[1..];
+            let flag = |name: &str| rest.iter().any(|a| a == name);
+            let words: Vec<&String> = rest.iter().filter(|a| !a.starts_with("--")).collect();
+            let (root, device) = match words.as_slice() {
+                [dir, device] => (PathBuf::from(dir), device.as_str()),
+                [device] => {
+                    (qurb_cli::profiles::current().context("no folder is set up yet")?, device.as_str())
+                }
+                _ => bail!("qurb remove-device [dir] <device> [--delete-kept] [--yes]"),
+            };
+            remove_device(&root, device, flag("--delete-kept"), flag("--yes"))
         }
         "cancel" => {
             // `qurb cancel report.pdf to laptop`: the name as `qurb send`
@@ -750,6 +768,76 @@ fn holders(root: &Path, rest: &[String]) -> Result<()> {
             Ok(())
         }
         _ => bail!("qurb holders [dir] [add|remove <device>]"),
+    }
+}
+
+/// Say what removing a device does, then -- with `--yes` -- do it.
+///
+/// Said first because two of its consequences cannot be undone from here: a
+/// file freed on the strength of a copy that device keeps has nowhere else to
+/// come back from, and what this device keeps for it may be its only backup.
+fn remove_device(root: &Path, text: &str, delete_kept: bool, yes: bool) -> Result<()> {
+    let (_, _, mut store, _) = open(root)?;
+    let device = match qurb_cli::View::new(&store, 0).device_named(text)? {
+        qurb_cli::Recipient::One(device) => device,
+        _ => bail!("no single paired device called {text} — see `qurb status`"),
+    };
+    let plan = store.removal_plan(&device.id)?;
+
+    println!("Removing {} stops this device trusting it: it can no longer connect", device.name);
+    println!("here or sync with this device. It keeps its key and everything already");
+    println!("on it — removing it deletes nothing there.");
+    if !plan.waiting.is_empty() {
+        println!("
+  {} waiting for it to collect will be cancelled.", files(plan.waiting.len()));
+    }
+    if !plan.kept_for_it.is_empty() {
+        let bytes: u64 = plan.kept_for_it.iter().map(|(_, size)| size).sum();
+        let what = files(plan.kept_for_it.len());
+        match delete_kept {
+            true => println!("
+  {what} this device keeps for it ({}) will be deleted.", human(bytes)),
+            false => println!(
+                "
+  {what} this device keeps for it ({}) stay; --delete-kept deletes them.",
+                human(bytes)
+            ),
+        }
+    }
+    if plan.holds_ours {
+        println!("
+  It keeps this device's own files; after this, it no longer will.");
+    }
+    if !plan.only_there.is_empty() {
+        println!(
+            "
+  {} freed here are kept only on {} and could not be fetched back:",
+            files(plan.only_there.len()),
+            device.name
+        );
+        for path in plan.only_there.iter().take(10) {
+            println!("    {path}");
+        }
+        println!("  `qurb fetch` them first to keep them.");
+    }
+    println!("
+Only here: your other devices go on trusting it until it is removed there too.");
+
+    if !yes {
+        println!("
+Run again with --yes to remove it.");
+        return Ok(());
+    }
+    store.remove_device(&device.id, &device.name, delete_kept)?;
+    println!("
+{} removed.", device.name);
+    Ok(())
+}
+
+fn files(n: usize) -> String {
+    match n {
+        1 => "1 file".into(),
+        n => format!("{n} files"),
     }
 }
 

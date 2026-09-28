@@ -118,6 +118,8 @@ fn run() -> Result<()> {
             commands::situation,
             commands::send_files,
             commands::cancel_send,
+            commands::removal_plan,
+            commands::remove_device,
             commands::open_downloads,
             commands::show_received,
             commands::start_pairing,

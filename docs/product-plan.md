@@ -242,7 +242,14 @@ terminal:
 - **The applications menu opens the window** (§42, §69)
   ([0040](decisions/0040-the-menu-opens-the-window.md)).
 
-Still as the inventory says: removing a device, conflicts, a passphrase in the
+Since 2026-09-28:
+
+- **Removing a device** (§35, §62): on the Devices screen of both, and
+  `qurb remove-device`, saying first what it does and does not do —
+  [0041](decisions/0041-removing-a-device.md). Two faults found building it
+  would have left a removed device syncing; both fixed and tested.
+
+Still as the inventory says: conflicts, a passphrase in the
 window, selective sync, a replica freeing space, sharing, vault operations
 beyond delivery, a query for conflicts, and everything in §2.4–§2.6.
 

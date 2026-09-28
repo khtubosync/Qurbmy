@@ -90,6 +90,7 @@ object Words {
             "restored" -> "Downloaded $what again"
             "conflicted" -> "Two devices changed $what"
             "paired" -> "Connected to $what"
+            "removed" -> "Removed $what from this phone"
             "cancelled" -> "Stopped sending $what"
             "failed" -> "Could not finish $what"
             else -> what.ifEmpty { h.kind }

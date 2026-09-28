@@ -848,7 +848,7 @@ pub fn activity(
                 Some(path) => view.history_of(path, limit.min(200))?,
                 None => view.activity(limit.min(200), before)?,
             };
-            Ok((rows, view.devices()?))
+            Ok((rows, store.db().device_names()?))
         })
         .map_err(failed)?;
     Ok(rows
@@ -859,14 +859,8 @@ pub fn activity(
             kind: r.kind.as_str().to_string(),
             path: r.path,
             size: r.size.map(big),
-            device: r.device.map(|id| {
-                named
-                    .iter()
-                    .find(|d| d.id == id)
-                    .map(|d| d.name.clone())
-                    // A device that has since been forgotten still happened.
-                    .unwrap_or_else(|| id.short())
-            }),
+            // A device since removed is named as it was when it was here.
+            device: r.device.map(|id| named.get(&id).cloned().unwrap_or_else(|| id.short())),
             detail: r.detail,
         })
         .collect())
@@ -904,16 +898,65 @@ pub fn outgoing(hosted: Host<'_>) -> Answer<Vec<Outgoing>> {
 /// [`qurb_storage::Store::cancel_send`].
 #[tauri::command]
 pub fn cancel_send(hosted: Host<'_>, path: String, to: String) -> Answer<()> {
-    let device = match hosted
-        .with_store(|store| Ok(View::new(store, 0).device_named(&to)?))
-        .map_err(failed)?
-    {
-        qurb_cli::Recipient::One(device) => device,
-        _ => return Err(format!("no paired device {to}")),
-    };
+    let device = paired_device(&hosted, &to)?;
     hosted
         .with_store_mut(|store| Ok(store.cancel_send(&path, &device.id)?))
         .map_err(failed)
+}
+
+/// What removing a device would do, for the question asked before doing it.
+#[derive(Serialize)]
+pub struct Removal {
+    name: String,
+    /// Sends it has not collected, which removal cancels.
+    waiting: usize,
+    /// Files this device keeps for it, and their total size.
+    kept: usize,
+    kept_bytes: String,
+    /// Files freed here that only it keeps: removing it leaves them nowhere to
+    /// come back from.
+    only_there: Vec<String>,
+    /// Whether it keeps this device's own files.
+    holds_ours: bool,
+}
+
+fn paired_device(hosted: &Host<'_>, text: &str) -> Answer<qurb_cli::Device> {
+    match hosted
+        .with_store(|store| Ok(View::new(store, 0).device_named(text)?))
+        .map_err(failed)?
+    {
+        qurb_cli::Recipient::One(device) => Ok(device),
+        _ => Err(format!("no paired device {text}")),
+    }
+}
+
+#[tauri::command]
+pub fn removal_plan(hosted: Host<'_>, device: String) -> Answer<Removal> {
+    let device = paired_device(&hosted, &device)?;
+    let plan = hosted.with_store(|store| Ok(store.removal_plan(&device.id)?)).map_err(failed)?;
+    Ok(Removal {
+        name: device.name,
+        waiting: plan.waiting.len(),
+        kept: plan.kept_for_it.len(),
+        kept_bytes: big(plan.kept_for_it.iter().map(|(_, size)| size).sum()),
+        only_there: plan.only_there,
+        holds_ours: plan.holds_ours,
+    })
+}
+
+/// Stop trusting a device. See [`qurb_storage::Store::remove_device`] for
+/// what that does and does not do.
+///
+/// The daemon is told at once, so its connection to the device closes now
+/// rather than at the next check of the trust store.
+#[tauri::command]
+pub fn remove_device(hosted: Host<'_>, device: String, delete_kept: bool) -> Answer<()> {
+    let device = paired_device(&hosted, &device)?;
+    hosted
+        .with_store_mut(|store| Ok(store.remove_device(&device.id, &device.name, delete_kept)?))
+        .map_err(failed)?;
+    hosted.nudge();
+    Ok(())
 }
 
 /// Ask for a file whose local copy was dropped.

@@ -456,23 +456,27 @@ impl Daemon {
             let store = Arc::clone(&served);
             let generation = Arc::clone(&generation);
             let sending = sending.clone();
+            let trust = trust.clone();
             tokio::spawn(async move {
                 while let Some(incoming) = endpoint.accept().await {
                     let store = Arc::clone(&store);
                     let generation = Arc::clone(&generation);
                     let sending = sending.clone();
+                    let trust = trust.clone();
                     tokio::spawn(async move {
                         let Ok(connection) = incoming.await else { return };
                         match sending {
                             Some(watcher) => {
                                 qurb_peer::server::serve_connection_watched(
-                                    connection, store, generation, watcher,
+                                    connection, store, generation, watcher, &trust,
                                 )
                                 .await
                             }
                             None => {
-                                qurb_peer::server::serve_connection(connection, store, generation)
-                                    .await
+                                qurb_peer::server::serve_connection(
+                                    connection, store, generation, &trust,
+                                )
+                                .await
                             }
                         }
                     });
@@ -618,6 +622,11 @@ impl Daemon {
                 // A peer said it changed. This is how news travels now; the
                 // timer above is only the backstop.
                 peer = peers.next_change() => {
+                    // A watcher started before its device was removed may
+                    // report once more before its connection closes.
+                    if !peers.knows(&peer) {
+                        continue;
+                    }
                     tracing::debug!(peer = %peer.short(), "peer reports a change");
                     self.sync_all(&mut engine, &connector, &mut peers, &generation).await;
                 }
@@ -659,10 +668,18 @@ impl Daemon {
 
         let added: Vec<Fingerprint> =
             current.iter().copied().filter(|f| !peers.knows(f)).collect();
+        let removed: Vec<Fingerprint> =
+            peers.known.iter().copied().filter(|f| !current.contains(f)).collect();
 
-        if !added.is_empty() {
+        // Removals too, not only additions: a device removed from the trust
+        // store and still in `known` would go on being dialled and synced with
+        // by this device, however firmly the listener refused it.
+        if !added.is_empty() || !removed.is_empty() {
             for peer in &added {
                 tracing::info!(peer = %peer.short(), "a new device was paired");
+            }
+            for peer in &removed {
+                tracing::info!(peer = %peer.short(), "a device was removed");
             }
             peers.learn(&current);
             self.report(|status| {
@@ -1102,8 +1119,18 @@ impl Peers {
     /// point the connection happens to fail.
     fn learn(&mut self, current: &[Fingerprint]) {
         self.known = current.to_vec();
-        self.connections.retain(|peer, _| current.contains(peer));
+        // Closed, not only dropped: the peer's watcher holds a reference of its
+        // own, so dropping this one would leave the connection open.
+        self.connections.retain(|peer, client| {
+            let trusted = current.contains(peer);
+            if !trusted {
+                client.disconnect("no longer trusted");
+            }
+            trusted
+        });
+        self.watching.retain(|peer| current.contains(peer));
         self.backoff.retain(|peer, _| current.contains(peer));
+        self.announced.retain(|peer| current.contains(peer));
     }
 
     /// Forget any waiting period for this peer.
@@ -1365,6 +1392,47 @@ mod tests {
         assert_eq!(shown.len(), 1);
         assert_eq!((shown[0].path.as_str(), shown[0].device.as_str()), ("video.mp4", "phone"));
         assert_eq!((shown[0].size, shown[0].done), (600_000, total));
+    }
+
+    /// A device removed from the trust store is let go of: its connection
+    /// closed, not merely forgotten -- the peer's watcher holds a reference of
+    /// its own, and a connection kept open by it would keep syncing.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_removed_device_is_disconnected() {
+        let dir = tempfile::tempdir().unwrap();
+        let (server_dir, client_dir) = (dir.path().join("server"), dir.path().join("client"));
+        std::fs::create_dir_all(&server_dir).unwrap();
+        std::fs::create_dir_all(&client_dir).unwrap();
+        let server_id = Identity::load_or_create(&server_dir).unwrap();
+        let client_id = Identity::load_or_create(&client_dir).unwrap();
+        let store = qurb_storage::Store::open(
+            &server_dir.join("store"),
+            qurb_storage::ChunkKey::from_bytes([6; 32]),
+        )
+        .unwrap();
+        let server = qurb_peer::PeerServer::bind(
+            "127.0.0.1:0".parse().unwrap(),
+            &server_id,
+            &qurb_peer::tls::TrustList::new(vec![client_id.fingerprint()]),
+        )
+        .unwrap();
+        let addr = server.local_addr().unwrap();
+        tokio::spawn(async move { server.serve(Arc::new(Mutex::new(store))).await });
+
+        let peer = server_id.fingerprint();
+        let client = Arc::new(PeerClient::connect(addr, &client_id, peer).await.unwrap());
+        let mut peers = Peers::new(vec![peer]);
+        peers.connected(peer, Arc::clone(&client));
+        peers.watch(peer, Arc::clone(&client));
+
+        peers.learn(&[]);
+        assert!(!peers.knows(&peer));
+        assert!(peers.links().is_empty());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !client.is_closed() {
+            assert!(std::time::Instant::now() < deadline, "the connection was left open");
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
     }
 
     /// A device shown as connected is one a connection is actually held to,

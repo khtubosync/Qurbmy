@@ -1953,11 +1953,94 @@ impl Db {
             .map_err(Into::into)
     }
 
+    /// Stop trusting `device`, and stop counting on it for anything.
+    ///
+    /// More than the trust row, because other tables go on promising things
+    /// about a device after it stops being one this device will talk to:
+    ///
+    /// - `holders`: it no longer keeps this device's own vault.
+    /// - `replicas`: every copy it was known to hold becomes one this device
+    ///   cannot ask for -- the meaning `private` already has. Left counting as
+    ///   an ordinary copy, it would let freeing space drop a file whose only
+    ///   other copy is on a device nothing will connect to again. Marked rather
+    ///   than deleted, because the same rows are what say a send was
+    ///   collected, and a collected send must not reappear as waiting.
+    /// - `reported`: what it was told this device holds; told again if it is
+    ///   ever paired again.
+    ///
+    /// Returns whether it was trusted.
     pub fn forget_peer(&self, device: &DeviceId) -> Result<bool> {
-        let n = self
-            .conn
-            .execute("DELETE FROM peers WHERE device_id = ?1", params![device.as_bytes().as_slice()])?;
+        let id = device.as_bytes().as_slice();
+        let tx = self.conn.unchecked_transaction()?;
+        let n = tx.execute("DELETE FROM peers WHERE device_id = ?1", params![id])?;
+        tx.execute("DELETE FROM holders WHERE device_id = ?1", params![id])?;
+        tx.execute("UPDATE replicas SET private = 1 WHERE device_id = ?1", params![id])?;
+        tx.execute("DELETE FROM reported WHERE device_id = ?1", params![id])?;
+        tx.commit()?;
         Ok(n > 0)
+    }
+
+    /// A name for every device this one has known: a trusted one by the name
+    /// it has now, and one since removed by the name history recorded when it
+    /// was paired or removed.
+    ///
+    /// History is kept about devices that may no longer be paired, and a
+    /// short id is not what anybody called them.
+    pub fn device_names(&self) -> Result<std::collections::HashMap<DeviceId, String>> {
+        let mut names = std::collections::HashMap::new();
+        let mut stmt = self.conn.prepare(
+            "SELECT device, detail FROM activity
+              WHERE kind IN ('paired', 'removed') AND device IS NOT NULL AND detail IS NOT NULL
+              ORDER BY id",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, String>(1)?)))?;
+        for row in rows {
+            let (raw, name) = row?;
+            if let Some(id) = to_device(raw) {
+                names.insert(id, name);
+            }
+        }
+        for peer in self.trusted_peers()? {
+            names.insert(peer.device_id, peer.name);
+        }
+        Ok(names)
+    }
+
+    /// Files freed here whose only other known copy is on `device`.
+    ///
+    /// Asked before removing it: once removed, these have nowhere to come back
+    /// from.
+    pub fn only_kept_by(&self, device: &DeviceId) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT f.path FROM files f
+              WHERE f.deleted_at IS NULL
+                AND f.materialised = 0
+                AND (f.scope IS NULL OR f.scope = (SELECT device_id FROM local WHERE id = 1))
+                AND EXISTS (SELECT 1 FROM replicas r
+                             WHERE r.content_hash = f.content_hash
+                               AND r.device_id = ?1 AND r.private = 0)
+                AND NOT EXISTS (SELECT 1 FROM replicas r
+                                 WHERE r.content_hash = f.content_hash
+                                   AND r.device_id != ?1 AND r.private = 0)
+              ORDER BY f.path",
+        )?;
+        let rows = stmt.query_map(params![device.as_bytes().as_slice()], |r| r.get(0))?;
+        rows.collect::<std::result::Result<_, _>>().map_err(Into::into)
+    }
+
+    /// What is filed in `device`'s vault here, live: each path, its size, and
+    /// whether it is that device's own file kept for it (`true`) rather than
+    /// one this device sent it.
+    pub fn vault_contents(&self, device: &DeviceId) -> Result<Vec<(String, u64, bool)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT path, size, held FROM files
+              WHERE scope = ?1 AND deleted_at IS NULL
+              ORDER BY path",
+        )?;
+        let rows = stmt.query_map(params![device.as_bytes().as_slice()], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u64, r.get::<_, i64>(2)? != 0))
+        })?;
+        rows.collect::<std::result::Result<_, _>>().map_err(Into::into)
     }
 
     pub fn mark_peer_seen(&self, fingerprint: &[u8; 32]) -> Result<()> {
@@ -2298,6 +2381,8 @@ pub enum Event {
     Failed,
     /// A send was taken back before the other device collected it.
     Cancelled,
+    /// A device stopped being trusted here.
+    Removed,
     /// Written by a build that knew a kind this one does not.
     Other(String),
 }
@@ -2316,6 +2401,7 @@ impl Event {
             Event::Paired => "paired",
             Event::Failed => "failed",
             Event::Cancelled => "cancelled",
+            Event::Removed => "removed",
             Event::Other(word) => word,
         }
     }
@@ -2333,6 +2419,7 @@ impl Event {
             "paired" => Event::Paired,
             "failed" => Event::Failed,
             "cancelled" => Event::Cancelled,
+            "removed" => Event::Removed,
             other => Event::Other(other.to_string()),
         }
     }

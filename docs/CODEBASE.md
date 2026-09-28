@@ -529,7 +529,8 @@ qurb/
 │   │   │                    run the same one the terminal does
 │   │   ├── src/main.rs      init, enrol, pair, join, run, replica, status,
 │   │   │                    verify, reclaim, fetch, free, send, cancel,
-│   │   │                    holders, activity, ls, find, config, protect
+│   │   │                    holders, remove-device, activity, ls, find,
+│   │   │                    config, protect
 │   │   ├── src/daemon.rs    watch, apply, sync, collect, stay under the limit
 │   │   ├── src/lock.rs      one daemon per folder, enforced not assumed
 │   │   ├── src/profiles.rs  which folders exist, so commands need no path
@@ -650,6 +651,7 @@ product around it largely is not.
 | Sending to one device | `qurb send <files and folders> to <device>`; held until collected, released first afterwards |
 | Receiving on a desktop | saved to `Downloads/qurb` as an ordinary file; overlap with the folder refused |
 | Deliveries remembered | a `taken` record per delivery, never expired, so nothing is taken twice |
+| Removing a device | `Store::remove_device`: trust ends here, waiting sends cancelled, its copies stop counting as copies, what is kept for it stays unless asked; trust asked per request, not only at the handshake — [0041](decisions/0041-removing-a-device.md) |
 
 ### Built and tested (`crates/watcher`, Phase 1)
 
@@ -723,7 +725,7 @@ for the workspace as it stands.
 | Recovery, end to end | the phrase turns back into the user's files |
 | Key hygiene | redacted in `Debug`, wiped on drop, owner-only on disk |
 
-696 tests pass in 81 test binaries on Linux (2026-09-28, debug build, the
+708 tests pass in 82 test binaries on Linux (2026-09-28, debug build, the
 development laptop); clippy is clean. The last run on
 a Galaxy S23 was 426 of them, before this week's work — see
 [phases/phase-5-mobile.md](phases/phase-5-mobile.md).

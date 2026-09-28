@@ -31,6 +31,8 @@ pub trait Served: Send + Sync {
 pub struct PeerServer {
     endpoint: quinn::Endpoint,
     stats: Arc<ServerStats>,
+    /// The same live list the handshake checks, asked again per request.
+    trust: crate::tls::TrustList,
 }
 
 /// How far this device's state has got.
@@ -123,7 +125,7 @@ impl PeerServer {
         let config = tls::server_config(identity, allowed)?;
         let endpoint = quinn::Endpoint::server(config, addr)
             .map_err(|e| Error::Io { path: addr.to_string().into(), source: e })?;
-        Ok(Self { endpoint, stats: Arc::new(ServerStats::default()) })
+        Ok(Self { endpoint, stats: Arc::new(ServerStats::default()), trust: allowed.clone() })
     }
 
     /// Counters, shareable with whoever wants to watch.
@@ -172,12 +174,20 @@ impl PeerServer {
             let store = Arc::clone(&store);
             let stats = Arc::clone(&self.stats);
             let generation = Arc::clone(&generation);
+            let trust = self.trust.clone();
             tokio::spawn(async move {
                 match incoming.await {
                     Ok(connection) => {
                         tracing::debug!(peer = %connection.remote_address(), "peer connected");
-                        serve_connection_inner(connection, store, stats, generation, None)
-                            .await;
+                        serve_connection_inner(
+                            connection,
+                            store,
+                            stats,
+                            generation,
+                            None,
+                            Some(trust),
+                        )
+                        .await;
                     }
                     // A failed handshake is the normal outcome for an
                     // unrecognised peer, and is not worth more than a debug line.
@@ -213,18 +223,28 @@ pub async fn serve_connection_for_test(connection: quinn::Connection, store: Arc
         Arc::new(ServerStats::default()),
         Generation::new(),
         None,
+        None,
     )
     .await
 }
 
-/// Serve one connection, telling peers about changes to `generation`.
+/// Serve one connection, telling peers about changes to `generation`, for as
+/// long as the device at the other end is in `trust`.
 pub async fn serve_connection(
     connection: quinn::Connection,
     store: Arc<Mutex<Store>>,
     generation: Arc<Generation>,
+    trust: &crate::tls::TrustList,
 ) {
-    serve_connection_inner(connection, store, Arc::new(ServerStats::default()), generation, None)
-        .await
+    serve_connection_inner(
+        connection,
+        store,
+        Arc::new(ServerStats::default()),
+        generation,
+        None,
+        Some(trust.clone()),
+    )
+    .await
 }
 
 /// The same, telling `watcher` about every chunk served.
@@ -233,6 +253,7 @@ pub async fn serve_connection_watched(
     store: Arc<Mutex<Store>>,
     generation: Arc<Generation>,
     watcher: Arc<dyn Served>,
+    trust: &crate::tls::TrustList,
 ) {
     serve_connection_inner(
         connection,
@@ -240,6 +261,7 @@ pub async fn serve_connection_watched(
         Arc::new(ServerStats::default()),
         generation,
         Some(watcher),
+        Some(trust.clone()),
     )
     .await
 }
@@ -250,6 +272,7 @@ async fn serve_connection_inner(
     stats: Arc<ServerStats>,
     generation: Arc<Generation>,
     watcher: Option<Arc<dyn Served>>,
+    trust: Option<crate::tls::TrustList>,
 ) {
     // One request per bidirectional stream, served concurrently. This is the
     // property QUIC was chosen for: a large chunk in flight does not hold up
@@ -261,6 +284,18 @@ async fn serve_connection_inner(
     let asker = fingerprint_of(&connection);
 
     while let Ok((send, recv)) = connection.accept_bi().await {
+        // Trust is asked again for every request, not only at the handshake.
+        // A device removed while it was connected must stop being answered
+        // now, not whenever its connection happens to end -- which for a
+        // device that keeps one open could be never. A long wait for changes
+        // already in progress still finishes, within its ninety seconds; what
+        // follows it is refused.
+        if let (Some(trust), Some(asker)) = (&trust, asker) {
+            if !trust.contains(&asker) {
+                connection.close(0u32.into(), b"no longer trusted");
+                break;
+            }
+        }
         let store = Arc::clone(&store);
         let stats = Arc::clone(&stats);
         let generation = Arc::clone(&generation);

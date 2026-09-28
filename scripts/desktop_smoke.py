@@ -11,6 +11,7 @@ What it does, in the real application with the real engine behind it:
 3. Shows a pairing code, and has a second device (the command line, enrolled
    with the same words) join with it.
 4. Sends that device a file.
+5. Removes that device, from its details, answering the question.
 
 It fails if any command the window calls returns an error, whichever step
 called it, or if a step does not reach the state it should. It checks that
@@ -159,6 +160,27 @@ def send(window, device):
         "return document.getElementById('transfers').textContent.includes('to-send.txt')")
 
 
+def remove(window, device):
+    """Remove the paired device through its details, and see it gone.
+
+    The file sent to it was never collected -- the other device is a command
+    line that never ran -- so the question must say a send will be cancelled.
+    """
+    window.js("document.querySelector('#tabs [data-screen=devices]').click()")
+    window.until("the device listed", "return document.querySelector('#device-list details')")
+    window.js("""const d = document.querySelector('#device-list details'); d.open = true;
+                 [...d.querySelectorAll('button')].find(b => b.textContent.startsWith('Remove')).click();""")
+    said = window.until("the question", "const c = document.querySelector('.confirm'); return c && c.textContent")
+    assert f"Remove {device}?" in said, said
+    assert "1 file waiting for it to collect will be cancelled" in said, said
+    window.js("[...document.querySelectorAll('.confirm button')].find(b => b.textContent === 'Remove device').click()")
+    window.until("the device gone",
+        "return document.getElementById('device-list').textContent.includes('no paired devices yet')")
+    window.js("document.querySelector('#tabs [data-screen=transfers]').click()")
+    window.until("the send no longer waiting",
+        "return !document.getElementById('transfers').textContent.includes('waiting for')" )
+
+
 def main():
     window = Window()
     failures = []
@@ -176,6 +198,8 @@ def main():
         device = named.split(" (")[0]
         send(window, device)
         print(f"sent a file to {device}")
+        remove(window, device)
+        print(f"removed {device}, and its waiting send with it")
         ok = True
     except Exception:
         try:

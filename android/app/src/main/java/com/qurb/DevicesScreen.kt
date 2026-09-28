@@ -65,6 +65,7 @@ class DevicesScreen(app: MainActivity) : Screen(app) {
                 if (keeps) stopKeeping(peer) else keep(peer)
             },
             "Send files…" to { app.pickFilesToSend(peer) },
+            "Remove this device…" to { askToRemove(peer) },
         )
         MaterialAlertDialogBuilder(app)
             .setTitle(peer.name)
@@ -98,6 +99,95 @@ class DevicesScreen(app: MainActivity) : Screen(app) {
             .setPositiveButton("Stop") { _, _ -> setKeeping(peer, false) }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    /**
+     * Say exactly what removing a device does (brief §35) before doing it:
+     * trust ends on this phone, nothing on the other device is touched, and
+     * whatever this phone can no longer get back because of it is named.
+     */
+    private fun askToRemove(peer: PeerInfo) {
+        scope.launch {
+            val plan = try {
+                withContext(Dispatchers.IO) { engine().removalPlan(peer.fingerprint) }
+            } catch (e: Exception) {
+                app.fail("Could not check what removing it would do", e)
+                return@launch
+            }
+            val lines = mutableListOf(
+                "This phone stops trusting ${peer.name}: it can no longer connect to this " +
+                    "phone or sync with it. It keeps its key and everything already on it — " +
+                    "removing it deletes nothing there."
+            )
+            if (plan.holdsOurs) {
+                lines += "${peer.name} keeps this phone's own files. After this, nothing new " +
+                    "goes there, and this phone cannot get anything back from it."
+            }
+            if (plan.onlyThere.isNotEmpty()) {
+                lines += "${Words.files(plan.onlyThere.size)} freed from this phone " +
+                    "${if (plan.onlyThere.size == 1) "is" else "are"} kept only on ${peer.name}. " +
+                    "Once it is removed, they cannot be downloaded again."
+            }
+            if (plan.waiting > 0u) {
+                lines += "${Words.files(plan.waiting.toInt())} waiting for it to collect will be cancelled."
+            }
+            lines += "Only on this phone: your other devices go on trusting it until you " +
+                "remove it there too."
+
+            val kept = plan.kept.toInt()
+            var deleteKept = false
+            val dialog = MaterialAlertDialogBuilder(app)
+                .setTitle("Remove ${peer.name}?")
+                .setPositiveButton("Remove device") { _, _ -> remove(peer, deleteKept) }
+                .setNegativeButton("Cancel", null)
+            if (kept > 0) {
+                // A choice rather than a side effect: these may be the only
+                // copy of that device's own files anywhere.
+                dialog.setMultiChoiceItems(
+                    arrayOf(
+                        "Also delete the ${Words.files(kept)} (${Words.size(plan.keptBytes)}) " +
+                            "this phone keeps for it"
+                    ),
+                    booleanArrayOf(false),
+                ) { _, _, checked -> deleteKept = checked }
+                // A dialog with items shows no message, so the explanation
+                // goes in the title's place above the list.
+                dialog.setCustomTitle(removalText(peer, lines))
+            } else {
+                dialog.setMessage(lines.joinToString("\n\n"))
+            }
+            dialog.show()
+        }
+    }
+
+    private fun removalText(peer: PeerInfo, lines: List<String>): View {
+        val pad = (20 * app.resources.displayMetrics.density).toInt()
+        return android.widget.LinearLayout(app).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, 0)
+            addView(android.widget.TextView(app).apply {
+                text = "Remove ${peer.name}?"
+                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_HeadlineSmall)
+            })
+            addView(android.widget.TextView(app).apply {
+                text = lines.joinToString("\n\n")
+                setPadding(0, pad / 2, 0, 0)
+                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
+            })
+        }
+    }
+
+    private fun remove(peer: PeerInfo, deleteKept: Boolean) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { engine().removeDevice(peer.fingerprint, deleteKept) }
+                app.say("${peer.name} removed")
+            } catch (e: Exception) {
+                app.fail("Could not remove it", e)
+            } finally {
+                app.changed()
+            }
+        }
     }
 
     private fun setKeeping(peer: PeerInfo, keep: Boolean) {

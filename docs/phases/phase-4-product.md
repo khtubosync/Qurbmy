@@ -780,6 +780,34 @@ and the relay's limit is the server's bandwidth and its bill. **Not yet done**:
 any of it on a real server across the internet, a phone on mobile data actually
 syncing through the relay, and the churn of many phones connecting and leaving.
 
+## Removing a device
+
+**2026-09-28.** The Devices screen on both platforms, and
+`qurb remove-device`, remove a paired device after saying what that does:
+trust ends on this device; nothing on the removed device is touched; sends it
+never collected are cancelled; what this device keeps for it stays unless the
+box is ticked; files already freed because it had a copy are named, with an
+offer to fetch them first. Only on this device — the others go on trusting it
+until it is removed there too. [Decision 0041](../decisions/0041-removing-a-device.md)
+has the reasoning.
+
+Building it found two faults that would have made removal a statement rather
+than an action. The daemon updated its list of peers only when a device was
+*added*, so a removed one went on being dialled and synced with; and a
+connection the removed device already held open was still served, because trust
+was checked only at the handshake and an authenticated device missing from the
+trust store was deliberately given the shared area. The daemon now drops and
+*closes* a removed device's connections, and the listener asks the live trust
+list before every request.
+
+How it was checked: storage tests for each consequence
+(`crates/storage/tests/removal.rs`, seven), a `qurb-peer` test that an open
+connection stops being served, a daemon test that the connection is closed, a
+phone FFI test, `qurb remove-device` run against two paired devices, and the
+desktop smoke test, which now removes the device it paired through the window —
+question, cancelled send and all. The Android screen is built and compiles; it
+has **not yet been run on the phone**.
+
 ## Still to do
 
 - **Running the *daemon* as a service** — a user unit, a launch agent, a

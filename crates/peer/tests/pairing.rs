@@ -404,6 +404,40 @@ async fn a_paired_device_can_sync_and_an_unpaired_one_cannot() {
     }
 }
 
+/// A device removed while it is connected stops being answered at once, not
+/// when its connection happens to end -- which for one that keeps a
+/// connection open could be never. The trust list is asked per request.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_removed_while_connected_is_no_longer_served() {
+    use qurb_peer::{tls::TrustList, PeerClient, PeerServer};
+
+    let host = Device::new();
+    let joiner = Device::new();
+    {
+        let mut store = host.store.lock().unwrap();
+        store.put_bytes("secret.txt", b"only for my own devices", 0).unwrap();
+    }
+    pair(&host, &joiner, NOW).await.0.expect("pairing");
+
+    // The list the daemon holds and replaces when the trust store changes.
+    let trust = TrustList::new(vec![joiner.identity.fingerprint()]);
+    let server = PeerServer::bind(LOOPBACK.parse().unwrap(), &host.identity, &trust).unwrap();
+    let addr = server.local_addr().unwrap();
+    let serving = Arc::clone(&host.store);
+    tokio::spawn(async move { server.serve(serving).await });
+
+    let client = PeerClient::connect(addr, &joiner.identity, host.identity.fingerprint())
+        .await
+        .expect("a paired device should connect");
+    assert_eq!(client.tree().await.expect("served while trusted").len(), 1);
+
+    // Removed, as `refresh_trust` does after `Store::remove_device`.
+    host.store.lock().unwrap().db().forget_peer(&joiner.device_id()).unwrap();
+    trust.replace(vec![]);
+
+    assert!(client.tree().await.is_err(), "a removed device was still served over its open connection");
+}
+
 /// An invite that has already expired must be refused at once.
 ///
 /// It used to wait for ever. `wait` took `now` as a parameter and compared the

@@ -1162,6 +1162,66 @@ impl Store {
         Ok(())
     }
 
+    /// What removing `device` would do here, worked out before anything is
+    /// done, so that the question put to a person can say it.
+    pub fn removal_plan(&self, device: &DeviceId) -> Result<RemovalPlan> {
+        let waiting: Vec<(String, u64)> = self
+            .db
+            .pending_deliveries()?
+            .into_iter()
+            .filter(|(_, _, to)| to == device)
+            .map(|(path, size, _)| (path, size))
+            .collect();
+        let kept_for_it = self
+            .db
+            .vault_contents(device)?
+            .into_iter()
+            .filter(|(path, _, _)| !waiting.iter().any(|(w, _)| w == path))
+            .map(|(path, size, _)| (path, size))
+            .collect();
+        Ok(RemovalPlan {
+            waiting,
+            kept_for_it,
+            only_there: self.db.only_kept_by(device)?,
+            holds_ours: self.db.is_holder(device)?,
+        })
+    }
+
+    /// Stop trusting `device`: it can no longer connect here or sync with
+    /// this device.
+    ///
+    /// What it has, it keeps -- its key, and everything already on it. Nothing
+    /// here reaches into another device, and removal does not pretend to.
+    ///
+    /// Here, sends it has not collected are cancelled, because nothing can
+    /// collect them now. What this device keeps in its vault for it is kept
+    /// unless `delete_kept` says otherwise: its own files may exist nowhere
+    /// else, and dropping somebody's backup is a choice to be made, not a side
+    /// effect. Either way the copies it was known to hold stop counting as
+    /// copies (see [`Db::forget_peer`](crate::db::Db::forget_peer)).
+    ///
+    /// `name` goes into the history, which otherwise names a device by asking
+    /// the trust table -- where this one no longer is.
+    pub fn remove_device(
+        &mut self,
+        device: &DeviceId,
+        name: &str,
+        delete_kept: bool,
+    ) -> Result<RemovalPlan> {
+        let plan = self.removal_plan(device)?;
+        for (path, _) in &plan.waiting {
+            self.cancel_send(path, device)?;
+        }
+        if delete_kept {
+            for (path, _) in &plan.kept_for_it {
+                self.tombstone(path, Stamp::Local, Some(*device))?;
+            }
+        }
+        self.db.forget_peer(device)?;
+        let _ = self.db.record(db::Event::Removed, None, None, Some(device), Some(name));
+        Ok(plan)
+    }
+
     /// Drop payloads this device is holding only on somebody else's behalf.
     ///
     /// Vault content is kept after the recipient has taken it, so a send is
@@ -1548,6 +1608,21 @@ impl Store {
 }
 
 /// The outcome of [`Store::verify`].
+/// What removing a device does here. See [`Store::removal_plan`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RemovalPlan {
+    /// Sends it has not collected, with their sizes: cancelled.
+    pub waiting: Vec<(String, u64)>,
+    /// What this device keeps in its vault for it -- its own files, and sends
+    /// it has collected: kept, unless removal is told to delete them.
+    pub kept_for_it: Vec<(String, u64)>,
+    /// Files freed here whose only other known copy is on it. Once it is
+    /// removed they cannot be fetched back.
+    pub only_there: Vec<String>,
+    /// Whether it keeps this device's own vault.
+    pub holds_ours: bool,
+}
+
 #[derive(Debug, Default)]
 pub struct VerifyReport {
     /// Referenced by the index, absent from the store. **Data loss.**

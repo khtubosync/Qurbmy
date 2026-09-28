@@ -591,12 +591,113 @@ async function drawDevices() {
         facts.append(el("dd", null, value));
       }
       more.append(facts);
+
+      // Removing it, from here rather than from anywhere more prominent:
+      // it is rare, and it is the one thing on this screen that cannot be
+      // undone without the other device in hand.
+      const remove = el("button", "act small", "Remove this device…");
+      remove.addEventListener("click", () => askToRemove(d, more));
+      more.append(remove);
+
       row.append(more);
       list.append(row);
     }
   } catch (e) {
     oops(list, e);
   }
+}
+
+/**
+ * The device whose removal is being asked about, if one is. The list is not
+ * redrawn meanwhile: a redraw every few seconds would take the question away
+ * from under somebody reading it.
+ */
+let removing = null;
+
+/**
+ * Ask before removing a device, saying exactly what it does (brief §35):
+ * trust ends here; nothing on the device itself is touched; and whatever this
+ * computer can no longer get back because of it, named.
+ */
+async function askToRemove(device, where) {
+  let plan;
+  try {
+    plan = await invoke("removal_plan", { device: device.fingerprint });
+  } catch (e) {
+    where.append(el("p", "warn", String(e)));
+    return;
+  }
+  removing = device.fingerprint;
+
+  const box = el("div", "confirm");
+  box.append(el("p", "strong", `Remove ${plan.name}?`));
+  box.append(el("p", null,
+    `This computer stops trusting it: it can no longer connect here or sync ` +
+    `with this computer. It keeps its key and everything already on it — ` +
+    `removing it deletes nothing there.`));
+  if (plan.waiting > 0) {
+    box.append(el("p", null,
+      `${count(plan.waiting, "file")} waiting for it to collect will be cancelled.`));
+  }
+  if (plan.holds_ours) {
+    box.append(el("p", null, "It keeps this computer's own files for it. After this, it will not."));
+  }
+  if (plan.only_there.length > 0) {
+    box.append(el("p", "warn",
+      `${count(plan.only_there.length, "file")} freed from this computer ` +
+      `${plan.only_there.length === 1 ? "is" : "are"} kept only on ${plan.name}. ` +
+      `Once it is removed, ${plan.only_there.length === 1 ? "it" : "they"} cannot be fetched back.`));
+    const fetchFirst = el("button", "act small", "Fetch them first");
+    fetchFirst.addEventListener("click", async () => {
+      for (const path of plan.only_there) {
+        try { await invoke("fetch", { path }); } catch (e) { /* recorded in qurbFailures */ }
+      }
+      fetchFirst.replaceWith(el("p", "quiet",
+        "Asked for. They come back the next time it is reachable; remove it after that."));
+    });
+    box.append(fetchFirst);
+  }
+  let deleteKept = null;
+  if (plan.kept > 0) {
+    const label = el("label", "check");
+    deleteKept = el("input");
+    deleteKept.type = "checkbox";
+    label.append(deleteKept, ` Also delete the ${count(plan.kept, "file")} ` +
+      `(${size(plan.kept_bytes)}) this computer keeps for it`);
+    box.append(label);
+  }
+  box.append(el("p", "quiet",
+    "Only on this computer: your other devices go on trusting it until you remove it there too."));
+
+  const buttons = el("div", "buttons");
+  const cancel = el("button", "act", "Cancel");
+  const confirm = el("button", "act primary danger", "Remove device");
+  cancel.addEventListener("click", () => {
+    removing = null;
+    box.remove();
+  });
+  confirm.addEventListener("click", async () => {
+    confirm.disabled = true;
+    try {
+      await invoke("remove_device", { device: device.fingerprint, deleteKept: deleteKept?.checked ?? false });
+    } catch (e) {
+      confirm.disabled = false;
+      box.append(el("p", "warn", String(e)));
+      return;
+    }
+    removing = null;
+    openDetails.delete(device.fingerprint);
+    drawDevices();
+  });
+  buttons.append(cancel, confirm);
+  box.append(buttons);
+
+  where.querySelector(".confirm")?.remove();
+  where.append(box);
+}
+
+function count(n, noun) {
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
 }
 
 // ---------------------------------------------------------------------- send
@@ -1412,5 +1513,5 @@ setInterval(() => {
   // Not while a code is up: the list is at the top of the screen and redrawing
   // it is harmless, but `drawDevices` is also what a finished pairing calls,
   // and two of them racing would be a list drawn twice for no reason.
-  if (screen === "devices" && !watching) drawDevices();
+  if (screen === "devices" && !watching && !removing) drawDevices();
 }, 5000);
