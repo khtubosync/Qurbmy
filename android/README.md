@@ -237,9 +237,9 @@ next sync further and further away. See
   in flight.
 - **This phone cannot show a code**, only scan one. Connecting two phones to
   each other needs a computer's code, or typing.
-- **The storage question during setup**
-  ([decision 0038](../docs/decisions/0038-the-storage-question-during-setup.md)) is not
-  built.
+- **No storage question during setup, by design.** Phones have no allowance;
+  the question is the desktop's, and is built there
+  ([decision 0038](../docs/decisions/0038-the-storage-question-during-setup.md)).
 - **Files received before 22 September show as only on this phone** even when
   the device that sent them still has them. Builds before then did not record
   where a received file came from, and a phone cannot learn it afterwards
