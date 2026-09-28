@@ -21,6 +21,36 @@ about 5 CPU-seconds per GiB. For one person's devices none of that is close to
 a limit. The relay's real cost is bandwidth — every byte through it crosses
 the server twice — and bandwidth is the bill.
 
+## No server at all
+
+For one person's phone and computer, the rendezvous service can run on the
+computer. The phone can only sync with the computer while the computer is on,
+so a service that runs only then costs nothing in availability. It needs a
+public address that terminates TLS in front of it; two free ones, with no card:
+
+- **Tailscale Funnel**, if the computer runs Tailscale: one address for good,
+  `https://<name>.<tailnet>.ts.net`. The phone does not need Tailscale.
+- **A Cloudflare quick tunnel** (`cloudflared tunnel --url http://localhost:9000`):
+  no account, but a new address every time it starts, which the phone's setting
+  must follow.
+
+```bash
+install -m644 packaging/qurb-rendezvous.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now qurb-rendezvous    # qurb signal 127.0.0.1:9000, at login
+tailscale funnel --bg 9000                       # the first time, approve Funnel for the tailnet
+qurb config ~/qurb signal=ws://localhost:9000
+```
+
+and on the phone, Settings → Rendezvous service: `wss://<name>.<tailnet>.ts.net`.
+
+**What this lacks is a relay.** Neither option carries the relay's raw TCP, so
+the phone and the computer have to reach each other directly. Whether they can
+depends on both networks; `qurb netcheck` says whether the computer's allows
+it. A home network that gives the same public address to whoever asks, as the
+project owner's does, usually does. If a mobile network defeats it, the relay
+needs a server after all.
+
 ## The quick way
 
 From your computer, once there is a server you can reach with SSH and sudo:

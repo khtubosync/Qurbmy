@@ -581,6 +581,8 @@ qurb/
 │
 ├── packaging/             Getting it onto a machine.
 │   ├── install.sh         qurb in this user's applications menu: the window
+│   ├── qurb-rendezvous.service
+│   │                      the rendezvous service on your own computer, at login
 │   ├── qurb.desktop       the launcher entry
 │   └── server/            systemd units and TLS for a host of your own
 │

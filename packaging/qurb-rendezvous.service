@@ -1,0 +1,25 @@
+# The rendezvous service on your own computer, for your own devices.
+#
+# A user unit, started when you log in. For the arrangement where there is no
+# server: your phone can only sync with this computer while this computer is
+# on, so a rendezvous service that runs only while it is on costs nothing.
+# Listens on loopback only; something that terminates TLS gives it a public
+# address -- Tailscale Funnel, which keeps one address for good:
+#
+#   install -m644 packaging/qurb-rendezvous.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now qurb-rendezvous
+#   tailscale funnel --bg 9000      # then the phone uses wss://<name>.ts.net
+#
+# The computer's own qurb uses signal = ws://localhost:9000.
+[Unit]
+Description=qurb rendezvous service, for this computer's own devices
+Documentation=https://github.com/saqibsiddiq/Qurb/blob/main/packaging/server/README.md
+
+[Service]
+ExecStart=%h/.local/bin/qurb signal 127.0.0.1:9000
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

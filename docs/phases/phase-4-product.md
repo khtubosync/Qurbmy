@@ -702,6 +702,17 @@ pairings and sends. The window now tells its daemon when it pairs or sends, the
 check is a thirty-second backstop, and the connected-devices display refreshes
 only while something is connected: 1.1 wakeups a second, 0.01 CPU-seconds.
 
+**No server at all, for now** (2026-09-28): with no card to hand for a cloud
+account, the rendezvous service runs on the laptop — only while the laptop is
+on, which is the only time the phone could sync with it anyway — as a user
+unit (`packaging/qurb-rendezvous.service`), published by Tailscale Funnel at
+the address the phone already used, so the phone no longer needs Tailscale.
+There is no relay in this arrangement; `qurb netcheck` found the laptop's home
+network gives the same public address to whoever asks, so a direct path from
+the phone on mobile data should be possible. A Cloudflare quick tunnel carried
+an introduction between two devices in 73 ms before being set aside for
+Funnel's fixed address.
+
 **A server to try it on for free**: Oracle Cloud's Always Free tier, with the
 caveats in [the server guide](../../packaging/server/README.md#a-free-server-to-try-it-on).
 `packaging/server/deploy.sh user@host` sets one up from the laptop and checks it
