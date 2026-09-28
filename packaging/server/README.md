@@ -21,7 +21,57 @@ about 5 CPU-seconds per GiB. For one person's devices none of that is close to
 a limit. The relay's real cost is bandwidth — every byte through it crosses
 the server twice — and bandwidth is the bill.
 
-## Setting it up
+## The quick way
+
+From your computer, once there is a server you can reach with SSH and sudo:
+
+```bash
+cargo build --release -p qurb-cli -p service-capacity
+packaging/server/deploy.sh ubuntu@203.0.113.5
+```
+
+It sends your computer's `qurb` if the server can run it — x86-64, with a C
+library at least as new as the one it was built against, which Ubuntu 24.04 is
+for a build from 2026-09 — and otherwise the source, to build there. On the
+server, [`setup.sh`](setup.sh) installs the rendezvous service with its own
+certificate and the relay, opens TCP 9000 and 9001 in the server's own
+firewall, and prints the lines for your computer and phone. Then it checks
+from your computer, across the internet, that the service introduces two
+devices and that a transfer gets through the relay.
+
+**Written 2026-09-28 and not yet run against a real server.** The parts it is
+made of are tested; the script as a whole is not, until the first server.
+
+### A free server to try it on
+
+Oracle Cloud's *Always Free* tier is the one that fits, as of September 2026:
+two small AMD machines (`VM.Standard.E2.1.Micro`, 1 GB) at no cost for as long
+as the account exists, and 10 TB of outbound data a month — ample for the relay
+between one person's devices. Choose Ubuntu 24.04, and a home region near you
+at sign-up, since it cannot be changed afterwards. A card is asked for, to
+verify identity.
+
+Three things to know:
+
+- **The cloud's own firewall.** Besides the server's firewall, which the
+  script opens, Oracle filters at the network: in the console, the subnet's
+  security list needs ingress rules for TCP 9000 and 9001 from 0.0.0.0/0. The
+  script says so at the end, and the check from your computer fails until it
+  is done.
+- **Idle reclamation.** Oracle may reclaim an Always Free machine whose CPU,
+  network and memory all stay under 20% for seven days — and these services are
+  idle nearly all the time, by design (see the measurements above). Converting
+  the account to pay-as-you-go, which still costs nothing within the free
+  limits, is widely reported to prevent it; check Oracle's free-tier FAQ.
+- **Capacity.** The free machines are sometimes unavailable in a region for a
+  while. Oracle's free Arm machines, if chosen instead, were halved in June 2026
+  to 2 cores and 12 GB — still plenty — and need a build on the server, which
+  the script does.
+
+Google Cloud's free `e2-micro` runs only in US regions with 1 GB of outbound
+data a month: enough for the rendezvous service, not for the relay.
+
+## Setting it up by hand
 
 ```bash
 # A user that owns nothing

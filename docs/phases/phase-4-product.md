@@ -702,6 +702,11 @@ pairings and sends. The window now tells its daemon when it pairs or sends, the
 check is a thirty-second backstop, and the connected-devices display refreshes
 only while something is connected: 1.1 wakeups a second, 0.01 CPU-seconds.
 
+**A server to try it on for free**: Oracle Cloud's Always Free tier, with the
+caveats in [the server guide](../../packaging/server/README.md#a-free-server-to-try-it-on).
+`packaging/server/deploy.sh user@host` sets one up from the laptop and checks it
+from outside — written and not yet run against a real server.
+
 The answer to "is it scalable": for one person's devices a small server is
 nowhere near any limit; by memory, it would hold tens of thousands of devices,
 and the relay's limit is the server's bandwidth and its bill. **Not yet done**:
