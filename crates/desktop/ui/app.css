@@ -748,8 +748,10 @@ textarea.input { height: auto; padding: 10px var(--s3); resize: vertical; line-h
 .panel.closing { animation: slide-out var(--t-standard) var(--ease-smooth) forwards; }
 @keyframes slide { from { opacity: 0; transform: translateX(24px); } }
 @keyframes slide-out { to { opacity: 0; transform: translateX(18px); } }
-.panel .panel-body { flex: 1; overflow-y: auto; padding: var(--s5); }
-.panel .panel-head { display: flex; align-items: flex-start; gap: var(--s3); padding: var(--s5) var(--s5) 0; }
+/* min-height 0, or a flex child grows to its content and the panel, not the
+   body, ends up holding the overflow -- sliding the body under its heading. */
+.panel .panel-body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--s5); }
+.panel .panel-head { flex: none; display: flex; align-items: flex-start; gap: var(--s3); padding: var(--s5) var(--s5) 0; }
 .panel .panel-head .tile { display: grid; place-items: center; width: 48px; height: 48px; flex: none; border-radius: 13px; background: rgba(255, 255, 255, 0.8); border: 1px solid var(--hairline); color: var(--text-2); }
 .panel .panel-head h2 { font-size: 17px; line-height: 23px; font-weight: 600; word-break: break-word; }
 
@@ -883,7 +885,8 @@ button.device:hover { transform: translateY(-2px); box-shadow: 0 14px 34px rgba(
 .device .tile svg.i { width: 26px; height: 26px; stroke-width: 1.5; }
 .device strong { display: block; font-size: 15.5px; font-weight: 600; }
 .device .presence { display: flex; align-items: center; gap: 6px; margin-top: 4px; color: var(--text-3); font-size: 13px; }
-.presence .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); }
+.presence { display: inline-flex; align-items: center; gap: 6px; color: var(--text-3); font-size: 13px; }
+.presence .dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--border-strong); }
 .presence.on .dot { background: var(--healthy); box-shadow: 0 0 0 3px rgba(40, 112, 82, 0.14); }
 .presence.on { color: var(--healthy); }
 .device.self { border-style: dashed; }
