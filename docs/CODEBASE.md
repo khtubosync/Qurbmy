@@ -508,6 +508,8 @@ qurb/
 │   │                      reachable, and a free way to get there
 │   ├── measuring-connectivity.md
 │   │                      how to measure the direct-connection rate
+│   ├── design/brief.md    The design pass: every choice made for it, and
+│   │                      where each feature goes on a screen
 │   ├── decisions/         Why each choice was made (one file per decision)
 │   └── phases/            What each phase produced, with measurements
 │
