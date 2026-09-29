@@ -15,6 +15,11 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Gradle 9.5.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.5.0"
+
       - name: Rust targets
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -38,11 +43,7 @@ jobs:
       - name: Prepare Gradle
         run: |
           mkdir -p "$HOME/.gradle/wrapper/dists"
-          if [ -f android/gradlew ]; then
-            cd android
-            chmod +x gradlew
-            ./gradlew --version
-          fi
+          gradle --version
 
       - name: Build debug APK
         env:
