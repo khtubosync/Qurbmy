@@ -5,7 +5,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
@@ -15,16 +15,16 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Rust with all four Android targets
+      - name: Rust targets
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
+          targets: aarch64-linux-android,x86_64-linux-android
 
       - uses: Swatinem/rust-cache@v2
 
       - name: Accept Android SDK licenses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
-        
+
       - name: Android NDK
         id: ndk
         uses: nttld/setup-ndk@v1
@@ -35,13 +35,22 @@ jobs:
       - name: cargo-ndk
         run: cargo install cargo-ndk --locked
 
-      - name: Build
+      - name: Prepare Gradle
+        run: |
+          mkdir -p "$HOME/.gradle/wrapper/dists"
+          if [ -f android/gradlew ]; then
+            cd android
+            chmod +x gradlew
+            ./gradlew --version
+          fi
+
+      - name: Build debug APK
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
           ANDROID_NDK_ROOT: ${{ steps.ndk.outputs.ndk-path }}
         run: |
           chmod +x scripts/*.sh
-          ./scripts/android-app.sh release
+          ./scripts/android-app.sh
 
       - name: Collect APKs
         run: |
